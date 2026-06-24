@@ -31,6 +31,44 @@ final class EcdsaSignature
         return "\x30".chr(strlen($sequence)).$sequence;
     }
 
+    /**
+     * Convert an ASN.1 DER ECDSA signature (as produced by openssl_sign) into the
+     * fixed 64-byte R||S concatenation that JWS ES256 expects.
+     */
+    public static function fromDer(string $der): string
+    {
+        $offset = 0;
+
+        if (($der[$offset] ?? '') !== "\x30") {
+            throw VerificationException::because('Invalid DER signature; expected a SEQUENCE.');
+        }
+
+        $offset += 2; // SEQUENCE tag + length byte (always short-form for P-256).
+
+        $r = self::readInteger($der, $offset);
+        $s = self::readInteger($der, $offset);
+
+        return self::pad($r).self::pad($s);
+    }
+
+    private static function readInteger(string $der, int &$offset): string
+    {
+        if (($der[$offset] ?? '') !== "\x02") {
+            throw VerificationException::because('Invalid DER signature; expected an INTEGER.');
+        }
+
+        $length = ord($der[$offset + 1]);
+        $value = substr($der, $offset + 2, $length);
+        $offset += 2 + $length;
+
+        return ltrim($value, "\x00");
+    }
+
+    private static function pad(string $value): string
+    {
+        return str_pad($value, self::COORDINATE_LENGTH, "\x00", STR_PAD_LEFT);
+    }
+
     private static function encodeInteger(string $value): string
     {
         // Drop superfluous leading zero bytes, but keep one so the value stays positive.

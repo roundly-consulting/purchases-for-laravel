@@ -49,6 +49,10 @@ class Apple extends BaseProvider
         return ServerNotificationDecodedPayload::fromRaw($claims);
     }
 
+    /**
+     * @deprecated Apple's verifyReceipt endpoint is deprecated. Prefer the
+     *             App Store Server API via AppStoreServerApi::transaction().
+     */
     public function callback(Request $request): mixed
     {
         $response = $this->client()->asJson()->post('/verifyReceipt', [

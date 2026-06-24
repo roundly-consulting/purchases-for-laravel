@@ -82,6 +82,25 @@ it('throws when the signature is not 64 bytes', function (): void {
     EcdsaSignature::toDer('too short');
 })->throws(VerificationException::class);
 
+it('round-trips a der signature back to raw r||s', function (): void {
+    $key = generateEcKey();
+    openssl_sign('round trip', $der, $key, OPENSSL_ALGO_SHA256);
+
+    $raw = EcdsaSignature::fromDer($der);
+
+    expect(strlen($raw))->toBe(64)
+        ->and($raw)->toBe(derToRawSignature($der));
+});
+
+it('throws when the der payload is not a sequence', function (): void {
+    EcdsaSignature::fromDer("\x31\x00");
+})->throws(VerificationException::class);
+
+it('throws when a der integer is malformed', function (): void {
+    // SEQUENCE then a non-INTEGER (0x03) tag.
+    EcdsaSignature::fromDer("\x30\x04\x03\x02\x00\x00");
+})->throws(VerificationException::class);
+
 it('encodes a maximal signature as a valid short-form sequence', function (): void {
     // Both integers maximal (high bit set -> padded to 33 bytes each) gives a 70-byte body.
     $signature = str_repeat("\xff", 64);
