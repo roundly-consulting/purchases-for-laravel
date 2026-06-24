@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
 use RoundlyConsulting\Purchases\Concerns\HasPrice;
+use RoundlyConsulting\Purchases\Concerns\HasProviderScopes;
 use RoundlyConsulting\Purchases\Database\Factories\PurchaseFactory;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
@@ -20,6 +21,7 @@ use RoundlyConsulting\Purchases\ValueObjects\Money;
  * @property int $id
  * @property string|null $provider
  * @property string|null $provider_id
+ * @property string|null $transaction_id
  * @property Status $status
  * @property Money|null $price
  * @property string|null $price_currency
@@ -34,6 +36,7 @@ class Purchase extends Model
     use HasFactory;
 
     use HasPrice;
+    use HasProviderScopes;
     use SoftDeletes;
 
     protected $guarded = [];
@@ -60,6 +63,15 @@ class Purchase extends Model
         $item = config('purchases.models.purchase-item', PurchaseItem::class);
 
         return $this->hasMany($item);
+    }
+
+    /** @return HasMany<PurchaseRefund, $this> */
+    public function refunds(): HasMany
+    {
+        /** @var class-string<PurchaseRefund> $refund */
+        $refund = config('purchases.models.purchase-refund', PurchaseRefund::class);
+
+        return $this->hasMany($refund);
     }
 
     protected static function newFactory(): PurchaseFactory
