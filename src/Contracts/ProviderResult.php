@@ -81,6 +81,17 @@ interface ProviderResult
     public function items(): array;
 
     /**
+     * The reason a refund/chargeback was issued, when this result is a refund.
+     */
+    public function refundReason(): ?string;
+
+    /**
+     * Whether a refund result represents a chargeback / dispute rather than a
+     * voluntary store or merchant refund.
+     */
+    public function isChargeback(): bool;
+
+    /**
      * The raw decoded payload for power users who need provider-specific fields.
      *
      * @return array<string, mixed>

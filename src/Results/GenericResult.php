@@ -35,6 +35,8 @@ final readonly class GenericResult implements ProviderResult
         private ?CarbonInterface $endsAt = null,
         private array $items = [],
         private array $raw = [],
+        private ?string $refundReason = null,
+        private bool $chargeback = false,
     ) {}
 
     public function provider(): string
@@ -95,6 +97,16 @@ final readonly class GenericResult implements ProviderResult
     public function items(): array
     {
         return $this->items;
+    }
+
+    public function refundReason(): ?string
+    {
+        return $this->refundReason;
+    }
+
+    public function isChargeback(): bool
+    {
+        return $this->chargeback;
     }
 
     public function raw(): array
