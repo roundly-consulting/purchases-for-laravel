@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
-use RoundlyConsulting\Purchases\Subscription;
-use RoundlyConsulting\Purchases\SubscriptionItem;
+use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Models\SubscriptionItem;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('creates a subscription with date casts', function (): void {

@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\Purchase;
+use RoundlyConsulting\Purchases\Models\Purchase;
 
 return new class extends Migration
 {

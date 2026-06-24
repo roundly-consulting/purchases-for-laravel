@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 use Illuminate\Support\Collection;
 use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\Purchase;
-use RoundlyConsulting\Purchases\PurchaseItem;
+use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseItem;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('creates a purchase with its factory and casts status', function (): void {

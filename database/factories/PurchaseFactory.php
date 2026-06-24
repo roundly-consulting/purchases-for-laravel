@@ -6,7 +6,7 @@ namespace RoundlyConsulting\Purchases\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\Purchase;
+use RoundlyConsulting\Purchases\Models\Purchase;
 
 /** @extends Factory<Purchase> */
 final class PurchaseFactory extends Factory

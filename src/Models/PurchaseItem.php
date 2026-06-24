@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace RoundlyConsulting\Purchases;
+namespace RoundlyConsulting\Purchases\Models;
 
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,23 +10,24 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Purchases\Concerns\HasPrice;
-use RoundlyConsulting\Purchases\Database\Factories\SubscriptionItemFactory;
+use RoundlyConsulting\Purchases\Database\Factories\PurchaseItemFactory;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * @property int $id
- * @property int $subscription_id
+ * @property int $purchase_id
  * @property string|null $provider_id
  * @property string $name
  * @property Money|null $price
  * @property string|null $price_currency
+ * @property int $quantity
  * @property CarbonInterface|null $created_at
  * @property CarbonInterface|null $updated_at
  * @property CarbonInterface|null $deleted_at
  */
-class SubscriptionItem extends Model
+class PurchaseItem extends Model
 {
-    /** @use HasFactory<SubscriptionItemFactory> */
+    /** @use HasFactory<PurchaseItemFactory> */
     use HasFactory;
 
     use HasPrice;
@@ -34,17 +35,25 @@ class SubscriptionItem extends Model
 
     protected $guarded = [];
 
-    /** @return BelongsTo<Subscription, $this> */
-    public function subscription(): BelongsTo
+    /** @return array<string, string> */
+    protected function casts(): array
     {
-        /** @var class-string<Subscription> $subscription */
-        $subscription = config('purchases.models.subscription', Subscription::class);
-
-        return $this->belongsTo($subscription);
+        return [
+            'quantity' => 'int',
+        ];
     }
 
-    protected static function newFactory(): SubscriptionItemFactory
+    /** @return BelongsTo<Purchase, $this> */
+    public function purchase(): BelongsTo
     {
-        return SubscriptionItemFactory::new();
+        /** @var class-string<Purchase> $purchase */
+        $purchase = config('purchases.models.purchase', Purchase::class);
+
+        return $this->belongsTo($purchase);
+    }
+
+    protected static function newFactory(): PurchaseItemFactory
+    {
+        return PurchaseItemFactory::new();
     }
 }

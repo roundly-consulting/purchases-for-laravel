@@ -1,11 +1,11 @@
 <?php
 
 declare(strict_types=1);
+use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseItem;
+use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Models\SubscriptionItem;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
-use RoundlyConsulting\Purchases\Purchase;
-use RoundlyConsulting\Purchases\PurchaseItem;
-use RoundlyConsulting\Purchases\Subscription;
-use RoundlyConsulting\Purchases\SubscriptionItem;
 
 return [
     'models' => [

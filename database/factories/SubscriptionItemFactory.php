@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
-use RoundlyConsulting\Purchases\Subscription;
-use RoundlyConsulting\Purchases\SubscriptionItem;
+use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Models\SubscriptionItem;
 
 /** @extends Factory<SubscriptionItem> */
 final class SubscriptionItemFactory extends Factory
