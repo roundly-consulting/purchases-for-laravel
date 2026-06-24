@@ -31,6 +31,24 @@ class AppStoreServerApi
     }
 
     /**
+     * Ask Apple to send a test server notification — the canonical check that the
+     * App Store Server API credentials are configured correctly. Returns the test
+     * notification token Apple echoes back.
+     */
+    public function requestTestNotification(): string
+    {
+        $response = $this->client()->post('/inApps/v1/notifications/test');
+
+        $token = $response->json('testNotificationToken');
+
+        if (! is_string($token) || $token === '') {
+            throw VerificationException::because('App Store Server API returned no test notification token.');
+        }
+
+        return $token;
+    }
+
+    /**
      * Look up a single transaction by id and decode its signed JWS payload.
      */
     public function transaction(string $transactionId): TransactionInfo

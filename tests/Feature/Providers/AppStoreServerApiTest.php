@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\AppStoreServerApi;
 use RoundlyConsulting\Purchases\Providers\Apple\Auth\AppStoreJwtFactory;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
@@ -149,4 +150,31 @@ it('falls back to default urls when not configured', function (): void {
     (new AppStoreServerApi(fakeJws(['environment' => 'Sandbox', 'transactionId' => 'txn-3'])))->transaction('txn-3');
 
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.storekit-sandbox.itunes.apple.com'));
+});
+
+it('requests a test notification token', function (): void {
+    configureAppleApi();
+    Http::fake(['*/inApps/v1/notifications/test' => Http::response(['testNotificationToken' => 'tok-123'])]);
+
+    expect((new AppStoreServerApi)->requestTestNotification())->toBe('tok-123');
+});
+
+it('throws when the test notification token is missing', function (): void {
+    configureAppleApi();
+    Http::fake(['*/inApps/v1/notifications/test' => Http::response([])]);
+
+    (new AppStoreServerApi)->requestTestNotification();
+})->throws(VerificationException::class);
+
+it('verifies apple connectivity via the test notification endpoint', function (): void {
+    configureAppleApi();
+    Http::fake(['*/inApps/v1/notifications/test' => Http::response(['testNotificationToken' => 'tok-ok'])]);
+
+    expect((new Apple)->verifyConnectivity()->ok)->toBeTrue();
+});
+
+it('reports failed apple connectivity gracefully', function (): void {
+    config()->set('purchases.settings.apple', ['sandbox' => true, 'api' => []]);
+
+    expect((new Apple)->verifyConnectivity()->ok)->toBeFalse();
 });
