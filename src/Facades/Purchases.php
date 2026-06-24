@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Facades;
 
 use Illuminate\Support\Facades\Facade;
+use RoundlyConsulting\Purchases\Providers\Resolver;
 use RoundlyConsulting\Purchases\Purchases as PurchasesManager;
+use RoundlyConsulting\Purchases\Testing\PurchasesFake;
 
 /**
  * @method static \RoundlyConsulting\Purchases\Providers\Provider provider(string $id)
@@ -19,6 +21,19 @@ use RoundlyConsulting\Purchases\Purchases as PurchasesManager;
  */
 final class Purchases extends Facade
 {
+    /**
+     * Swap the manager for a test double that records handled notifications and
+     * exposes assertions, without performing real verification.
+     */
+    public static function fake(): PurchasesFake
+    {
+        $fake = new PurchasesFake(app(Resolver::class));
+
+        self::swap($fake);
+
+        return $fake;
+    }
+
     protected static function getFacadeAccessor(): string
     {
         return PurchasesManager::class;
