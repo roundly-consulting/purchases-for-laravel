@@ -1,0 +1,84 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Purchases\Providers\Google\ValueObjects;
+
+use Illuminate\Support\Carbon;
+use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
+use RoundlyConsulting\Purchases\Providers\Google\Enums\AcknowledgementState;
+use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
+use RoundlyConsulting\Purchases\Support\DataSet;
+
+/**
+ * A subscriptionsv2 purchase from the Play Developer API.
+ *
+ * @link https://developer.android.com/reference/com/google/android/gms/wallet/SubscriptionPurchaseV2
+ */
+final class SubscriptionPurchase implements FromRaw
+{
+    /**
+     * @param  list<SubscriptionLineItem>  $lineItems
+     * @param  array<string, mixed>  $raw
+     */
+    public function __construct(
+        public readonly ?SubscriptionState $subscriptionState,
+        public readonly ?string $latestOrderId,
+        public readonly ?Carbon $startTime,
+        public readonly ?AcknowledgementState $acknowledgementState,
+        public readonly ?string $regionCode,
+        public readonly array $lineItems,
+        public readonly array $raw,
+    ) {}
+
+    /**
+     * @param  array<string, mixed>  $raw
+     */
+    public static function fromRaw(array $raw): self
+    {
+        $dataset = new DataSet($raw);
+
+        $acknowledgementState = match ($dataset->value('acknowledgementState')) {
+            'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED' => AcknowledgementState::Acknowledged,
+            'ACKNOWLEDGEMENT_STATE_PENDING' => AcknowledgementState::YetToBeAcknowledged,
+            default => null,
+        };
+
+        return new self(
+            subscriptionState: $dataset->enum('subscriptionState', SubscriptionState::class),
+            latestOrderId: $dataset->value('latestOrderId'),
+            startTime: $dataset->timestamp('startTime'),
+            acknowledgementState: $acknowledgementState,
+            regionCode: $dataset->value('regionCode'),
+            lineItems: $dataset->arrayOf('lineItems', SubscriptionLineItem::class),
+            raw: $raw,
+        );
+    }
+
+    public function isAcknowledged(): bool
+    {
+        return $this->acknowledgementState?->isAcknowledged() ?? false;
+    }
+
+    public function expiryTime(): ?Carbon
+    {
+        $latest = null;
+
+        foreach ($this->lineItems as $item) {
+            if ($item->expiryTime === null) {
+                continue;
+            }
+
+            if ($latest === null || $item->expiryTime->greaterThan($latest)) {
+                $latest = $item->expiryTime;
+            }
+        }
+
+        return $latest;
+    }
+
+    public function productId(): ?string
+    {
+        return $this->lineItems[0]->productId ?? null;
+    }
+}

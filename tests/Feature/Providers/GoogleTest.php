@@ -1,0 +1,252 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
+use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
+use RoundlyConsulting\Purchases\Providers\Google\Enums\NotificationType;
+use RoundlyConsulting\Purchases\Providers\Google\Enums\PurchaseState;
+use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
+use RoundlyConsulting\Purchases\Providers\Google\Google;
+use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
+
+function googleProvider(bool $acknowledge = true): Google
+{
+    Cache::flush();
+
+    config()->set('purchases.settings.google', [
+        'package_name' => 'com.example.app',
+        'service_account' => [
+            'client_email' => 'svc@example.iam.gserviceaccount.com',
+            'private_key' => testRsaKey(),
+            'token_uri' => 'https://oauth2.googleapis.com/token',
+        ],
+        'base_url' => 'https://androidpublisher.googleapis.com',
+        'acknowledge' => $acknowledge,
+    ]);
+
+    return new Google(new GoogleClient(
+        credentials: new ServiceAccountCredentials('svc@example.iam.gserviceaccount.com', testRsaKey()),
+        baseUrl: 'https://androidpublisher.googleapis.com',
+        tokens: new class extends AccessTokenFactory
+        {
+            public function token(ServiceAccountCredentials $credentials): string
+            {
+                return 'fake-access-token';
+            }
+        },
+    ));
+}
+
+function testRsaKey(): string
+{
+    static $key = null;
+
+    if ($key === null) {
+        $resource = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        openssl_pkey_export($resource, $key);
+    }
+
+    return $key;
+}
+
+it('verifies a purchased one-time product', function (): void {
+    Http::fake([
+        '*/purchases/products/*' => Http::response([
+            'purchaseState' => 0,
+            'consumptionState' => 0,
+            'acknowledgementState' => 1,
+            'orderId' => 'GPA.1234',
+            'productId' => 'coins.100',
+            'regionCode' => 'US',
+            'purchaseTimeMillis' => '1700000000000',
+        ]),
+    ]);
+
+    $purchase = googleProvider()->product('coins.100', 'token-1');
+
+    expect($purchase->purchaseState)->toBe(PurchaseState::Purchased)
+        ->and($purchase->orderId)->toBe('GPA.1234')
+        ->and($purchase->purchaseTime)->not->toBeNull();
+});
+
+it('throws when a product purchase is canceled', function (): void {
+    Http::fake([
+        '*/purchases/products/*' => Http::response(['purchaseState' => 1, 'productId' => 'coins.100']),
+    ]);
+
+    googleProvider()->product('coins.100', 'token-1');
+})->throws(VerificationException::class);
+
+it('throws when a product purchase is pending', function (): void {
+    Http::fake([
+        '*/purchases/products/*' => Http::response(['purchaseState' => 2, 'productId' => 'coins.100']),
+    ]);
+
+    googleProvider()->product('coins.100', 'token-1');
+})->throws(VerificationException::class);
+
+it('acknowledges an unacknowledged product when enabled', function (): void {
+    Http::fake([
+        '*tokens/token-1:acknowledge' => Http::response([], 200),
+        '*/purchases/products/*' => Http::response([
+            'purchaseState' => 0,
+            'acknowledgementState' => 0,
+            'orderId' => 'GPA.1',
+            'productId' => 'coins.100',
+        ]),
+    ]);
+
+    googleProvider()->product('coins.100', 'token-1');
+
+    Http::assertSent(fn ($request) => str_contains($request->url(), ':acknowledge'));
+});
+
+it('does not acknowledge a product when disabled', function (): void {
+    Http::fake([
+        '*/purchases/products/*' => Http::response([
+            'purchaseState' => 0,
+            'acknowledgementState' => 0,
+            'orderId' => 'GPA.1',
+            'productId' => 'coins.100',
+        ]),
+    ]);
+
+    googleProvider(acknowledge: false)->product('coins.100', 'token-1');
+
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), ':acknowledge'));
+});
+
+it('verifies an active subscription with line items', function (): void {
+    Http::fake([
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'latestOrderId' => 'GPA.SUB.1',
+            'startTime' => '2026-01-01T00:00:00Z',
+            'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED',
+            'lineItems' => [
+                [
+                    'productId' => 'pro.monthly',
+                    'expiryTime' => '2026-02-01T00:00:00Z',
+                    'offerDetails' => ['offerId' => 'intro', 'basePlanId' => 'monthly'],
+                ],
+            ],
+        ]),
+    ]);
+
+    $purchase = googleProvider()->subscription('sub-token');
+
+    expect($purchase->subscriptionState)->toBe(SubscriptionState::Active)
+        ->and($purchase->productId())->toBe('pro.monthly')
+        ->and($purchase->expiryTime())->not->toBeNull()
+        ->and($purchase->lineItems[0]->offerId)->toBe('intro');
+});
+
+it('throws for an expired subscription', function (): void {
+    Http::fake([
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_EXPIRED',
+            'lineItems' => [],
+        ]),
+    ]);
+
+    googleProvider()->subscription('sub-token');
+})->throws(VerificationException::class);
+
+it('maps a subscription to a unified result', function (): void {
+    Http::fake([
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'latestOrderId' => 'GPA.SUB.9',
+            'startTime' => '2026-01-01T00:00:00Z',
+            'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED',
+            'lineItems' => [
+                ['productId' => 'pro.monthly', 'expiryTime' => '2026-02-01T00:00:00Z'],
+            ],
+        ]),
+    ]);
+
+    $result = googleProvider()->result(new Request(['purchaseToken' => 'sub-token']));
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::Completed)
+        ->and($result->providerId())->toBe('GPA.SUB.9')
+        ->and($result->endsAt())->not->toBeNull();
+});
+
+it('maps a product to a unified purchase result', function (): void {
+    Http::fake([
+        '*/purchases/products/*' => Http::response([
+            'purchaseState' => 0,
+            'acknowledgementState' => 1,
+            'orderId' => 'GPA.P.1',
+            'productId' => 'coins.100',
+            'purchaseTimeMillis' => '1700000000000',
+        ]),
+    ]);
+
+    $result = googleProvider()->result(new Request(['purchaseToken' => 'tok', 'productId' => 'coins.100']));
+
+    expect($result->type())->toBe(ResultType::Purchase)
+        ->and($result->status())->toBe(Status::Completed)
+        ->and($result->providerId())->toBe('GPA.P.1');
+});
+
+it('throws when verifying a callback without a token', function (): void {
+    googleProvider()->callback(new Request);
+})->throws(VerificationException::class);
+
+it('decodes an RTDN subscription notification', function (): void {
+    $payload = base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'eventTimeMillis' => '1700000000000',
+        'subscriptionNotification' => [
+            'version' => '1.0',
+            'notificationType' => 2,
+            'purchaseToken' => 'tok',
+            'subscriptionId' => 'pro.monthly',
+        ],
+    ]));
+
+    $notification = googleProvider()->notification(new Request(['message' => ['data' => $payload]]));
+
+    expect($notification->packageName)->toBe('com.example.app')
+        ->and($notification->subscriptionNotification?->notificationType)->toBe(NotificationType::Renewed)
+        ->and($notification->isTest)->toBeFalse();
+});
+
+it('decodes an RTDN one-time and voided and test notification', function (): void {
+    $payload = base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'oneTimeProductNotification' => ['notificationType' => 1, 'purchaseToken' => 't', 'sku' => 'coins'],
+        'voidedPurchaseNotification' => ['purchaseToken' => 't', 'orderId' => 'o', 'productType' => 1, 'refundType' => 1],
+        'testNotification' => ['version' => '1.0'],
+    ]));
+
+    $notification = googleProvider()->notification(new Request(['message' => ['data' => $payload]]));
+
+    expect($notification->oneTimeProductNotification?->sku)->toBe('coins')
+        ->and($notification->voidedPurchaseNotification?->orderId)->toBe('o')
+        ->and($notification->isTest)->toBeTrue();
+});
+
+it('throws on a missing pub/sub message', function (): void {
+    googleProvider()->notification(new Request);
+})->throws(VerificationException::class);
+
+it('throws on a malformed pub/sub payload', function (): void {
+    $payload = base64_encode('"not an object"');
+
+    googleProvider()->notification(new Request(['message' => ['data' => $payload]]));
+})->throws(VerificationException::class);

@@ -101,6 +101,23 @@ class DataSet
     }
 
     /**
+     * Parse an RFC 3339 / ISO 8601 timestamp string (used by Google's subscriptionsv2
+     * and Stripe's date fields when they arrive as strings).
+     */
+    public function timestamp(string $key): ?Carbon
+    {
+        $this->markAsRetrieved($key);
+
+        $value = $this->value($key);
+
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        return Carbon::parse($value);
+    }
+
+    /**
      * Map a list of raw payloads to value objects via their fromRaw factory.
      *
      * @template TItem of FromRaw

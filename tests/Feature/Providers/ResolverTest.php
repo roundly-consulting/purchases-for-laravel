@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
-use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Resolver;
@@ -42,10 +41,14 @@ it('derives a kebab id from the provider class name', function (): void {
         ->and((new Stripe)->id())->toBe('stripe');
 });
 
-it('throws from the default notification handler', function (): void {
-    (new Google)->notification(new Request);
-})->throws(InvalidProviderNotificationException::class);
+it('throws when a google notification has no message data', function (): void {
+    config()->set('purchases.settings.google', ['package_name' => 'com.example.app']);
 
-it('throws from the default callback handler', function (): void {
+    (new Google)->notification(new Request);
+})->throws(VerificationException::class);
+
+it('throws when a stripe callback has no event id', function (): void {
+    config()->set('purchases.settings.stripe', ['secret' => 'sk_test', 'base_url' => 'https://api.stripe.com/v1']);
+
     (new Stripe)->callback(new Request);
 })->throws(VerificationException::class);
