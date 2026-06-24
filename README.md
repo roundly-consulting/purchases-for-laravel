@@ -8,16 +8,18 @@
 
 # Purchases for Laravel
 
-Handle payments and subscriptions from payment gateways and in-app purchases. The package
-ships Eloquent models for purchases, purchase items, subscriptions, and subscription items, a
-pluggable payment-provider abstraction, and a native, dependency-free verifier for Apple App
-Store Server Notifications and receipts.
+A unified in-app-purchase and payments toolkit for Laravel: one API for **Apple App Store**,
+**Google Play**, and **Stripe** purchases and subscriptions. The package ships Eloquent models
+for purchases, purchase items, subscriptions, and subscription items, a pluggable provider
+abstraction with a shared result contract, persistence actions, lifecycle events, and native,
+dependency-free verification for every provider — built only on Laravel's HTTP client and
+`ext-openssl` (no `stripe/stripe-php`, no `google/apiclient`, no third-party SDKs).
 
 ## Requirements
 
 - PHP 8.4+
 - Laravel 12 or 13
-- The `openssl` PHP extension (used to verify Apple's signed payloads)
+- The `openssl` PHP extension (used to verify signed payloads and mint provider tokens)
 
 ## Installation
 
@@ -32,181 +34,196 @@ php artisan vendor:publish --tag="purchases-migrations"
 php artisan migrate
 ```
 
-Optionally publish the config file:
+Optionally publish the config file (and, if you use the bundled webhook routes, the routes
+file):
 
 ```bash
 php artisan vendor:publish --tag="purchases-config"
+php artisan vendor:publish --tag="purchases-routes"
+```
+
+Or run the install command, which publishes the config and migrations and offers to migrate:
+
+```bash
+php artisan purchases:install
 ```
 
 ## Configuration
 
-The published `config/purchases.php` file looks like this:
+The published `config/purchases.php` registers the models, the providers, the optional webhook
+routes, and per-provider settings (all backed by env vars):
 
 ```php
 return [
     'models' => [
-        'purchase' => \RoundlyConsulting\Purchases\Purchase::class,
-        'purchase-item' => \RoundlyConsulting\Purchases\PurchaseItem::class,
-        'subscription' => \RoundlyConsulting\Purchases\Subscription::class,
-        'subscription-item' => \RoundlyConsulting\Purchases\SubscriptionItem::class,
+        'purchase' => \RoundlyConsulting\Purchases\Models\Purchase::class,
+        'purchase-item' => \RoundlyConsulting\Purchases\Models\PurchaseItem::class,
+        'subscription' => \RoundlyConsulting\Purchases\Models\Subscription::class,
+        'subscription-item' => \RoundlyConsulting\Purchases\Models\SubscriptionItem::class,
     ],
 
     'providers' => [
         \RoundlyConsulting\Purchases\Providers\Apple\Apple::class,
+        \RoundlyConsulting\Purchases\Providers\Google\Google::class,
+        \RoundlyConsulting\Purchases\Providers\Stripe\Stripe::class,
+    ],
+
+    'routes' => [
+        'enabled' => env('PURCHASES_ROUTES_ENABLED', false),
+        'prefix' => env('PURCHASES_ROUTES_PREFIX', 'purchases'),
+        'middleware' => ['api'],
     ],
 
     'settings' => [
-        'apple' => [
-            'sandbox' => env('PURCHASES_APPLE_SANDBOX', true),
-            'url' => [
-                'live' => env('PURCHASES_APPLE_LIVE_URL', 'https://buy.itunes.apple.com'),
-                'sandbox' => env('PURCHASES_APPLE_SANDBOX_URL', 'https://sandbox.itunes.apple.com'),
-            ],
-            'password' => env('PURCHASES_APPLE_PASSWORD'),
-        ],
+        'apple' => [ /* sandbox, verifyReceipt urls, password, api { … } */ ],
+        'google' => [ /* package_name, service_account { … }, base_url, acknowledge */ ],
+        'stripe' => [ /* secret, webhook_secret, api_version, base_url, tolerance */ ],
     ],
 ];
 ```
-
-| Key | Type | Default | Purpose |
-|---|---|---|---|
-| `models.purchase` | class-string | `Purchase::class` | Model used for purchases. Override to swap in your own subclass. |
-| `models.purchase-item` | class-string | `PurchaseItem::class` | Model used for purchase line items. |
-| `models.subscription` | class-string | `Subscription::class` | Model used for subscriptions. |
-| `models.subscription-item` | class-string | `SubscriptionItem::class` | Model used for subscription line items. |
-| `providers` | list of class-string | `[Apple::class]` | The payment providers the resolver exposes. |
-| `settings.apple.sandbox` | bool | `true` | Whether to hit Apple's sandbox endpoint. |
-| `settings.apple.url.live` | string | App Store URL | Live `verifyReceipt` base URL. |
-| `settings.apple.url.sandbox` | string | Sandbox URL | Sandbox `verifyReceipt` base URL. |
-| `settings.apple.password` | string\|null | `null` | Your app's shared secret for receipt validation. |
 
 ### Environment variables
 
 | Variable | Backs |
 |---|---|
-| `PURCHASES_APPLE_SANDBOX` | `settings.apple.sandbox` |
-| `PURCHASES_APPLE_LIVE_URL` | `settings.apple.url.live` |
-| `PURCHASES_APPLE_SANDBOX_URL` | `settings.apple.url.sandbox` |
-| `PURCHASES_APPLE_PASSWORD` | `settings.apple.password` |
+| `PURCHASES_APPLE_SANDBOX` | Apple sandbox toggle |
+| `PURCHASES_APPLE_LIVE_URL` / `PURCHASES_APPLE_SANDBOX_URL` | `verifyReceipt` base URLs |
+| `PURCHASES_APPLE_PASSWORD` | Apple shared secret (legacy receipt validation) |
+| `PURCHASES_APPLE_KEY_ID` / `PURCHASES_APPLE_ISSUER_ID` / `PURCHASES_APPLE_BUNDLE_ID` / `PURCHASES_APPLE_PRIVATE_KEY` | App Store Server API credentials |
+| `PURCHASES_GOOGLE_PACKAGE_NAME` | Android package name |
+| `PURCHASES_GOOGLE_CLIENT_EMAIL` / `PURCHASES_GOOGLE_PRIVATE_KEY` | Google service-account credentials |
+| `PURCHASES_GOOGLE_TOKEN_URI` | Google OAuth2 token endpoint |
+| `PURCHASES_GOOGLE_ACKNOWLEDGE` | Auto-acknowledge purchases (default `true`) |
+| `PURCHASES_STRIPE_SECRET` | Stripe secret/restricted key |
+| `PURCHASES_STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `PURCHASES_STRIPE_API_VERSION` | Pinned Stripe API version |
+| `PURCHASES_STRIPE_TOLERANCE` | Webhook timestamp tolerance (seconds) |
+| `PURCHASES_ROUTES_ENABLED` / `PURCHASES_ROUTES_PREFIX` | Bundled webhook routes |
+
+> Provider secrets are read only from config/env and are marked `#[SensitiveParameter]` so they
+> never leak into stack traces. They are never logged.
 
 ## Usage
 
+### The `Purchases` facade
+
+The fastest path is the `Purchases` facade. `result()` verifies and decodes a request into a
+provider-agnostic `ProviderResult`; `handle()` does the same and **persists** it (records the
+model and dispatches events).
+
+```php
+use RoundlyConsulting\Purchases\Facades\Purchases;
+
+$result = Purchases::result('stripe', $request);   // verify + decode, no writes
+$result->type();        // ResultType::Subscription
+$result->status();      // Status enum
+$result->providerId();  // provider-side id
+
+$model = Purchases::handle('stripe', $request);     // verify + decode + persist + events
+
+Purchases::provider('google');   // Provider (throws UnknownProviderException if absent)
+Purchases::has('apple');         // bool
+Purchases::ids();                // ['apple', 'google', 'stripe']
+```
+
+### The unified result contract
+
+Every provider maps its native payload onto `RoundlyConsulting\Purchases\Contracts\ProviderResult`,
+so host code is provider-agnostic: `provider()`, `type()`, `providerId()`, `transactionId()`,
+`status()`, `name()`, `productId()`, `price()`, `activeFrom()`, `trialEndsAt()`, `endsAt()`,
+`items()`, and `raw()` (the original decoded payload).
+
+### Events
+
+`Purchases::handle()` (and the persistence actions) dispatch package events you can listen for:
+`PurchaseRecorded`, `PurchaseCompleted`, `PurchaseFailed`, `SubscriptionStarted`,
+`SubscriptionRenewed`, `SubscriptionCanceled`, and `SubscriptionExpired` — each carrying the
+persisted model and the originating `ProviderResult`.
+
 ### Models and money
 
-`Purchase`, `PurchaseItem`, `Subscription`, and `SubscriptionItem` are standard Eloquent
-models with soft deletes and factories. The `price` attribute is exposed as a small,
-dependency-free `Money` value object backed by an integer minor-unit `price` column and a
-3-letter `price_currency` column.
+`Purchase`, `PurchaseItem`, `Subscription`, and `SubscriptionItem` (under
+`RoundlyConsulting\Purchases\Models`) are standard Eloquent models with soft deletes and
+factories. The `price` attribute is a dependency-free `Money` value object backed by an integer
+minor-unit column and a 3-letter currency column.
 
 ```php
-use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\Purchase;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
-$purchase = Purchase::create([
-    'provider' => 'apple',
-    'provider_id' => 'txn_12345',
-    'status' => Status::Completed->value,
-    'price' => 2599,            // $25.99 in cents
-    'price_currency' => 'USD',
-]);
-
-$purchase->price;               // Money { amount: 2599, currency: "USD" }
-$purchase->price->amount;       // 2599
-$purchase->price->currency;     // "USD"
-
-// Assign a Money to write both columns at once.
-$purchase->price = new Money(4200, 'EUR');
-$purchase->save();
+$price = Money::of(2599, 'USD');        // $25.99
+$price->plus(Money::of(100, 'USD'));    // Money(2699, USD)
+$price->times(2);                       // Money(5198, USD)
+$price->greaterThan(Money::zero('USD'));// true
+$price->format('en_US');                // "$25.99" (uses ext-intl when present)
 ```
 
-Purchases and subscriptions can belong to any owner via a polymorphic relation and have
-many line items:
+Mixing currencies throws `CurrencyMismatchException`.
+
+### Apple
 
 ```php
-$purchase->owner;               // the morphed owner model, e.g. a User
-$purchase->items;               // Collection<PurchaseItem>
-
-$subscription->items;           // Collection<SubscriptionItem>
-```
-
-### Purchase status
-
-`RoundlyConsulting\Purchases\Enum\Status` is a backed enum with the cases `New`, `Pending`,
-`Processing`, `Completed`, `Failed`, and `Canceled`. It is cast automatically on the
-`Purchase` model's `status` column.
-
-### Providers and the resolver
-
-Payment providers implement `RoundlyConsulting\Purchases\Providers\Provider` (extend
-`BaseProvider` for sensible defaults). The `Resolver` resolves a configured provider by its
-kebab-cased id:
-
-```php
-use RoundlyConsulting\Purchases\Providers\Resolver;
-
-$resolver = app(Resolver::class);
-
-$resolver->keys();              // Collection: ['apple', ...]
-$provider = $resolver->resolve('apple');
-```
-
-`Apple` is fully implemented. `Google` and `Stripe` ship as functional stubs that keep the
-provider abstraction intact — their gateway-specific logic is intentionally left for a future
-release.
-
-### Apple: server notifications
-
-`Apple::notification()` natively verifies Apple's signed (JWS / ES256) server-notification
-payload — validating the `x5c` certificate chain against Apple's certificate authorities and
-the ES256 signature using only the `openssl` extension — then decodes it into a typed
-`ServerNotificationDecodedPayload`:
-
-```php
-use Illuminate\Http\Request;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
+use RoundlyConsulting\Purchases\Providers\Apple\AppStoreServerApi;
 
-Route::post('/webhooks/apple', function (Request $request, Apple $apple) {
-    $payload = $apple->notification($request);
+// Verify a signed App Store server notification (ES256 JWS, native).
+$payload = app(Apple::class)->notification($request);
 
-    $payload->type;             // NotificationType enum
-    $payload->subType;          // NotificationSubType enum
-    $payload->appMetadata;      // bundle id, environment, ...
-    $payload->renewalInfo;      // RenewalInfo|null
-    $payload->transactionInfo;  // TransactionInfo|null
-
-    return response()->noContent();
-});
+// Modern App Store Server API (preferred over the deprecated verifyReceipt path).
+$transaction = app(AppStoreServerApi::class)->transaction('2000000000000001');
+$transaction->productId;
 ```
 
-### Apple: receipt validation
+`Apple::callback()` still calls Apple's deprecated `verifyReceipt` endpoint for legacy receipts.
 
-`Apple::callback()` sends the request body to Apple's `verifyReceipt` endpoint (sandbox or
-live, per config) and returns a typed `ReceiptResponse`, throwing a
-`VerificationException` when the receipt status is invalid:
+### Google Play
+
+Verifies one-time products and **subscriptionsv2** purchases against the Play Developer API,
+authenticating with a service account via a native OAuth2 JWT-bearer grant. Real-time Developer
+Notifications (delivered through Pub/Sub) decode into a typed `DeveloperNotification`.
 
 ```php
-use RoundlyConsulting\Purchases\Exceptions\VerificationException;
-use RoundlyConsulting\Purchases\Providers\Apple\Apple;
+use RoundlyConsulting\Purchases\Providers\Google\Google;
 
-try {
-    $receipt = app(Apple::class)->callback($request);
-
-    $receipt->status->isValid();   // true
-    $receipt->environment;         // Environment enum
-} catch (VerificationException $e) {
-    report($e);
-}
+$google = app(Google::class);
+$google->product('coins.100', $purchaseToken);   // ProductPurchase
+$google->subscription($purchaseToken);           // SubscriptionPurchase (acknowledged by default)
+$google->notification($request);                 // DeveloperNotification (RTDN)
 ```
+
+Auto-acknowledgement is on by default; set `PURCHASES_GOOGLE_ACKNOWLEDGE=false` to opt out.
+
+### Stripe
+
+Verifies webhook signatures natively (HMAC-SHA256 over `t.payload`, constant-time comparison,
+configurable timestamp tolerance) and reads REST objects with the pinned API version.
+
+```php
+use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
+
+$stripe = app(Stripe::class);
+$event = $stripe->notification($request);        // verifies signature, returns StripeEvent
+$stripe->paymentIntent('pi_123');                // PaymentIntent
+$stripe->subscription('sub_123');                // Subscription
+$stripe->session('cs_123');                      // CheckoutSession
+$stripe->invoice('in_123');                      // Invoice
+```
+
+### Optional webhook routes
+
+Disabled by default. Set `PURCHASES_ROUTES_ENABLED=true` to register
+`POST /{prefix}/webhooks/{provider}`, which verifies, persists, fires events, and returns `204`
+(invalid signature → `400`, unknown provider → `404`).
+
+### Commands
+
+- `php artisan purchases:install` — publish config + migrations (and optionally migrate).
+- `php artisan purchases:providers` — list configured providers and flag missing config.
 
 ### Exceptions
 
-All package exceptions extend `RoundlyConsulting\Purchases\Exceptions\Exception` and expose a
-`because()` factory, so you can catch them precisely:
-
-- `VerificationException` — signature/receipt verification failed.
-- `InvalidProviderNotificationException` — a provider received an unsupported notification.
-- `InvalidMoneyException` — an invalid currency code was supplied to `Money`.
+All package exceptions extend `RoundlyConsulting\Purchases\Exceptions\Exception` with a
+`because()` factory: `VerificationException`, `InvalidProviderNotificationException`,
+`InvalidMoneyException`, `CurrencyMismatchException`, and `UnknownProviderException`.
 
 ## Testing
 
