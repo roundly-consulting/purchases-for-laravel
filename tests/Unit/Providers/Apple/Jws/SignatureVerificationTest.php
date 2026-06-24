@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use OpenSSLCertificate;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
 use RoundlyConsulting\Purchases\Support\Base64Url;

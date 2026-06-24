@@ -250,3 +250,79 @@ it('throws on a malformed pub/sub payload', function (): void {
 
     googleProvider()->notification(new Request(['message' => ['data' => $payload]]));
 })->throws(VerificationException::class);
+
+it('acknowledges a pending subscription with a mixed line-item set', function (): void {
+    Http::fake([
+        '*tokens/sub-token:acknowledge' => Http::response([], 200),
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'latestOrderId' => 'GPA.SUB.2',
+            'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_PENDING',
+            'lineItems' => [
+                ['productId' => 'pro.monthly'],
+                ['productId' => 'pro.monthly', 'expiryTime' => '2026-02-01T00:00:00Z'],
+            ],
+        ]),
+    ]);
+
+    $purchase = googleProvider()->subscription('sub-token');
+
+    expect($purchase->isAcknowledged())->toBeFalse()
+        ->and($purchase->expiryTime())->not->toBeNull();
+
+    Http::assertSent(fn ($request) => str_contains($request->url(), 'subscriptionsv2/tokens/sub-token:acknowledge'));
+});
+
+it('acknowledges a subscription by explicit subscription id', function (): void {
+    Http::fake(['*acknowledge' => Http::response([], 200)]);
+
+    googleProvider()->acknowledgeSubscription('sub-token', 'pro.monthly');
+
+    Http::assertSent(fn ($request) => str_contains($request->url(), 'subscriptions/pro.monthly/tokens/sub-token:acknowledge'));
+});
+
+it('throws when the package name is not configured', function (): void {
+    config()->set('purchases.settings.google', ['acknowledge' => false]);
+
+    $provider = new Google(new GoogleClient(
+        credentials: new ServiceAccountCredentials('svc@example.com', testRsaKey()),
+        baseUrl: 'https://androidpublisher.googleapis.com',
+        tokens: new class extends AccessTokenFactory
+        {
+            public function token(ServiceAccountCredentials $credentials): string
+            {
+                return 'fake';
+            }
+        },
+    ));
+
+    $provider->subscription('sub-token');
+})->throws(VerificationException::class);
+
+it('builds a real client from configuration', function (): void {
+    config()->set('purchases.settings.google', [
+        'package_name' => 'com.example.app',
+        'service_account' => [
+            'client_email' => 'svc@example.com',
+            'private_key' => testRsaKey(),
+            'token_uri' => 'https://oauth2.googleapis.com/token',
+        ],
+        'base_url' => 'https://androidpublisher.googleapis.com',
+        'acknowledge' => false,
+    ]);
+
+    Cache::flush();
+
+    Http::fake([
+        'oauth2.googleapis.com/*' => Http::response(['access_token' => 'tok', 'expires_in' => 3600]),
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'latestOrderId' => 'GPA.SUB.3',
+            'lineItems' => [['productId' => 'pro.monthly', 'expiryTime' => '2026-02-01T00:00:00Z']],
+        ]),
+    ]);
+
+    $purchase = (new Google)->subscription('sub-token');
+
+    expect($purchase->latestOrderId)->toBe('GPA.SUB.3');
+});
