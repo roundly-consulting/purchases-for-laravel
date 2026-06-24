@@ -29,6 +29,8 @@ final class PurchasesServiceProvider extends ServiceProvider
             $this->commands([
                 Commands\InstallCommand::class,
                 Commands\ProvidersCommand::class,
+                Commands\VerifyCommand::class,
+                Commands\ReplayCommand::class,
             ]);
 
             $this->publishes([

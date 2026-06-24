@@ -3,6 +3,8 @@
 declare(strict_types=1);
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
+use RoundlyConsulting\Purchases\Models\PurchaseNotification;
+use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
@@ -13,6 +15,8 @@ return [
     'models' => [
         'purchase' => Purchase::class,
         'purchase-item' => PurchaseItem::class,
+        'purchase-refund' => PurchaseRefund::class,
+        'purchase-notification' => PurchaseNotification::class,
         'subscription' => Subscription::class,
         'subscription-item' => SubscriptionItem::class,
     ],
@@ -21,6 +25,25 @@ return [
         Apple::class,
         Google::class,
         Stripe::class,
+    ],
+
+    /*
+     | Persist every verified raw notification payload before it is reduced to
+     | model state, giving an auditable log you can inspect or replay.
+     */
+    'audit' => [
+        'enabled' => env('PURCHASES_AUDIT_ENABLED', true),
+    ],
+
+    /*
+     | Process verified notifications on a queue. When enabled, handle() verifies
+     | synchronously and the webhook returns 204 immediately, while persistence
+     | happens on the configured queue connection.
+     */
+    'queue' => [
+        'enabled' => env('PURCHASES_QUEUE_ENABLED', false),
+        'connection' => env('PURCHASES_QUEUE_CONNECTION'),
+        'queue' => env('PURCHASES_QUEUE_NAME'),
     ],
 
     /*
