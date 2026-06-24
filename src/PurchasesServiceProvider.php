@@ -14,6 +14,7 @@ final class PurchasesServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/purchases.php', 'purchases');
 
         $this->app->scoped(Resolver::class);
+        $this->app->singleton(Purchases::class);
     }
 
     public function boot(): void
