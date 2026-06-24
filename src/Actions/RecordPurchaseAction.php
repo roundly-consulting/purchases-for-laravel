@@ -21,6 +21,7 @@ final class RecordPurchaseAction
 
         $attributes = [
             'status' => $data->status,
+            'transaction_id' => $data->transactionId,
             'meta' => $data->meta,
         ];
 

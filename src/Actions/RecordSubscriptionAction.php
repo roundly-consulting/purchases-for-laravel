@@ -21,6 +21,8 @@ final class RecordSubscriptionAction
 
         $attributes = [
             'name' => $data->name,
+            'status' => $data->status,
+            'transaction_id' => $data->transactionId,
             'active_from' => $data->activeFrom,
             'trial_ends_at' => $data->trialEndsAt,
             'ends_at' => $data->endsAt,
