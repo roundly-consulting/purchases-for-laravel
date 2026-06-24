@@ -6,6 +6,8 @@ namespace RoundlyConsulting\Purchases\Providers\Stripe;
 
 use Illuminate\Http\Request;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
+use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
@@ -20,8 +22,9 @@ use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\StripeMoney;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Subscription;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\DataSet;
+use Throwable;
 
-class Stripe extends BaseProvider
+class Stripe extends BaseProvider implements VerifiesConnectivity
 {
     /** @var array<string, mixed> */
     protected readonly array $config;
@@ -110,6 +113,10 @@ class Stripe extends BaseProvider
         $event = $this->event($request);
         $object = new DataSet($event->object);
 
+        if ($event->type->resultType() === ResultType::Refund) {
+            return $this->refundResult($event, $object);
+        }
+
         if ($event->type->resultType() === ResultType::Subscription) {
             $subscription = Subscription::fromRaw($event->object);
 
@@ -150,6 +157,49 @@ class Stripe extends BaseProvider
             endsAt: null,
             items: [],
             raw: $event->object,
+        );
+    }
+
+    /**
+     * Confirm the secret key works by fetching the account balance (a cheap,
+     * always-available authed endpoint).
+     */
+    public function verifyConnectivity(): ConnectivityResult
+    {
+        try {
+            $this->client()->request()->get('/balance');
+        } catch (Throwable $e) {
+            return ConnectivityResult::failed($e->getMessage());
+        }
+
+        return ConnectivityResult::ok('Stripe secret key is valid.');
+    }
+
+    private function refundResult(StripeEvent $event, DataSet $object): GenericResult
+    {
+        $chargeback = $event->type->isChargeback();
+
+        // Disputes key on payment_intent; charge refunds expose it directly too.
+        $paymentIntent = $object->value('payment_intent');
+        $id = $object->value('id');
+
+        $providerId = is_string($paymentIntent) && $paymentIntent !== ''
+            ? $paymentIntent
+            : (is_string($id) ? $id : (string) $event->id);
+
+        $amountKey = $chargeback ? 'amount' : 'amount_refunded';
+        $reason = $object->value('reason');
+
+        return new GenericResult(
+            provider: $this->id(),
+            type: ResultType::Refund,
+            providerId: $providerId,
+            status: Status::Refunded,
+            transactionId: is_string($paymentIntent) && $paymentIntent !== '' ? $paymentIntent : null,
+            price: StripeMoney::fromDataSet($object, $amountKey, 'currency'),
+            raw: $event->object,
+            refundReason: is_string($reason) ? $reason : null,
+            chargeback: $chargeback,
         );
     }
 

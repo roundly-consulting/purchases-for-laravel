@@ -178,3 +178,88 @@ it('throws when the secret key is not configured', function (): void {
 
     (new Stripe)->paymentIntent('pi_1');
 })->throws(VerificationException::class);
+
+it('maps a charge.refunded webhook to a refund result', function (): void {
+    $payload = (string) json_encode([
+        'id' => 'evt_refund',
+        'type' => 'charge.refunded',
+        'data' => ['object' => ['id' => 'ch_1', 'payment_intent' => 'pi_refund', 'amount_refunded' => 999, 'currency' => 'usd']],
+    ]);
+
+    $result = (new Stripe)->result(signedWebhook($payload));
+
+    expect($result->type())->toBe(ResultType::Refund)
+        ->and($result->status())->toBe(Status::Refunded)
+        ->and($result->providerId())->toBe('pi_refund')
+        ->and($result->isChargeback())->toBeFalse()
+        ->and($result->price()?->amount)->toBe(999);
+});
+
+it('maps a charge.dispute.created webhook to a chargeback', function (): void {
+    $payload = (string) json_encode([
+        'id' => 'evt_dispute',
+        'type' => 'charge.dispute.created',
+        'data' => ['object' => ['id' => 'dp_1', 'payment_intent' => 'pi_dispute', 'amount' => 1500, 'currency' => 'usd', 'reason' => 'fraudulent']],
+    ]);
+
+    $result = (new Stripe)->result(signedWebhook($payload));
+
+    expect($result->type())->toBe(ResultType::Refund)
+        ->and($result->isChargeback())->toBeTrue()
+        ->and($result->refundReason())->toBe('fraudulent')
+        ->and($result->providerId())->toBe('pi_dispute');
+});
+
+it('maps a past_due subscription update into a grace-period result', function (): void {
+    $payload = (string) json_encode([
+        'id' => 'evt_grace',
+        'type' => 'customer.subscription.updated',
+        'data' => ['object' => ['id' => 'sub_grace', 'status' => 'past_due']],
+    ]);
+
+    $result = (new Stripe)->result(signedWebhook($payload));
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::InGracePeriod);
+});
+
+it('verifies stripe connectivity by fetching the balance', function (): void {
+    Http::fake(['*/balance' => Http::response(['object' => 'balance'])]);
+
+    $result = (new Stripe)->verifyConnectivity();
+
+    expect($result->ok)->toBeTrue();
+});
+
+it('reports failed stripe connectivity gracefully', function (): void {
+    Http::fake(['*/balance' => Http::response('nope', 401)]);
+
+    $result = (new Stripe)->verifyConnectivity();
+
+    expect($result->ok)->toBeFalse();
+});
+
+it('falls back to the charge id when a refund has no payment intent', function (): void {
+    $payload = (string) json_encode([
+        'id' => 'evt_norefintent',
+        'type' => 'charge.refunded',
+        'data' => ['object' => ['id' => 'ch_only', 'amount_refunded' => 500, 'currency' => 'usd']],
+    ]);
+
+    $result = (new Stripe)->result(signedWebhook($payload));
+
+    expect($result->providerId())->toBe('ch_only')
+        ->and($result->transactionId())->toBeNull();
+});
+
+it('falls back to the event id for a subscription without an object id', function (): void {
+    $payload = (string) json_encode([
+        'id' => 'evt_subnoid',
+        'type' => 'customer.subscription.updated',
+        'data' => ['object' => ['status' => 'active']],
+    ]);
+
+    $result = (new Stripe)->result(signedWebhook($payload));
+
+    expect($result->providerId())->toBe('evt_subnoid');
+});

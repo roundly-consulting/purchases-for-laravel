@@ -21,7 +21,8 @@ enum SubscriptionStatus: string
     {
         return match ($this) {
             self::Trialing, self::Active => Status::Completed,
-            self::Incomplete, self::PastDue => Status::Pending,
+            self::PastDue => Status::InGracePeriod,
+            self::Incomplete => Status::Pending,
             self::Paused => Status::Processing,
             self::Canceled, self::IncompleteExpired => Status::Canceled,
             self::Unpaid => Status::Failed,

@@ -6,6 +6,8 @@ namespace RoundlyConsulting\Purchases\Providers\Google;
 
 use Illuminate\Http\Request;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
+use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
@@ -16,8 +18,9 @@ use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\ProductPurchase;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\Base64Url;
+use Throwable;
 
-class Google extends BaseProvider
+class Google extends BaseProvider implements VerifiesConnectivity
 {
     /** @var array<string, mixed> */
     protected readonly array $config;
@@ -133,6 +136,10 @@ class Google extends BaseProvider
 
     public function result(Request $request): ProviderResult
     {
+        if (is_string($request->input('message.data'))) {
+            return $this->notificationResult($request);
+        }
+
         $purchase = $this->callback($request);
         $token = (string) $request->input('purchaseToken');
 
@@ -169,6 +176,62 @@ class Google extends BaseProvider
             items: [],
             raw: $purchase->raw,
         );
+    }
+
+    /**
+     * Map a Real-time Developer Notification (voided purchase or subscription
+     * lifecycle change) into a provider-agnostic result.
+     */
+    private function notificationResult(Request $request): ProviderResult
+    {
+        $notification = $this->notification($request);
+
+        $voided = $notification->voidedPurchaseNotification;
+
+        if ($voided !== null) {
+            return new GenericResult(
+                provider: $this->id(),
+                type: ResultType::Refund,
+                providerId: $voided->orderId ?? $voided->purchaseToken ?? '',
+                status: Status::Refunded,
+                transactionId: $voided->orderId,
+                raw: $notification->raw,
+                refundReason: $voided->refundType !== null ? (string) $voided->refundType : null,
+                chargeback: false,
+            );
+        }
+
+        $subscription = $notification->subscriptionNotification;
+        $type = $subscription?->notificationType;
+        $token = $subscription?->purchaseToken;
+        $subscriptionId = $subscription?->subscriptionId;
+
+        return new GenericResult(
+            provider: $this->id(),
+            type: $type?->isRefund() === true ? ResultType::Refund : ResultType::Subscription,
+            providerId: $token ?? '',
+            status: $type?->status() ?? Status::Processing,
+            transactionId: null,
+            name: $subscriptionId,
+            productId: $subscriptionId,
+            raw: $notification->raw,
+            refundReason: $type?->isRefund() === true ? $type->name : null,
+        );
+    }
+
+    /**
+     * Confirm the service-account credentials work by exchanging them for an
+     * OAuth2 access token (the JWT-bearer grant).
+     */
+    public function verifyConnectivity(): ConnectivityResult
+    {
+        try {
+            $this->client()->request();
+        } catch (Throwable $e) {
+            return ConnectivityResult::failed($e->getMessage());
+        }
+
+        return ConnectivityResult::ok('Google service-account credentials are valid.');
     }
 
     public function id(): string

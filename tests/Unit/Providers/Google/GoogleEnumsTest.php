@@ -30,11 +30,30 @@ it('maps subscription state to status and helpers', function (SubscriptionState 
         ->and($state->isTerminal())->toBe($terminal);
 })->with([
     [SubscriptionState::Active, Status::Completed, true, false],
-    [SubscriptionState::InGracePeriod, Status::Completed, true, false],
+    [SubscriptionState::InGracePeriod, Status::InGracePeriod, true, false],
     [SubscriptionState::Pending, Status::Pending, false, false],
     [SubscriptionState::Paused, Status::Processing, false, false],
-    [SubscriptionState::OnHold, Status::Processing, false, false],
+    [SubscriptionState::OnHold, Status::OnHold, false, false],
     [SubscriptionState::Canceled, Status::Canceled, false, true],
     [SubscriptionState::Expired, Status::Failed, false, true],
     [SubscriptionState::Unspecified, Status::Processing, false, false],
 ]);
+
+it('maps developer notification types to status', function (NotificationType $type, Status $status): void {
+    expect($type->status())->toBe($status);
+})->with([
+    [NotificationType::Renewed, Status::Completed],
+    [NotificationType::Purchased, Status::Completed],
+    [NotificationType::InGracePeriod, Status::InGracePeriod],
+    [NotificationType::OnHold, Status::OnHold],
+    [NotificationType::Paused, Status::OnHold],
+    [NotificationType::Canceled, Status::Canceled],
+    [NotificationType::Revoked, Status::Refunded],
+    [NotificationType::Expired, Status::Failed],
+    [NotificationType::Deferred, Status::Processing],
+]);
+
+it('flags revoked notifications as refunds', function (): void {
+    expect(NotificationType::Revoked->isRefund())->toBeTrue()
+        ->and(NotificationType::Renewed->isRefund())->toBeFalse();
+});

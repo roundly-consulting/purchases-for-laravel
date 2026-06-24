@@ -20,6 +20,10 @@ enum EventType: string
     case SubscriptionDeleted = 'customer.subscription.deleted';
     case InvoicePaid = 'invoice.paid';
     case InvoicePaymentFailed = 'invoice.payment_failed';
+    case ChargeRefunded = 'charge.refunded';
+    case ChargeDisputeCreated = 'charge.dispute.created';
+    case ChargeDisputeClosed = 'charge.dispute.closed';
+    case ChargeDisputeUpdated = 'charge.dispute.updated';
     case Unknown = 'unknown';
 
     public static function fromName(string $name): self
@@ -33,12 +37,29 @@ enum EventType: string
             self::SubscriptionCreated,
             self::SubscriptionUpdated,
             self::SubscriptionDeleted => ResultType::Subscription,
+            self::ChargeRefunded,
+            self::ChargeDisputeCreated,
+            self::ChargeDisputeClosed,
+            self::ChargeDisputeUpdated => ResultType::Refund,
             self::PaymentIntentSucceeded,
             self::PaymentIntentFailed,
             self::CheckoutSessionCompleted,
             self::InvoicePaid,
             self::InvoicePaymentFailed => ResultType::Purchase,
             self::Unknown => ResultType::Unknown,
+        };
+    }
+
+    /**
+     * Whether this event is a dispute / chargeback rather than a voluntary refund.
+     */
+    public function isChargeback(): bool
+    {
+        return match ($this) {
+            self::ChargeDisputeCreated,
+            self::ChargeDisputeClosed,
+            self::ChargeDisputeUpdated => true,
+            default => false,
         };
     }
 }

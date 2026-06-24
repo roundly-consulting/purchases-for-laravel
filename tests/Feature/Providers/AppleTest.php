@@ -230,3 +230,88 @@ it('targets the live url when not in sandbox mode', function (): void {
 
     Http::assertSent(fn ($request) => str_contains($request->url(), 'buy.itunes.apple.com'));
 });
+
+it('maps a refund notification into a refund result', function (): void {
+    $jws = fakeJwsMapping([
+        'token' => [
+            'notificationUUID' => 'n-refund',
+            'notificationType' => 'REFUND',
+            'subType' => 'INITIAL_BUY',
+            'data' => [
+                'appAppleId' => '1',
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Production',
+                'signedTransactionInfo' => 'transaction.jws',
+            ],
+        ],
+        'transaction.jws' => [
+            'environment' => 'Production',
+            'transactionId' => 'txn-r',
+            'originalTransactionId' => 'orig-r',
+            'productId' => 'pro.monthly',
+        ],
+    ]);
+
+    $result = (new Apple($jws))->result(new Request(['signedPayload' => 'token']));
+
+    expect($result->type())->toBe(ResultType::Refund)
+        ->and($result->status())->toBe(Status::Refunded)
+        ->and($result->refundReason())->toBe('REFUND')
+        ->and($result->isChargeback())->toBeFalse();
+});
+
+it('maps a grace-period renewal failure into a grace-period result', function (): void {
+    $jws = fakeJwsMapping([
+        'token' => [
+            'notificationUUID' => 'n-grace',
+            'notificationType' => 'DID_FAIL_TO_RENEW',
+            'subType' => 'GRACE_PERIOD',
+            'data' => [
+                'appAppleId' => '1',
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Production',
+                'signedTransactionInfo' => 'transaction.jws',
+            ],
+        ],
+        'transaction.jws' => [
+            'environment' => 'Production',
+            'transactionId' => 'txn-g',
+            'originalTransactionId' => 'orig-g',
+            'productId' => 'pro.monthly',
+        ],
+    ]);
+
+    $result = (new Apple($jws))->result(new Request(['signedPayload' => 'token']));
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::InGracePeriod);
+});
+
+it('maps a renewal failure without grace period into a failed result', function (): void {
+    $jws = fakeJwsMapping([
+        'token' => [
+            'notificationUUID' => 'n-fail',
+            'notificationType' => 'DID_FAIL_TO_RENEW',
+            'subType' => 'BILLING_RETRY',
+            'data' => [
+                'appAppleId' => '1',
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Production',
+                'signedTransactionInfo' => 'transaction.jws',
+            ],
+        ],
+        'transaction.jws' => [
+            'environment' => 'Production',
+            'transactionId' => 'txn-f',
+            'originalTransactionId' => 'orig-f',
+            'productId' => 'pro.monthly',
+        ],
+    ]);
+
+    $result = (new Apple($jws))->result(new Request(['signedPayload' => 'token']));
+
+    expect($result->status())->toBe(Status::Failed);
+});

@@ -9,21 +9,28 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
+use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationSubType;
+use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationType;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
 use RoundlyConsulting\Purchases\Results\GenericResult;
+use Throwable;
 
-class Apple extends BaseProvider
+class Apple extends BaseProvider implements VerifiesConnectivity
 {
     /** @var array<string, mixed> */
     protected readonly array $config;
 
     public function __construct(
         private readonly JwsManager $jws = new JwsManager,
+        private readonly AppStoreServerApi $api = new AppStoreServerApi,
     ) {
         /** @var array<string, mixed> $config */
         $config = config('purchases.settings.apple');
@@ -75,7 +82,7 @@ class Apple extends BaseProvider
         $payload = $this->notification($request);
 
         $transaction = $payload->transactionInfo;
-        $status = $payload->type->status();
+        $status = $this->status($payload->type, $payload->subType);
 
         $providerId = $payload->uuid;
 
@@ -85,9 +92,11 @@ class Apple extends BaseProvider
                 ?? $payload->uuid;
         }
 
+        $type = $this->resultType($payload->type, $transaction !== null);
+
         return new GenericResult(
             provider: $this->id(),
-            type: $transaction !== null ? ResultType::Subscription : ResultType::Notification,
+            type: $type,
             providerId: $providerId,
             status: $status,
             transactionId: $transaction?->transactionId,
@@ -99,7 +108,48 @@ class Apple extends BaseProvider
             endsAt: $transaction?->expiresDate,
             items: [],
             raw: $payload->toArray(),
+            refundReason: $payload->type->isRefund() ? $payload->type->value : null,
+            chargeback: false,
         );
+    }
+
+    private function resultType(NotificationType $type, bool $hasTransaction): ResultType
+    {
+        if ($type->isRefund()) {
+            return ResultType::Refund;
+        }
+
+        return $hasTransaction ? ResultType::Subscription : ResultType::Notification;
+    }
+
+    /**
+     * Apple signals a billing-retry grace period through DID_FAIL_TO_RENEW with a
+     * GRACE_PERIOD subtype; without it the renewal has genuinely failed.
+     */
+    private function status(NotificationType $type, NotificationSubType $subType): Status
+    {
+        if ($type === NotificationType::TypeDidFailToRenew) {
+            return $subType === NotificationSubType::SubtypeGracePeriod
+                ? Status::InGracePeriod
+                : Status::Failed;
+        }
+
+        return $type->status();
+    }
+
+    /**
+     * Confirm the App Store Server API credentials work by requesting a test
+     * server notification (the canonical Apple connectivity check).
+     */
+    public function verifyConnectivity(): ConnectivityResult
+    {
+        try {
+            $this->api->requestTestNotification();
+        } catch (Throwable $e) {
+            return ConnectivityResult::failed($e->getMessage());
+        }
+
+        return ConnectivityResult::ok('App Store Server API credentials are valid.');
     }
 
     protected function getBaseUrl(): string

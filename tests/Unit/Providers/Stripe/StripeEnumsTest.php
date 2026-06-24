@@ -24,8 +24,17 @@ it('maps event types to result types', function (EventType $type, ResultType $ex
     [EventType::CheckoutSessionCompleted, ResultType::Purchase],
     [EventType::InvoicePaid, ResultType::Purchase],
     [EventType::InvoicePaymentFailed, ResultType::Purchase],
+    [EventType::ChargeRefunded, ResultType::Refund],
+    [EventType::ChargeDisputeCreated, ResultType::Refund],
+    [EventType::ChargeDisputeClosed, ResultType::Refund],
+    [EventType::ChargeDisputeUpdated, ResultType::Refund],
     [EventType::Unknown, ResultType::Unknown],
 ]);
+
+it('flags disputes as chargebacks', function (): void {
+    expect(EventType::ChargeDisputeCreated->isChargeback())->toBeTrue()
+        ->and(EventType::ChargeRefunded->isChargeback())->toBeFalse();
+});
 
 it('maps payment intent status to status', function (PaymentIntentStatus $status, Status $expected): void {
     expect($status->status())->toBe($expected);
@@ -45,7 +54,7 @@ it('maps subscription status to status', function (SubscriptionStatus $status, S
     [SubscriptionStatus::Trialing, Status::Completed],
     [SubscriptionStatus::Active, Status::Completed],
     [SubscriptionStatus::Incomplete, Status::Pending],
-    [SubscriptionStatus::PastDue, Status::Pending],
+    [SubscriptionStatus::PastDue, Status::InGracePeriod],
     [SubscriptionStatus::Paused, Status::Processing],
     [SubscriptionStatus::Canceled, Status::Canceled],
     [SubscriptionStatus::IncompleteExpired, Status::Canceled],

@@ -326,3 +326,100 @@ it('builds a real client from configuration', function (): void {
 
     expect($purchase->latestOrderId)->toBe('GPA.SUB.3');
 });
+
+it('maps a voided purchase RTDN into a refund result', function (): void {
+    $payload = base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'eventTimeMillis' => '1700000000000',
+        'voidedPurchaseNotification' => [
+            'purchaseToken' => 'tok-void',
+            'orderId' => 'GPA.void',
+            'productType' => 1,
+            'refundType' => 1,
+        ],
+    ]));
+
+    $result = googleProvider()->result(new Request(['message' => ['data' => $payload]]));
+
+    expect($result->type())->toBe(ResultType::Refund)
+        ->and($result->status())->toBe(Status::Refunded)
+        ->and($result->providerId())->toBe('GPA.void')
+        ->and($result->transactionId())->toBe('GPA.void');
+});
+
+it('maps a grace-period subscription RTDN into a grace-period result', function (): void {
+    $payload = base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'eventTimeMillis' => '1700000000000',
+        'subscriptionNotification' => [
+            'notificationType' => NotificationType::InGracePeriod->value,
+            'purchaseToken' => 'tok-grace',
+            'subscriptionId' => 'com.example.pro',
+        ],
+    ]));
+
+    $result = googleProvider()->result(new Request(['message' => ['data' => $payload]]));
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::InGracePeriod)
+        ->and($result->providerId())->toBe('tok-grace');
+});
+
+it('maps an account-hold subscription RTDN into an on-hold result', function (): void {
+    $payload = base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'eventTimeMillis' => '1700000000000',
+        'subscriptionNotification' => [
+            'notificationType' => NotificationType::OnHold->value,
+            'purchaseToken' => 'tok-hold',
+            'subscriptionId' => 'com.example.pro',
+        ],
+    ]));
+
+    $result = googleProvider()->result(new Request(['message' => ['data' => $payload]]));
+
+    expect($result->status())->toBe(Status::OnHold);
+});
+
+it('maps a revoked subscription RTDN into a refund result', function (): void {
+    $payload = base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'eventTimeMillis' => '1700000000000',
+        'subscriptionNotification' => [
+            'notificationType' => NotificationType::Revoked->value,
+            'purchaseToken' => 'tok-revoked',
+            'subscriptionId' => 'com.example.pro',
+        ],
+    ]));
+
+    $result = googleProvider()->result(new Request(['message' => ['data' => $payload]]));
+
+    expect($result->type())->toBe(ResultType::Refund)
+        ->and($result->status())->toBe(Status::Refunded);
+});
+
+it('verifies google connectivity via token exchange', function (): void {
+    $result = googleProvider()->verifyConnectivity();
+
+    expect($result->ok)->toBeTrue();
+});
+
+it('reports failed google connectivity gracefully', function (): void {
+    $provider = new Google(new GoogleClient(
+        credentials: new ServiceAccountCredentials('svc@example.iam.gserviceaccount.com', testRsaKey()),
+        baseUrl: 'https://androidpublisher.googleapis.com',
+        tokens: new class extends AccessTokenFactory
+        {
+            public function token(ServiceAccountCredentials $credentials): string
+            {
+                throw VerificationException::because('bad credentials');
+            }
+        },
+    ));
+
+    expect($provider->verifyConnectivity()->ok)->toBeFalse();
+});

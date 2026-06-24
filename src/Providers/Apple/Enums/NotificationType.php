@@ -34,13 +34,24 @@ enum NotificationType: string
             self::TypeDidRenew,
             self::TypeOfferRedeemed,
             self::TypeRenewalExtended => Status::Completed,
-            self::TypeDidFailToRenew,
+            self::TypeDidFailToRenew => Status::InGracePeriod,
             self::TypeRefundDeclined => Status::Failed,
             self::TypeExpired,
             self::TypeGracePeriodExpired => Status::Failed,
             self::TypeRefund,
-            self::TypeRevoke => Status::Canceled,
+            self::TypeRevoke => Status::Refunded,
             default => Status::Processing,
+        };
+    }
+
+    /**
+     * Whether this notification represents a refund or revocation.
+     */
+    public function isRefund(): bool
+    {
+        return match ($this) {
+            self::TypeRefund, self::TypeRevoke => true,
+            default => false,
         };
     }
 }

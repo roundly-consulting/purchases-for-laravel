@@ -41,9 +41,11 @@ enum SubscriptionState: string
     public function status(): Status
     {
         return match ($this) {
-            self::Active, self::InGracePeriod => Status::Completed,
+            self::Active => Status::Completed,
+            self::InGracePeriod => Status::InGracePeriod,
             self::Pending => Status::Pending,
-            self::Paused, self::OnHold => Status::Processing,
+            self::OnHold => Status::OnHold,
+            self::Paused => Status::Processing,
             self::Canceled => Status::Canceled,
             self::Expired => Status::Failed,
             self::Unspecified => Status::Processing,
