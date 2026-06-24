@@ -58,6 +58,8 @@ return [
     'models' => [
         'purchase' => \RoundlyConsulting\Purchases\Models\Purchase::class,
         'purchase-item' => \RoundlyConsulting\Purchases\Models\PurchaseItem::class,
+        'purchase-refund' => \RoundlyConsulting\Purchases\Models\PurchaseRefund::class,
+        'purchase-notification' => \RoundlyConsulting\Purchases\Models\PurchaseNotification::class,
         'subscription' => \RoundlyConsulting\Purchases\Models\Subscription::class,
         'subscription-item' => \RoundlyConsulting\Purchases\Models\SubscriptionItem::class,
     ],
@@ -66,6 +68,18 @@ return [
         \RoundlyConsulting\Purchases\Providers\Apple\Apple::class,
         \RoundlyConsulting\Purchases\Providers\Google\Google::class,
         \RoundlyConsulting\Purchases\Providers\Stripe\Stripe::class,
+    ],
+
+    // Log every verified raw payload to purchase_notifications before reducing it.
+    'audit' => [
+        'enabled' => env('PURCHASES_AUDIT_ENABLED', true),
+    ],
+
+    // Persist verified notifications on a queue; the webhook still 204s immediately.
+    'queue' => [
+        'enabled' => env('PURCHASES_QUEUE_ENABLED', false),
+        'connection' => env('PURCHASES_QUEUE_CONNECTION'),
+        'queue' => env('PURCHASES_QUEUE_NAME'),
     ],
 
     'routes' => [
@@ -99,6 +113,9 @@ return [
 | `PURCHASES_STRIPE_API_VERSION` | Pinned Stripe API version |
 | `PURCHASES_STRIPE_TOLERANCE` | Webhook timestamp tolerance (seconds) |
 | `PURCHASES_ROUTES_ENABLED` / `PURCHASES_ROUTES_PREFIX` | Bundled webhook routes |
+| `PURCHASES_AUDIT_ENABLED` | Log verified payloads to `purchase_notifications` (default `true`) |
+| `PURCHASES_QUEUE_ENABLED` | Persist verified notifications on a queue (default `false`) |
+| `PURCHASES_QUEUE_CONNECTION` / `PURCHASES_QUEUE_NAME` | Queue connection / queue for async recording |
 
 > Provider secrets are read only from config/env and are marked `#[SensitiveParameter]` so they
 > never leak into stack traces. They are never logged.
@@ -131,21 +148,91 @@ Purchases::ids();                // ['apple', 'google', 'stripe']
 Every provider maps its native payload onto `RoundlyConsulting\Purchases\Contracts\ProviderResult`,
 so host code is provider-agnostic: `provider()`, `type()`, `providerId()`, `transactionId()`,
 `status()`, `name()`, `productId()`, `price()`, `activeFrom()`, `trialEndsAt()`, `endsAt()`,
-`items()`, and `raw()` (the original decoded payload).
+`items()`, `refundReason()`, `isChargeback()`, and `raw()` (the original decoded payload).
+
+`Status` now also exposes the billing-retry states `Status::InGracePeriod`, `Status::OnHold`,
+and `Status::Refunded` (all additive), plus `Status::isActive()` which is true for `Completed`
+and `InGracePeriod`. `ResultType::Refund` covers refunds and chargebacks.
 
 ### Events
 
 `Purchases::handle()` (and the persistence actions) dispatch package events you can listen for:
-`PurchaseRecorded`, `PurchaseCompleted`, `PurchaseFailed`, `SubscriptionStarted`,
-`SubscriptionRenewed`, `SubscriptionCanceled`, and `SubscriptionExpired` — each carrying the
-persisted model and the originating `ProviderResult`.
+`PurchaseRecorded`, `PurchaseCompleted`, `PurchaseFailed`, `PurchaseRefunded`,
+`ChargebackReceived`, `SubscriptionStarted`, `SubscriptionRenewed`, `SubscriptionCanceled`,
+`SubscriptionExpired`, and `SubscriptionInGracePeriod` — each carrying the persisted model and
+the originating `ProviderResult`.
+
+### Refunds & chargebacks
+
+Apple `REFUND`/`REVOKE`, Google `*_REVOKED` / voided-purchase RTDNs, and Stripe
+`charge.refunded` / `charge.dispute.*` events decode into a first-class `PurchaseRefund` model.
+`handle()` records the refund, links it to the originating purchase, flips that purchase to
+`Status::Refunded`, and dispatches `PurchaseRefunded` (or `ChargebackReceived` for disputes).
+
+```php
+$purchase->refunds;                 // HasMany<PurchaseRefund>
+PurchaseRefund::chargebacks()->get();
+```
+
+### Async webhook processing
+
+Set `PURCHASES_QUEUE_ENABLED=true` to verify webhooks synchronously but persist on a queue. The
+webhook controller still returns `204` immediately; a `ProcessProviderNotification` job records
+the result on the configured connection/queue. The synchronous path is the default.
+
+### Raw notification audit log
+
+When `PURCHASES_AUDIT_ENABLED=true` (the default), every verified notification is stored in
+`purchase_notifications` (provider, type, signature-verified flag, payload snapshot,
+`processed_at`) before it is reduced to model state.
+
+```bash
+# Re-run stored notifications through the recording pipeline.
+php artisan purchases:replay {id?} --provider=stripe --since=2026-01-01
+```
+
+### Subscription scopes & helpers
+
+```php
+Subscription::active()->expiring(7)->get();
+Subscription::trialing()->get();
+Subscription::canceled()->get();
+
+$subscription->isActive();
+$subscription->onTrial();
+$subscription->daysUntilRenewal();   // ?int
+$subscription->isExpiring(7);
+```
+
+Provider/identifier scopes are available on `Purchase`, `Subscription`, and `PurchaseRefund`:
+`forProvider('stripe')`, `byProviderId($id)`, `byTransaction($txId)`.
+
+### The `HasPurchases` trait
+
+Add the trait to your owner model (typically `User`) for convenient access through the package's
+`owner` morph:
+
+```php
+use RoundlyConsulting\Purchases\Concerns\HasPurchases;
+
+class User extends Authenticatable
+{
+    use HasPurchases;
+}
+
+$user->purchases;                    // MorphMany<Purchase>
+$user->subscriptions;                // MorphMany<Subscription>
+$user->activeSubscription('pro');    // ?Subscription
+$user->subscribedTo('pro');          // bool
+```
 
 ### Models and money
 
-`Purchase`, `PurchaseItem`, `Subscription`, and `SubscriptionItem` (under
-`RoundlyConsulting\Purchases\Models`) are standard Eloquent models with soft deletes and
-factories. The `price` attribute is a dependency-free `Money` value object backed by an integer
-minor-unit column and a 3-letter currency column.
+`Purchase`, `PurchaseItem`, `Subscription`, `SubscriptionItem`, `PurchaseRefund`, and
+`PurchaseNotification` (under `RoundlyConsulting\Purchases\Models`) are standard Eloquent models
+with soft deletes and factories. Every model is swappable via `config('purchases.models.*')`.
+The `price` attribute is a dependency-free `Money` value object backed by an integer minor-unit
+column and a 3-letter currency column.
 
 ```php
 use RoundlyConsulting\Purchases\ValueObjects\Money;
@@ -216,14 +303,41 @@ Disabled by default. Set `PURCHASES_ROUTES_ENABLED=true` to register
 
 ### Commands
 
-- `php artisan purchases:install` — publish config + migrations (and optionally migrate).
+- `php artisan purchases:install` — publish config + migrations (and optionally migrate). Pass
+  `--providers` to interactively choose providers and append their `.env` keys.
 - `php artisan purchases:providers` — list configured providers and flag missing config.
+- `php artisan purchases:verify {provider?}` — actively hit each provider (token exchange / a
+  cheap authed call) and report whether the credentials genuinely work. Fails gracefully per
+  provider.
+- `php artisan purchases:replay {id?} --provider= --since=` — re-run stored audit notifications
+  through the recording pipeline.
 
 ### Exceptions
 
 All package exceptions extend `RoundlyConsulting\Purchases\Exceptions\Exception` with a
 `because()` factory: `VerificationException`, `InvalidProviderNotificationException`,
 `InvalidMoneyException`, `CurrencyMismatchException`, and `UnknownProviderException`.
+
+### Testing helpers
+
+`Purchases::fake()` swaps the manager for a `Bus::fake()`-style double that records handled
+notifications and exposes assertions, without performing real verification. `FakeResult` and
+`PayloadFactory` (under `RoundlyConsulting\Purchases\Testing`) build fake results and raw
+provider payloads.
+
+```php
+use RoundlyConsulting\Purchases\Facades\Purchases;
+use RoundlyConsulting\Purchases\Testing\FakeResult;
+
+$fake = Purchases::fake();
+$fake->push('stripe', FakeResult::subscription('stripe', 'sub_1'));
+
+Purchases::handle('stripe', $request);
+
+$fake->assertHandled('stripe');
+$fake->assertSubscriptionStarted('stripe');
+// also: assertPurchaseRecorded(), assertRefundRecorded(), assertHandledCount(), assertNothingHandled()
+```
 
 ## Testing
 
