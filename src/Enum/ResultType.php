@@ -8,6 +8,7 @@ enum ResultType: string
 {
     case Purchase = 'purchase';
     case Subscription = 'subscription';
+    case Refund = 'refund';
     case Notification = 'notification';
     case Unknown = 'unknown';
 }
