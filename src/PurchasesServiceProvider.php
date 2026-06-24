@@ -21,7 +21,16 @@ final class PurchasesServiceProvider extends ServiceProvider
     {
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
+        if (config('purchases.routes.enabled', false) === true) {
+            $this->loadRoutesFrom(__DIR__.'/../routes/purchases.php');
+        }
+
         if ($this->app->runningInConsole()) {
+            $this->commands([
+                Commands\InstallCommand::class,
+                Commands\ProvidersCommand::class,
+            ]);
+
             $this->publishes([
                 __DIR__.'/../config/purchases.php' => config_path('purchases.php'),
             ], 'purchases-config');
@@ -29,6 +38,10 @@ final class PurchasesServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__.'/../database/migrations' => database_path('migrations'),
             ], 'purchases-migrations');
+
+            $this->publishes([
+                __DIR__.'/../routes/purchases.php' => base_path('routes/purchases.php'),
+            ], 'purchases-routes');
         }
     }
 }
