@@ -1,0 +1,123 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Queue;
+use RoundlyConsulting\Purchases\Actions\RecordProviderNotificationAction;
+use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Jobs\ProcessProviderNotification;
+use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseNotification;
+use RoundlyConsulting\Purchases\Providers\Provider;
+use RoundlyConsulting\Purchases\Providers\Resolver;
+use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\Results\GenericResult;
+use RoundlyConsulting\Purchases\Testing\FakeResult;
+
+/**
+ * A provider stub that returns a pre-built result for any request.
+ */
+function fakeProvider(GenericResult $result): Provider
+{
+    return new class($result) implements Provider
+    {
+        public function __construct(private readonly GenericResult $result) {}
+
+        public function id(): string
+        {
+            return $this->result->provider();
+        }
+
+        public function notification(Request $request): mixed
+        {
+            return $this->result;
+        }
+
+        public function callback(Request $request): mixed
+        {
+            return $this->result;
+        }
+
+        public function result(Request $request): GenericResult
+        {
+            return $this->result;
+        }
+    };
+}
+
+function managerFor(GenericResult $result): Purchases
+{
+    $resolver = Mockery::mock(Resolver::class);
+    $resolver->shouldReceive('resolve')->andReturn(fakeProvider($result));
+
+    return new Purchases($resolver);
+}
+
+it('records a raw notification snapshot before reducing it', function (): void {
+    $result = FakeResult::purchase('stripe', 'pi_audit');
+
+    $notification = app(RecordProviderNotificationAction::class)->execute($result);
+
+    expect($notification)->toBeInstanceOf(PurchaseNotification::class)
+        ->and($notification?->provider)->toBe('stripe')
+        ->and($notification?->signature_verified)->toBeTrue()
+        ->and($notification?->processed_at)->toBeNull()
+        ->and($notification?->payload->get('provider_id'))->toBe('pi_audit');
+});
+
+it('skips the audit log when auditing is disabled', function (): void {
+    config()->set('purchases.audit.enabled', false);
+
+    $notification = app(RecordProviderNotificationAction::class)->execute(FakeResult::purchase());
+
+    expect($notification)->toBeNull();
+});
+
+it('records synchronously and marks the audit row processed', function (): void {
+    $manager = managerFor(FakeResult::purchase('stripe', 'pi_sync'));
+
+    $model = $manager->handle('stripe', Request::create('/'));
+
+    expect($model)->toBeInstanceOf(Purchase::class)
+        ->and(Purchase::query()->count())->toBe(1)
+        ->and(PurchaseNotification::query()->first()?->processed_at)->not->toBeNull();
+});
+
+it('queues persistence and returns the audit notification when queueing is enabled', function (): void {
+    Queue::fake();
+    config()->set('purchases.queue.enabled', true);
+
+    $manager = managerFor(FakeResult::purchase('stripe', 'pi_queued'));
+
+    $model = $manager->handle('stripe', Request::create('/'));
+
+    expect($model)->toBeInstanceOf(PurchaseNotification::class)
+        ->and(Purchase::query()->count())->toBe(0);
+
+    Queue::assertPushed(ProcessProviderNotification::class);
+});
+
+it('persists the result when the queued job runs', function (): void {
+    $notification = PurchaseNotification::factory()->create();
+
+    $job = new ProcessProviderNotification(FakeResult::subscription('stripe', 'sub_q'), $notification->getKey());
+    $job->handle(app(SyncProviderResultAction::class));
+
+    expect($notification->refresh()->processed_at)->not->toBeNull();
+});
+
+it('returns a transient notification when auditing is off but queueing is on', function (): void {
+    Queue::fake();
+    config()->set('purchases.audit.enabled', false);
+    config()->set('purchases.queue.enabled', true);
+
+    $manager = managerFor(FakeResult::purchase('stripe', 'pi_transient'));
+
+    $model = $manager->handle('stripe', Request::create('/'));
+
+    expect($model)->toBeInstanceOf(PurchaseNotification::class)
+        ->and($model->exists)->toBeFalse();
+
+    Queue::assertPushed(ProcessProviderNotification::class);
+});
