@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Apple\Enums;
 
+use RoundlyConsulting\Purchases\Enum\Status;
+
 enum NotificationType: string
 {
     case TypeConsumptionRequest = 'CONSUMPTION_REQUEST';
@@ -21,4 +23,24 @@ enum NotificationType: string
     case TypeRevoke = 'REVOKE';
     case TypeSubscribed = 'SUBSCRIBED';
     case TypeTest = 'TEST';
+
+    /**
+     * Map an App Store notification type onto the package's normalized status.
+     */
+    public function status(): Status
+    {
+        return match ($this) {
+            self::TypeSubscribed,
+            self::TypeDidRenew,
+            self::TypeOfferRedeemed,
+            self::TypeRenewalExtended => Status::Completed,
+            self::TypeDidFailToRenew,
+            self::TypeRefundDeclined => Status::Failed,
+            self::TypeExpired,
+            self::TypeGracePeriodExpired => Status::Failed,
+            self::TypeRefund,
+            self::TypeRevoke => Status::Canceled,
+            default => Status::Processing,
+        };
+    }
 }

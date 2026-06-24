@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Purchases\Providers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 
@@ -24,5 +25,10 @@ abstract class BaseProvider implements Provider
     public function callback(Request $request): mixed
     {
         throw VerificationException::because('No provider verification defined.');
+    }
+
+    public function result(Request $request): ProviderResult
+    {
+        throw VerificationException::because('No provider result mapping defined.');
     }
 }

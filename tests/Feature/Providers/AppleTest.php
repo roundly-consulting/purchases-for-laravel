@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\Environment;
@@ -154,6 +156,61 @@ it('throws when the receipt status is invalid', function (): void {
 
     (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data'));
 })->throws(VerificationException::class);
+
+it('maps a renewal notification into a unified subscription result', function (): void {
+    $jws = fakeJwsMapping([
+        'token' => [
+            'notificationUUID' => 'n-3',
+            'notificationType' => 'DID_RENEW',
+            'subType' => 'BILLING_RECOVERY',
+            'data' => [
+                'appAppleId' => '1',
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Production',
+                'signedTransactionInfo' => 'transaction.jws',
+            ],
+        ],
+        'transaction.jws' => [
+            'environment' => 'Production',
+            'transactionId' => 'txn-9',
+            'originalTransactionId' => 'orig-9',
+            'productId' => 'pro.monthly',
+            'purchaseDate' => 1700000000000,
+            'expiresDate' => 1800000000000,
+        ],
+    ]);
+
+    $result = (new Apple($jws))->result(new Request(['signedPayload' => 'token']));
+
+    expect($result->provider())->toBe('apple')
+        ->and($result->type())->toBe(ResultType::Subscription)
+        ->and($result->providerId())->toBe('orig-9')
+        ->and($result->transactionId())->toBe('txn-9')
+        ->and($result->productId())->toBe('pro.monthly')
+        ->and($result->status())->toBe(Status::Completed)
+        ->and($result->endsAt())->not->toBeNull();
+});
+
+it('maps a notification without transaction info into a notification result', function (): void {
+    $jws = fakeJwsReturning([
+        'notificationUUID' => 'n-4',
+        'notificationType' => 'TEST',
+        'subType' => 'INITIAL_BUY',
+        'data' => [
+            'appAppleId' => '1',
+            'bundleId' => 'com.example.app',
+            'bundleVersion' => '1.0',
+            'environment' => 'Sandbox',
+        ],
+    ]);
+
+    $result = (new Apple($jws))->result(new Request(['signedPayload' => 'token']));
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and($result->providerId())->toBe('n-4')
+        ->and($result->status())->toBe(Status::Processing);
+});
 
 it('targets the live url when not in sandbox mode', function (): void {
     config()->set('purchases.settings.apple', [

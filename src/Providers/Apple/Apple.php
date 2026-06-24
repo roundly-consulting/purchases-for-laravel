@@ -8,11 +8,14 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
+use RoundlyConsulting\Purchases\Results\GenericResult;
 
 class Apple extends BaseProvider
 {
@@ -61,6 +64,38 @@ class Apple extends BaseProvider
         }
 
         return $receipt;
+    }
+
+    public function result(Request $request): ProviderResult
+    {
+        $payload = $this->notification($request);
+
+        $transaction = $payload->transactionInfo;
+        $status = $payload->type->status();
+
+        $providerId = $payload->uuid;
+
+        if ($transaction !== null) {
+            $providerId = $transaction->originalTransactionId
+                ?? $transaction->transactionId
+                ?? $payload->uuid;
+        }
+
+        return new GenericResult(
+            provider: $this->id(),
+            type: $transaction !== null ? ResultType::Subscription : ResultType::Notification,
+            providerId: $providerId,
+            status: $status,
+            transactionId: $transaction?->transactionId,
+            name: $transaction?->productId,
+            productId: $transaction?->productId,
+            price: null,
+            activeFrom: $transaction?->purchaseDate,
+            trialEndsAt: null,
+            endsAt: $transaction?->expiresDate,
+            items: [],
+            raw: $payload->toArray(),
+        );
     }
 
     protected function getBaseUrl(): string
