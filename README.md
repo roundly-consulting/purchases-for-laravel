@@ -339,6 +339,41 @@ $fake->assertSubscriptionStarted('stripe');
 // also: assertPurchaseRecorded(), assertRefundRecorded(), assertHandledCount(), assertNothingHandled()
 ```
 
+## Integrates with
+
+### enums-for-laravel (required)
+
+Purchases builds on [`enums-for-laravel`](https://github.com/roundly-consulting/enums-for-laravel).
+The domain enums `Enum\Status` and `Enum\ResultType` use its `Helpers` trait, so they expose
+select-option and validation ergonomics without any bespoke arrays or language files:
+
+```php
+use RoundlyConsulting\Purchases\Enum\Status;
+
+Status::options();          // list of {value, label, name} option DTOs for select inputs
+Status::toOptions();        // ['completed' => 'Completed', 'in_grace' => 'In Grace', …]
+Status::labels();           // human strings incl. "In Grace" / "On Hold" (no lang files)
+Status::validationRule();   // "in:new,pending,processing,completed,failed,canceled,in_grace,on_hold,refunded"
+
+$status = Status::tryFromLabel('On Hold');   // Status::OnHold
+$status?->isActive();                        // domain entitlement check is unchanged
+```
+
+`Enum\ResultType` gains the same surface (`options()`, `toOptions()`, `validationRule()`, case
+lookups). The ~20 Apple/Google/Stripe provider enums deliberately stay bare — they mirror external
+wire contracts and are mapped internally, never surfaced as user-choosable option sets.
+
+### Host recipes (no dependency added)
+
+These integrations are wired in the host app, not pulled in as requires:
+
+- **shops payment driver** — implement `shops`' payment-driver contract in your app backed by a
+  purchases provider (Stripe/Apple/Google). Same-tier, so it stays a host recipe rather than a
+  package dependency.
+- **credits / campaigns / metrics** — listen to the purchase and refund events purchases dispatches
+  and call `credits` (grant/claw-back), trigger `campaigns` post-purchase flows, or feed a `metrics`
+  sink. Host wiring keeps purchases free of those packages.
+
 ## Testing
 
 ```bash
