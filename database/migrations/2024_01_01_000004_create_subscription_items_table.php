@@ -19,7 +19,9 @@ return new class extends Migration
 
         Schema::create((new $model)->getTable(), function (Blueprint $table) use ($subscription): void {
             $table->id();
-            $table->foreignIdFor($subscription)->constrained((new $subscription)->getTable())->cascadeOnDelete();
+            // Named, not `foreignIdFor($subscription)` — see the purchase_items
+            // migration: the derived column breaks SubscriptionItem::subscription().
+            $table->foreignId('subscription_id')->constrained((new $subscription)->getTable())->cascadeOnDelete();
             $table->string('provider_id')->nullable();
             $table->string('name');
             $table->integer('price')->nullable();

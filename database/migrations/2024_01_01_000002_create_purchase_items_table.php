@@ -19,7 +19,11 @@ return new class extends Migration
 
         Schema::create((new $model)->getTable(), function (Blueprint $table) use ($purchase): void {
             $table->id();
-            $table->foreignIdFor($purchase)->constrained((new $purchase)->getTable())->cascadeOnDelete();
+            // Named, not `foreignIdFor($purchase)`: that derives the column from the
+            // configured class's name, so a host subclass would get a
+            // `custom_purchase_id` column that PurchaseItem::purchase() (which keys
+            // off the relation name) could never find.
+            $table->foreignId('purchase_id')->constrained((new $purchase)->getTable())->cascadeOnDelete();
             $table->string('provider_id')->nullable();
             $table->string('name');
             $table->integer('price')->nullable();

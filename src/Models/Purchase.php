@@ -62,7 +62,10 @@ class Purchase extends Model
         /** @var class-string<PurchaseItem> $item */
         $item = config('purchases.models.purchase-item', PurchaseItem::class);
 
-        return $this->hasMany($item);
+        // The FK is named, never derived: Eloquent would otherwise take it from
+        // THIS class's name, so a host subclass configured at `purchases.models
+        // .purchase` would look for `custom_purchase_id`.
+        return $this->hasMany($item, 'purchase_id');
     }
 
     /** @return HasMany<PurchaseRefund, $this> */
@@ -71,7 +74,7 @@ class Purchase extends Model
         /** @var class-string<PurchaseRefund> $refund */
         $refund = config('purchases.models.purchase-refund', PurchaseRefund::class);
 
-        return $this->hasMany($refund);
+        return $this->hasMany($refund, 'purchase_id');
     }
 
     protected static function newFactory(): PurchaseFactory

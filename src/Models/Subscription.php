@@ -151,7 +151,10 @@ class Subscription extends Model
         /** @var class-string<SubscriptionItem> $item */
         $item = config('purchases.models.subscription-item', SubscriptionItem::class);
 
-        return $this->hasMany($item);
+        // The FK is named, never derived: Eloquent would otherwise take it from
+        // THIS class's name, so a host subclass configured at `purchases.models
+        // .subscription` would look for `custom_subscription_id`.
+        return $this->hasMany($item, 'subscription_id');
     }
 
     protected static function newFactory(): SubscriptionFactory
