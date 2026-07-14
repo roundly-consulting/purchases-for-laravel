@@ -5,18 +5,25 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Stripe;
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Crypto\Hash\ConstantTime;
+use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
+use RoundlyConsulting\Crypto\Hash\Hmac;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use SensitiveParameter;
 
 /**
- * Native Stripe webhook signature verification — implements Stripe's documented
- * HMAC-SHA256 scheme over "{timestamp}.{payload}" with constant-time comparison
- * and a replay tolerance, with no stripe/stripe-php dependency.
+ * Stripe webhook signature verification — Stripe's documented HMAC-SHA256 scheme
+ * over "{timestamp}.{payload}", compared in constant time within a replay
+ * tolerance. The scheme framing lives here; the HMAC itself is crypto's.
  *
  * @link https://docs.stripe.com/webhooks#verify-manually
  */
 final class WebhookSignature
 {
+    public function __construct(
+        private readonly Hmac $hmac = new Hmac(HashAlgorithm::Sha256),
+    ) {}
+
     /**
      * Verify a raw request body against the Stripe-Signature header.
      *
@@ -52,12 +59,14 @@ final class WebhookSignature
             throw VerificationException::because('Malformed Stripe-Signature header.');
         }
 
-        $expected = hash_hmac('sha256', "{$timestamp}.{$payload}", $secret);
+        // Stripe signs the literal "{timestamp}.{payload}" and publishes the
+        // lower-case hex digest in each `v1=` entry.
+        $expected = $this->hmac->signHex("{$timestamp}.{$payload}", $secret);
 
         $matched = false;
 
         foreach ($signatures as $signature) {
-            if (hash_equals($expected, $signature)) {
+            if (ConstantTime::equals($expected, $signature)) {
                 $matched = true;
                 break;
             }
