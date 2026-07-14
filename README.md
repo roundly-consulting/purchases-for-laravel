@@ -27,7 +27,8 @@ verification for every provider — built only on Laravel's HTTP client and our 
 composer require roundly-consulting/purchases-for-laravel
 ```
 
-Publish and run the migrations:
+Publish and run the migrations. They are **publish-only** — the package never auto-loads
+them, so a bare `php artisan migrate` will not create its tables until you publish:
 
 ```bash
 php artisan vendor:publish --tag="purchases-migrations"

@@ -51,7 +51,9 @@ return [
      | registers POST {prefix}/webhooks/{provider} routes that verify and persist.
      */
     'routes' => [
-        'enabled' => env('PURCHASES_ROUTES_ENABLED', false),
+        // Cast so a `0`/`1`-style env still reads as a strict boolean — the route
+        // gate is a strict `!== false` check.
+        'enabled' => (bool) env('PURCHASES_ROUTES_ENABLED', false),
         'prefix' => env('PURCHASES_ROUTES_PREFIX', 'purchases'),
         'middleware' => ['api'],
     ],
