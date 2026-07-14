@@ -15,6 +15,7 @@ use RoundlyConsulting\Purchases\Providers\Google\Enums\PurchaseState;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
+use RoundlyConsulting\Purchases\Testing\PayloadFactory;
 
 function googleProvider(bool $acknowledge = true): Google
 {
@@ -241,9 +242,47 @@ it('decodes an RTDN one-time and voided and test notification', function (): voi
         ->and($notification->isTest)->toBeTrue();
 });
 
+it('decodes pub/sub data carrying the standard base64 alphabet', function (): void {
+    // Cloud Pub/Sub delivers padded standard base64 — `+` and `/` and all. This
+    // is wire format, not a signature, and must keep decoding after the crypto
+    // retrofit (a strict base64url-only decoder would reject it).
+    $notification = [
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'subscriptionNotification' => [
+            'version' => '1.0',
+            'notificationType' => 2,
+            'purchaseToken' => 'a+b/c??>>>~~~',
+            'subscriptionId' => 'pro.monthly',
+        ],
+    ];
+
+    $payload = base64_encode((string) json_encode($notification));
+
+    expect($payload)->toContain('+')
+        ->and($payload)->toContain('/')
+        ->and($payload)->toEndWith('=');
+
+    $decoded = googleProvider()->notification(new Request(['message' => ['data' => $payload]]));
+
+    expect($decoded->subscriptionNotification?->purchaseToken)->toBe('a+b/c??>>>~~~');
+});
+
+it('decodes pub/sub data carrying the url-safe base64 alphabet', function (): void {
+    $envelope = PayloadFactory::googleEnvelope(PayloadFactory::googleSubscriptionNotification(2, 'tok-url'));
+
+    $decoded = googleProvider()->notification(new Request($envelope));
+
+    expect($decoded->subscriptionNotification?->purchaseToken)->toBe('tok-url');
+});
+
 it('throws on a missing pub/sub message', function (): void {
     googleProvider()->notification(new Request);
 })->throws(VerificationException::class);
+
+it('throws on pub/sub data that is not base64 at all', function (): void {
+    googleProvider()->notification(new Request(['message' => ['data' => 'not base64 %%%']]));
+})->throws(VerificationException::class, 'Malformed Google developer notification payload.');
 
 it('throws on a malformed pub/sub payload', function (): void {
     $payload = base64_encode('"not an object"');

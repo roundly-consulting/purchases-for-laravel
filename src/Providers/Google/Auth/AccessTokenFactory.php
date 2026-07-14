@@ -7,18 +7,27 @@ namespace RoundlyConsulting\Purchases\Providers\Google\Auth;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Jose\Jws;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Crypto\Signature\Rs;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
-use RoundlyConsulting\Purchases\Support\Base64Url;
 
 /**
- * Mints (and caches) Google OAuth2 access tokens using the JWT-bearer grant,
- * built natively on ext-openssl and Laravel's Http client — no google/apiclient.
+ * Mints (and caches) Google OAuth2 access tokens using the JWT-bearer grant.
+ *
+ * The grant, the scope, and the caching are ours; the RS256 JWS assertion is
+ * crypto's.
  */
 class AccessTokenFactory
 {
     private const SCOPE = 'https://www.googleapis.com/auth/androidpublisher';
 
     private const CACHE_KEY = 'purchases:google:token';
+
+    public function __construct(
+        private readonly Jws $jws = new Jws,
+    ) {}
 
     public function token(ServiceAccountCredentials $credentials): string
     {
@@ -54,29 +63,21 @@ class AccessTokenFactory
     {
         $issuedAt = Carbon::now()->getTimestamp();
 
-        $header = Base64Url::encode((string) json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
-        $claims = Base64Url::encode((string) json_encode([
-            'iss' => $credentials->clientEmail,
-            'scope' => self::SCOPE,
-            'aud' => $credentials->tokenUri,
-            'iat' => $issuedAt,
-            'exp' => $issuedAt + 3600,
-        ]));
-
-        $signingInput = $header.'.'.$claims;
-        $signature = '';
-
-        $key = openssl_pkey_get_private($credentials->privateKey);
-
-        if ($key === false) {
-            throw VerificationException::because('Invalid Google service-account private key.');
+        try {
+            return $this->jws->sign(
+                [],
+                [
+                    'iss' => $credentials->clientEmail,
+                    'scope' => self::SCOPE,
+                    'aud' => $credentials->tokenUri,
+                    'iat' => $issuedAt,
+                    'exp' => $issuedAt + 3600,
+                ],
+                new Rs(RsaKey::private($credentials->privateKey)),
+            );
+        } catch (CryptoException $e) {
+            throw new VerificationException('Invalid Google service-account private key.', previous: $e);
         }
-
-        if (! openssl_sign($signingInput, $signature, $key, OPENSSL_ALGO_SHA256)) {
-            throw VerificationException::because('Failed to sign the Google JWT assertion.');
-        }
-
-        return $signingInput.'.'.Base64Url::encode($signature);
     }
 
     private function ttl(): int

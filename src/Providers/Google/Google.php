@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Google;
 
 use Illuminate\Http\Request;
+use RoundlyConsulting\Crypto\Codec\Base64;
+use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Codec\InvalidEncodingException;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
 use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
@@ -17,7 +20,6 @@ use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\DeveloperNotificat
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\ProductPurchase;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
 use RoundlyConsulting\Purchases\Results\GenericResult;
-use RoundlyConsulting\Purchases\Support\Base64Url;
 use Throwable;
 
 class Google extends BaseProvider implements VerifiesConnectivity
@@ -104,7 +106,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
             throw VerificationException::because('Missing Google Pub/Sub message data.');
         }
 
-        $decoded = json_decode(Base64Url::decode($data), true);
+        $decoded = json_decode($this->decodeMessageData($data), true);
 
         if (! is_array($decoded)) {
             throw VerificationException::because('Malformed Google developer notification payload.');
@@ -112,6 +114,30 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
         /** @var array<string, mixed> $decoded */
         return DeveloperNotification::fromRaw($decoded);
+    }
+
+    /**
+     * Decode a Pub/Sub `message.data` body.
+     *
+     * This is wire format, not a signature: Cloud Pub/Sub delivers the payload as
+     * padded standard base64, so that is tried first, with the URL-safe alphabet
+     * as a fallback for hosts (and our own PayloadFactory) that forward the
+     * envelope base64url-encoded. Both codecs are strict — a value outside either
+     * alphabet is rejected rather than silently decoding to different bytes.
+     */
+    private function decodeMessageData(string $data): string
+    {
+        try {
+            return Base64::decode($data);
+        } catch (InvalidEncodingException) {
+            //
+        }
+
+        try {
+            return Base64Url::decode($data);
+        } catch (InvalidEncodingException $e) {
+            throw new VerificationException('Malformed Google developer notification payload.', previous: $e);
+        }
     }
 
     /**
