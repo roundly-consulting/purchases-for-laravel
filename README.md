@@ -11,15 +11,16 @@
 A unified in-app-purchase and payments toolkit for Laravel: one API for **Apple App Store**,
 **Google Play**, and **Stripe** purchases and subscriptions. The package ships Eloquent models
 for purchases, purchase items, subscriptions, and subscription items, a pluggable provider
-abstraction with a shared result contract, persistence actions, lifecycle events, and native,
-dependency-free verification for every provider — built only on Laravel's HTTP client and
-`ext-openssl` (no `stripe/stripe-php`, no `google/apiclient`, no third-party SDKs).
+abstraction with a shared result contract, persistence actions, lifecycle events, and native
+verification for every provider — built only on Laravel's HTTP client, our own
+[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel), and `ext-openssl`
+(no `stripe/stripe-php`, no `google/apiclient`, no third-party SDKs).
 
 ## Requirements
 
 - PHP 8.4+
 - Laravel 12 or 13
-- The `openssl` PHP extension (used to verify signed payloads and mint provider tokens)
+- The `openssl` PHP extension (used for Apple's X.509 certificate-chain trust)
 
 ## Installation
 
@@ -340,6 +341,26 @@ $fake->assertSubscriptionStarted('stripe');
 ```
 
 ## Integrates with
+
+### crypto-for-laravel (required)
+
+Every cryptographic primitive purchases needs comes from
+[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel) — the package
+hand-rolls no algorithm of its own:
+
+| Provider | What crypto does | What purchases keeps |
+|---|---|---|
+| **Stripe** | HMAC-SHA256 (`Hash\Hmac`) + constant-time compare (`Hash\ConstantTime`) | the `t=`/`v1=` scheme framing and the replay-tolerance window |
+| **Apple** | ES256 JWS verify + sign (`Jose\Jws`, `Signature\Es`, `Signature\Key\EcKey`), incl. the DER ↔ raw `r‖s` conversion | **the certificate-chain trust decision** — the `x5c` chain is pinned to Apple's published WWDR intermediate and G3 root by fingerprint, and each link is proven to have signed the one below it |
+| **Google** | RS256 JWS assertion (`Jose\Jws`, `Signature\Rs`, `Signature\Key\RsaKey`) | the JWT-bearer grant, scope, and token caching |
+
+The split is deliberate: **crypto owns algorithms, purchases owns trust**. Apple's pinned
+fingerprints are what stop a forged App Store notification, so they stay here, next to the
+notification handling they protect.
+
+Crypto is zero-config — purchases builds every signer and verifier from its **own**
+`config/purchases.php` (Apple key/issuer/kid, Google service-account credentials, Stripe webhook
+secret). No env key changed; there is nothing extra to publish.
 
 ### enums-for-laravel (required)
 
