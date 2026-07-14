@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Testing;
 
-use RoundlyConsulting\Purchases\Support\Base64Url;
+use RoundlyConsulting\Crypto\Codec\Base64Url;
 
 /**
  * Builds raw, provider-shaped webhook payloads for tests. These mirror the JSON

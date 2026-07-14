@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\Purchases\Support\Base64Url;
+use RoundlyConsulting\Crypto\Codec\Base64Url;
 use RoundlyConsulting\Purchases\Testing\PayloadFactory;
 
 it('builds an apple notification payload', function (): void {
