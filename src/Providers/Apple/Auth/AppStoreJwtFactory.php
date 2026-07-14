@@ -5,19 +5,31 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Apple\Auth;
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Jose\Jws;
+use RoundlyConsulting\Crypto\Signature\Es;
+use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
-use RoundlyConsulting\Purchases\Support\Base64Url;
-use RoundlyConsulting\Purchases\Support\EcdsaSignature;
 use SensitiveParameter;
 
 /**
  * Builds and signs the ES256 JWT used to authenticate App Store Server API calls.
+ *
+ * Apple's claim set and the `kid` header are ours; the ES256 JWS (including the
+ * DER → raw `r‖s` signature encoding JOSE requires) is crypto's.
  *
  * @link https://developer.apple.com/documentation/appstoreserverapi/generating_json_web_tokens_for_api_requests
  */
 final class AppStoreJwtFactory
 {
     private const AUDIENCE = 'appstoreconnect-v1';
+
+    /** Apple rejects tokens older than 60 minutes; 20 leaves generous headroom. */
+    private const LIFETIME = 1200;
+
+    public function __construct(
+        private readonly Jws $jws = new Jws,
+    ) {}
 
     public function create(
         string $keyId,
@@ -27,34 +39,20 @@ final class AppStoreJwtFactory
     ): string {
         $issuedAt = Carbon::now()->getTimestamp();
 
-        $header = Base64Url::encode((string) json_encode([
-            'alg' => 'ES256',
-            'kid' => $keyId,
-            'typ' => 'JWT',
-        ]));
-
-        $claims = Base64Url::encode((string) json_encode([
-            'iss' => $issuerId,
-            'iat' => $issuedAt,
-            'exp' => $issuedAt + 1200,
-            'aud' => self::AUDIENCE,
-            'bid' => $bundleId,
-        ]));
-
-        $signingInput = $header.'.'.$claims;
-
-        $key = openssl_pkey_get_private($privateKey);
-
-        if ($key === false) {
-            throw VerificationException::because('Invalid App Store Server API private key.');
+        try {
+            return $this->jws->sign(
+                ['kid' => $keyId],
+                [
+                    'iss' => $issuerId,
+                    'iat' => $issuedAt,
+                    'exp' => $issuedAt + self::LIFETIME,
+                    'aud' => self::AUDIENCE,
+                    'bid' => $bundleId,
+                ],
+                new Es(EcKey::private($privateKey)),
+            );
+        } catch (CryptoException $e) {
+            throw new VerificationException('Invalid App Store Server API private key.', previous: $e);
         }
-
-        $der = '';
-
-        if (! openssl_sign($signingInput, $der, $key, OPENSSL_ALGO_SHA256)) {
-            throw VerificationException::because('Failed to sign the App Store Server API token.');
-        }
-
-        return $signingInput.'.'.Base64Url::encode(EcdsaSignature::fromDer($der));
     }
 }

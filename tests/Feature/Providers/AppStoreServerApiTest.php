@@ -3,27 +3,24 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Jose\Jws;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Es;
+use RoundlyConsulting\Crypto\Signature\InvalidSignatureException;
+use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\AppStoreServerApi;
 use RoundlyConsulting\Purchases\Providers\Apple\Auth\AppStoreJwtFactory;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
-use RoundlyConsulting\Purchases\Support\Base64Url;
-use RoundlyConsulting\Purchases\Support\EcdsaSignature;
 
 function ecKey(): string
 {
     static $key = null;
 
-    if ($key === null) {
-        $resource = openssl_pkey_new([
-            'private_key_type' => OPENSSL_KEYTYPE_EC,
-            'curve_name' => 'prime256v1',
-            'private_key_bits' => 384,
-        ]);
-        openssl_pkey_export($resource, $key);
-    }
+    $key ??= privatePem(generateEcKey());
 
     return $key;
 }
@@ -39,7 +36,7 @@ function fakeJws(array $claims): JwsManager
 
         public function parse(string $payload): DecodedToken
         {
-            return new DecodedToken(['alg' => 'ES256'], $this->claims, 'in', 'sig');
+            return new DecodedToken(['alg' => 'ES256'], $this->claims, $payload);
         }
     };
 }
@@ -64,23 +61,40 @@ function configureAppleApi(bool $sandbox = true): void
 it('builds a verifiable es256 app store token', function (): void {
     $token = (new AppStoreJwtFactory)->create('KEY123', 'issuer-1', 'com.example.app', ecKey());
 
-    [$header, $claims, $signature] = explode('.', $token);
+    // Verify exactly as Apple would: ES256, pinned, against the public half of
+    // the App Store Server API key. The signature must be the raw r‖s form JOSE
+    // mandates — a DER blob here would not verify.
+    $key = EcKey::private(ecKey());
+    $claims = (new Jws)->verify($token, new Es(EcKey::public($key->publicPem())), Algorithm::ES256);
 
-    $der = EcdsaSignature::toDer(Base64Url::decode($signature));
-    $details = openssl_pkey_get_details(openssl_pkey_get_private(ecKey()));
+    [$header, , $signature] = explode('.', $token);
 
-    $valid = openssl_verify("{$header}.{$claims}", $der, $details['key'], OPENSSL_ALGO_SHA256);
-    $decodedClaims = json_decode(Base64Url::decode($claims), true);
-
-    expect($valid)->toBe(1)
-        ->and($decodedClaims['iss'])->toBe('issuer-1')
-        ->and($decodedClaims['aud'])->toBe('appstoreconnect-v1')
-        ->and($decodedClaims['bid'])->toBe('com.example.app');
+    expect(json_decode(Base64Url::decode($header), true))
+        ->toMatchArray(['alg' => 'ES256', 'kid' => 'KEY123', 'typ' => 'JWT'])
+        ->and(strlen(Base64Url::decode($signature)))->toBe(64)
+        ->and($claims->string('iss'))->toBe('issuer-1')
+        ->and($claims->string('aud'))->toBe('appstoreconnect-v1')
+        ->and($claims->string('bid'))->toBe('com.example.app')
+        ->and($claims->int('exp') - $claims->int('iat'))->toBe(1200);
 });
+
+it('rejects an app store token verified against an unrelated key', function (): void {
+    $token = (new AppStoreJwtFactory)->create('KEY123', 'issuer-1', 'com.example.app', ecKey());
+
+    $other = EcKey::private(privatePem(generateEcKey()));
+
+    (new Jws)->verify($token, new Es(EcKey::public($other->publicPem())), Algorithm::ES256);
+})->throws(InvalidSignatureException::class);
 
 it('throws when signing with an invalid key', function (): void {
     (new AppStoreJwtFactory)->create('KEY', 'iss', 'bid', 'not-a-key');
-})->throws(VerificationException::class);
+})->throws(VerificationException::class, 'Invalid App Store Server API private key.');
+
+it('throws when signing with an rsa key instead of an ec key', function (): void {
+    [$rsaPrivate] = rsaKeyPair();
+
+    (new AppStoreJwtFactory)->create('KEY', 'iss', 'bid', $rsaPrivate);
+})->throws(VerificationException::class, 'Invalid App Store Server API private key.');
 
 it('looks up a transaction and decodes the signed payload', function (): void {
     configureAppleApi();

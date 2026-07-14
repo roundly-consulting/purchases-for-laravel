@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Crypto\Codec\Base64Url;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
-use RoundlyConsulting\Purchases\Support\Base64Url;
 
 /**
  * @param  array<string, mixed>  $header
@@ -19,17 +19,19 @@ function makeJws(array $header, array $claims, string $signature = 'sig'): strin
         .'.'.Base64Url::encode($signature);
 }
 
-it('parses a well-formed ES256 token into header, claims and signature', function (): void {
-    $token = (new JwsManager)->parse(makeJws(
+it('parses a well-formed ES256 token into header, claims and the compact token', function (): void {
+    $compact = makeJws(
         ['alg' => 'ES256', 'x5c' => ['a', 'b', 'c']],
         ['notificationUUID' => 'uuid-1', 'foo' => 'bar'],
         'raw-signature',
-    ));
+    );
+
+    $token = (new JwsManager)->parse($compact);
 
     expect($token)->toBeInstanceOf(DecodedToken::class)
         ->and($token->header['alg'])->toBe('ES256')
         ->and($token->claims)->toBe(['notificationUUID' => 'uuid-1', 'foo' => 'bar'])
-        ->and($token->signature)->toBe('raw-signature')
+        ->and($token->compact)->toBe($compact)
         ->and($token->certificateChain())->toBe(['a', 'b', 'c']);
 });
 
@@ -46,6 +48,23 @@ it('rejects a payload that does not have three segments', function (): void {
 it('rejects an unsupported algorithm', function (): void {
     (new JwsManager)->parse(makeJws(['alg' => 'RS256'], ['a' => 1]));
 })->throws(VerificationException::class, 'Unsupported JWS algorithm; only ES256 is supported.');
+
+it('rejects an alg-none token', function (): void {
+    (new JwsManager)->parse(makeJws(['alg' => 'none'], ['a' => 1], ''));
+})->throws(VerificationException::class, 'Unsupported JWS algorithm; only ES256 is supported.');
+
+it('rejects a token carrying no alg header at all', function (): void {
+    (new JwsManager)->parse(makeJws([], ['a' => 1]));
+})->throws(VerificationException::class, 'Unsupported JWS algorithm; only ES256 is supported.');
+
+it('rejects a segment that is not valid base64url', function (): void {
+    (new JwsManager)->parse('not base64!.'.Base64Url::encode('{}').'.'.Base64Url::encode('sig'));
+})->throws(VerificationException::class, 'Invalid base64url segment.');
+
+it('rejects a segment carrying stray base64 padding', function (): void {
+    // The deleted local codec repadded and accepted this; the strict codec rejects it.
+    (new JwsManager)->parse('eyJhbGciOiJFUzI1NiJ9=.'.Base64Url::encode('{}').'.'.Base64Url::encode('sig'));
+})->throws(VerificationException::class, 'Invalid base64url segment.');
 
 it('rejects a header that is not a json object', function (): void {
     $payload = Base64Url::encode('"a string"')

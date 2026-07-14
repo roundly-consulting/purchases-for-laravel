@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Apple\Jws;
 
+use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Codec\InvalidEncodingException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
-use RoundlyConsulting\Purchases\Support\Base64Url;
 
 /**
- * Parses and verifies Apple App Store Server JWS (signed) payloads natively,
- * using ext-openssl only — no third-party JWT dependency.
+ * Parses Apple App Store Server JWS (signed) payloads and hands them to the
+ * verifier.
+ *
+ * Parsing reads only what is needed to *find* the signing certificate: the
+ * protected header (for `x5c`) and the claims. None of it is trusted until
+ * {@see JwsVerifier} has validated Apple's certificate chain and the ES256
+ * signature over the untouched compact token.
  */
 class JwsManager
 {
@@ -20,7 +26,7 @@ class JwsManager
     ) {}
 
     /**
-     * Decode a JWS compact serialization into its header, claims, and signature.
+     * Decode a JWS compact serialization into its header and claims.
      */
     public function parse(string $payload): DecodedToken
     {
@@ -30,7 +36,7 @@ class JwsManager
             throw VerificationException::because('Malformed JWS payload; expected three segments.');
         }
 
-        [$encodedHeader, $encodedClaims, $encodedSignature] = $segments;
+        [$encodedHeader, $encodedClaims] = $segments;
 
         $header = $this->decodeJsonSegment($encodedHeader, 'header');
         $claims = $this->decodeJsonSegment($encodedClaims, 'payload');
@@ -44,8 +50,7 @@ class JwsManager
         return new DecodedToken(
             header: $header,
             claims: $claims,
-            signingInput: $encodedHeader.'.'.$encodedClaims,
-            signature: Base64Url::decode($encodedSignature),
+            compact: $payload,
         );
     }
 
@@ -66,7 +71,13 @@ class JwsManager
      */
     private function decodeJsonSegment(string $segment, string $label): array
     {
-        $decoded = json_decode(Base64Url::decode($segment), true);
+        try {
+            $json = Base64Url::decode($segment);
+        } catch (InvalidEncodingException $e) {
+            throw new VerificationException('Invalid base64url segment.', previous: $e);
+        }
+
+        $decoded = json_decode($json, true);
 
         if (! is_array($decoded)) {
             throw VerificationException::because("Malformed JWS {$label}; expected a JSON object.");

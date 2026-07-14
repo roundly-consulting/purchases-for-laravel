@@ -33,8 +33,7 @@ function fakeJwsMapping(array $map): JwsManager
             return new DecodedToken(
                 header: ['alg' => 'ES256'],
                 claims: $this->map[$payload] ?? [],
-                signingInput: 'input',
-                signature: 'sig',
+                compact: $payload,
             );
         }
     };

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Apple\Jws;
 
 /**
- * A parsed (but not necessarily verified) JWS compact token.
+ * A parsed (but not yet verified) JWS compact token.
  *
- * Holds the decoded protected header and payload claims along with the exact
- * signing input and raw signature bytes needed to verify the ES256 signature.
+ * Holds the decoded protected header and payload claims plus the original
+ * compact serialization. The header is what selects the signing certificate
+ * (`x5c`); the compact form is what the signature is verified over, so the
+ * bytes that are checked are always the bytes that arrived.
  */
 final readonly class DecodedToken
 {
@@ -19,8 +21,7 @@ final readonly class DecodedToken
     public function __construct(
         public array $header,
         public array $claims,
-        public string $signingInput,
-        public string $signature,
+        public string $compact,
     ) {}
 
     /**
