@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Purchases\Concerns\HasPrice;
 use RoundlyConsulting\Purchases\Database\Factories\SubscriptionItemFactory;
+use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
@@ -37,10 +38,7 @@ class SubscriptionItem extends Model
     /** @return BelongsTo<Subscription, $this> */
     public function subscription(): BelongsTo
     {
-        /** @var class-string<Subscription> $subscription */
-        $subscription = config('purchases.models.subscription', Subscription::class);
-
-        return $this->belongsTo($subscription);
+        return $this->belongsTo(SubscriptionModel::class(), 'subscription_id');
     }
 
     protected static function newFactory(): SubscriptionItemFactory

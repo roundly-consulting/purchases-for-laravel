@@ -6,7 +6,8 @@ namespace RoundlyConsulting\Purchases\Actions;
 
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordSubscriptionData;
 use RoundlyConsulting\Purchases\Models\Subscription;
-use RoundlyConsulting\Purchases\Models\SubscriptionItem;
+use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
+use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
 /**
  * Idempotently records a provider subscription, keyed on provider + provider_id,
@@ -16,9 +17,6 @@ final class RecordSubscriptionAction
 {
     public function execute(RecordSubscriptionData $data): Subscription
     {
-        /** @var class-string<Subscription> $model */
-        $model = config('purchases.models.subscription', Subscription::class);
-
         $attributes = [
             'name' => $data->name,
             'status' => $data->status,
@@ -35,7 +33,7 @@ final class RecordSubscriptionAction
         }
 
         /** @var Subscription $subscription */
-        $subscription = $model::query()->updateOrCreate(
+        $subscription = SubscriptionModel::query()->updateOrCreate(
             ['provider' => $data->provider, 'provider_id' => $data->providerId],
             $attributes,
         );
@@ -51,8 +49,7 @@ final class RecordSubscriptionAction
             return;
         }
 
-        /** @var class-string<SubscriptionItem> $itemModel */
-        $itemModel = config('purchases.models.subscription-item', SubscriptionItem::class);
+        $itemModel = SubscriptionItemModel::class();
 
         $subscription->items()->delete();
 

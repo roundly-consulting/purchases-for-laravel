@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Purchases\Actions;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
+use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 
 /**
  * Persists a verified notification snapshot to the audit log before it is reduced
@@ -21,11 +22,8 @@ final class RecordProviderNotificationAction
             return null;
         }
 
-        /** @var class-string<PurchaseNotification> $model */
-        $model = config('purchases.models.purchase-notification', PurchaseNotification::class);
-
         /** @var PurchaseNotification $notification */
-        $notification = $model::query()->create([
+        $notification = PurchaseNotificationModel::query()->create([
             'provider' => $result->provider(),
             'type' => $result->type()->value,
             'signature_verified' => true,

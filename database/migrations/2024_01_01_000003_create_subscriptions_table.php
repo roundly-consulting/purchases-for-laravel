@@ -6,16 +6,13 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        /** @var class-string<Subscription> $model */
-        $model = config('purchases.models.subscription', Subscription::class);
-
-        Schema::create((new $model)->getTable(), function (Blueprint $table): void {
+        Schema::create(SubscriptionModel::new()->getTable(), function (Blueprint $table): void {
             $table->id();
             $table->nullableMorphs('owner');
             $table->string('provider')->nullable();

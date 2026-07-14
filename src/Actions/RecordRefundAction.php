@@ -8,6 +8,8 @@ use RoundlyConsulting\Purchases\DataTransferObjects\RecordRefundData;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
+use RoundlyConsulting\Purchases\Support\PurchaseModel;
+use RoundlyConsulting\Purchases\Support\PurchaseRefundModel;
 
 /**
  * Idempotently records a refund / chargeback, links it to the originating
@@ -18,9 +20,6 @@ final class RecordRefundAction
     public function execute(RecordRefundData $data): PurchaseRefund
     {
         $purchase = $this->relatedPurchase($data);
-
-        /** @var class-string<PurchaseRefund> $model */
-        $model = config('purchases.models.purchase-refund', PurchaseRefund::class);
 
         $attributes = [
             'purchase_id' => $purchase?->getKey(),
@@ -37,7 +36,7 @@ final class RecordRefundAction
         }
 
         /** @var PurchaseRefund $refund */
-        $refund = $model::query()->updateOrCreate(
+        $refund = PurchaseRefundModel::query()->updateOrCreate(
             ['provider' => $data->provider, 'provider_id' => $data->providerId],
             $attributes,
         );
@@ -49,10 +48,7 @@ final class RecordRefundAction
 
     private function relatedPurchase(RecordRefundData $data): ?Purchase
     {
-        /** @var class-string<Purchase> $model */
-        $model = config('purchases.models.purchase', Purchase::class);
-
-        $query = $model::query()->where('provider', $data->provider);
+        $query = PurchaseModel::query()->where('provider', $data->provider);
 
         if ($data->transactionId !== null) {
             $match = (clone $query)

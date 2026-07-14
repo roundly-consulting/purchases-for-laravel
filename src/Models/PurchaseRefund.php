@@ -14,6 +14,7 @@ use Illuminate\Support\Collection;
 use RoundlyConsulting\Purchases\Concerns\HasPrice;
 use RoundlyConsulting\Purchases\Concerns\HasProviderScopes;
 use RoundlyConsulting\Purchases\Database\Factories\PurchaseRefundFactory;
+use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
@@ -56,10 +57,7 @@ class PurchaseRefund extends Model
     /** @return BelongsTo<Purchase, $this> */
     public function purchase(): BelongsTo
     {
-        /** @var class-string<Purchase> $purchase */
-        $purchase = config('purchases.models.purchase', Purchase::class);
-
-        return $this->belongsTo($purchase);
+        return $this->belongsTo(PurchaseModel::class(), 'purchase_id');
     }
 
     /**

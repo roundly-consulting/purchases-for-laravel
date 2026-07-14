@@ -15,6 +15,8 @@ use RoundlyConsulting\Purchases\Concerns\HasPrice;
 use RoundlyConsulting\Purchases\Concerns\HasProviderScopes;
 use RoundlyConsulting\Purchases\Database\Factories\PurchaseFactory;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Support\PurchaseItemModel;
+use RoundlyConsulting\Purchases\Support\PurchaseRefundModel;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
@@ -59,22 +61,16 @@ class Purchase extends Model
     /** @return HasMany<PurchaseItem, $this> */
     public function items(): HasMany
     {
-        /** @var class-string<PurchaseItem> $item */
-        $item = config('purchases.models.purchase-item', PurchaseItem::class);
-
         // The FK is named, never derived: Eloquent would otherwise take it from
         // THIS class's name, so a host subclass configured at `purchases.models
         // .purchase` would look for `custom_purchase_id`.
-        return $this->hasMany($item, 'purchase_id');
+        return $this->hasMany(PurchaseItemModel::class(), 'purchase_id');
     }
 
     /** @return HasMany<PurchaseRefund, $this> */
     public function refunds(): HasMany
     {
-        /** @var class-string<PurchaseRefund> $refund */
-        $refund = config('purchases.models.purchase-refund', PurchaseRefund::class);
-
-        return $this->hasMany($refund, 'purchase_id');
+        return $this->hasMany(PurchaseRefundModel::class(), 'purchase_id');
     }
 
     protected static function newFactory(): PurchaseFactory

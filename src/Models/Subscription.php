@@ -17,6 +17,7 @@ use RoundlyConsulting\Purchases\Concerns\HasPrice;
 use RoundlyConsulting\Purchases\Concerns\HasProviderScopes;
 use RoundlyConsulting\Purchases\Database\Factories\SubscriptionFactory;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
@@ -148,13 +149,10 @@ class Subscription extends Model
     /** @return HasMany<SubscriptionItem, $this> */
     public function items(): HasMany
     {
-        /** @var class-string<SubscriptionItem> $item */
-        $item = config('purchases.models.subscription-item', SubscriptionItem::class);
-
         // The FK is named, never derived: Eloquent would otherwise take it from
         // THIS class's name, so a host subclass configured at `purchases.models
         // .subscription` would look for `custom_subscription_id`.
-        return $this->hasMany($item, 'subscription_id');
+        return $this->hasMany(SubscriptionItemModel::class(), 'subscription_id');
     }
 
     protected static function newFactory(): SubscriptionFactory

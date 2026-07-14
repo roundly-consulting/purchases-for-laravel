@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Support\PurchaseModel;
+use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
 /**
  * Gives an owner model (typically the User) convenient access to its purchases
@@ -20,19 +22,13 @@ trait HasPurchases
     /** @return MorphMany<Purchase, $this> */
     public function purchases(): MorphMany
     {
-        /** @var class-string<Purchase> $model */
-        $model = config('purchases.models.purchase', Purchase::class);
-
-        return $this->morphMany($model, 'owner');
+        return $this->morphMany(PurchaseModel::class(), 'owner');
     }
 
     /** @return MorphMany<Subscription, $this> */
     public function subscriptions(): MorphMany
     {
-        /** @var class-string<Subscription> $model */
-        $model = config('purchases.models.subscription', Subscription::class);
-
-        return $this->morphMany($model, 'owner');
+        return $this->morphMany(SubscriptionModel::class(), 'owner');
     }
 
     /**

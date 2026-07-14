@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Purchases\Concerns\HasPrice;
 use RoundlyConsulting\Purchases\Database\Factories\PurchaseItemFactory;
+use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
@@ -46,10 +47,7 @@ class PurchaseItem extends Model
     /** @return BelongsTo<Purchase, $this> */
     public function purchase(): BelongsTo
     {
-        /** @var class-string<Purchase> $purchase */
-        $purchase = config('purchases.models.purchase', Purchase::class);
-
-        return $this->belongsTo($purchase);
+        return $this->belongsTo(PurchaseModel::class(), 'purchase_id');
     }
 
     protected static function newFactory(): PurchaseItemFactory

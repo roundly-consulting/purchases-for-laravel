@@ -11,6 +11,7 @@ use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
+use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 
 /**
  * Re-runs stored audit notifications through the recording pipeline. Useful for
@@ -26,10 +27,7 @@ final class ReplayCommand extends Command
 
     public function handle(SyncProviderResultAction $sync): int
     {
-        /** @var class-string<PurchaseNotification> $model */
-        $model = config('purchases.models.purchase-notification', PurchaseNotification::class);
-
-        $query = $model::query();
+        $query = PurchaseNotificationModel::query();
 
         $this->applyFilters($query);
 

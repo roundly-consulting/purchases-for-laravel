@@ -6,7 +6,8 @@ namespace RoundlyConsulting\Purchases\Actions;
 
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordPurchaseData;
 use RoundlyConsulting\Purchases\Models\Purchase;
-use RoundlyConsulting\Purchases\Models\PurchaseItem;
+use RoundlyConsulting\Purchases\Support\PurchaseItemModel;
+use RoundlyConsulting\Purchases\Support\PurchaseModel;
 
 /**
  * Idempotently records a provider purchase into the Purchase model, keyed on
@@ -16,9 +17,6 @@ final class RecordPurchaseAction
 {
     public function execute(RecordPurchaseData $data): Purchase
     {
-        /** @var class-string<Purchase> $model */
-        $model = config('purchases.models.purchase', Purchase::class);
-
         $attributes = [
             'status' => $data->status,
             'transaction_id' => $data->transactionId,
@@ -31,7 +29,7 @@ final class RecordPurchaseAction
         }
 
         /** @var Purchase $purchase */
-        $purchase = $model::query()->updateOrCreate(
+        $purchase = PurchaseModel::query()->updateOrCreate(
             ['provider' => $data->provider, 'provider_id' => $data->providerId],
             $attributes,
         );
@@ -47,8 +45,7 @@ final class RecordPurchaseAction
             return;
         }
 
-        /** @var class-string<PurchaseItem> $itemModel */
-        $itemModel = config('purchases.models.purchase-item', PurchaseItem::class);
+        $itemModel = PurchaseItemModel::class();
 
         $purchase->items()->delete();
 

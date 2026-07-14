@@ -16,6 +16,7 @@ use RoundlyConsulting\Purchases\Jobs\ProcessProviderNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Providers\Provider;
 use RoundlyConsulting\Purchases\Providers\Resolver;
+use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 
 /**
  * The expressive entry point for the package: resolve providers, decode results,
@@ -105,8 +106,7 @@ class Purchases
      */
     private function placeholderNotification(ProviderResult $result): PurchaseNotification
     {
-        /** @var class-string<PurchaseNotification> $model */
-        $model = config('purchases.models.purchase-notification', PurchaseNotification::class);
+        $model = PurchaseNotificationModel::class();
 
         return new $model([
             'provider' => $result->provider(),

@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
-use RoundlyConsulting\Purchases\Models\PurchaseNotification;
+use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 
 /**
  * Persists an already-verified provider result on a queue, so the webhook can
@@ -52,10 +52,7 @@ final class ProcessProviderNotification implements ShouldQueue
             return;
         }
 
-        /** @var class-string<PurchaseNotification> $model */
-        $model = config('purchases.models.purchase-notification', PurchaseNotification::class);
-
-        $model::query()
+        PurchaseNotificationModel::query()
             ->whereKey($this->notificationId)
             ->update(['processed_at' => Carbon::now()]);
     }
