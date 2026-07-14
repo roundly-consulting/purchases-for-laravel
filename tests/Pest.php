@@ -6,9 +6,19 @@ use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
+use RoundlyConsulting\Purchases\Tests\HostTestCase;
 use RoundlyConsulting\Purchases\Tests\TestCase;
 
-uses(TestCase::class)->in(__DIR__);
+uses(TestCase::class)->in(__DIR__.'/ArchTest.php', __DIR__.'/Feature', __DIR__.'/Unit');
+
+/*
+ * `tests/Host` is exercised as a real host: nothing published, nothing auto-loaded, so
+ * the schema starts EMPTY. Migrations are publish-only, and the normal TestCase
+ * pre-loads them purely so the rest of the suite has tables — which is exactly what a
+ * host does not do, and what `purchases:install` exists to fix. Pest will not let a
+ * nested path narrow a broader `in()`, so the two roots are listed side by side.
+ */
+uses(HostTestCase::class)->in(__DIR__.'/Host');
 
 /**
  * A committed Apple-shaped fixture (tests/Fixtures/apple).
