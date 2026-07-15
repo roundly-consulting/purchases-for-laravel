@@ -21,7 +21,6 @@
     ],
     "require": {
         "php": "^8.4",
-        "ext-openssl": "*",
         "illuminate/contracts": "^12.0|^13.0",
         "roundly-consulting/crypto-for-laravel": "@dev",
         "roundly-consulting/enums-for-laravel": "@dev"

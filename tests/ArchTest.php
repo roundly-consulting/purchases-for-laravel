@@ -8,14 +8,14 @@ it('will not use debugging functions')
 
 /*
  * Crypto primitives are crypto-for-laravel's, not ours: HMAC, constant-time
- * compares, RSA/ECDSA sign+verify, key loading, base64(url), and CSPRNG bytes
- * all route through RoundlyConsulting\Crypto.
+ * compares, RSA/ECDSA sign+verify, key loading, X.509 parsing/fingerprints/chain
+ * linkage, base64(url), and CSPRNG bytes all route through RoundlyConsulting\Crypto.
  *
- * Deliberately NOT banned: the openssl_x509_* family. Apple's App Store
- * notification trust is an X.509 chain pinned to Apple's published WWDR
- * intermediate and G3 root — a *trust policy*, not a generic algorithm. crypto
- * owns algorithms; the certificate-chain decision stays here, in
- * Apple\ValueObjects\CertificateChain and Apple\Jws\JwsVerifier.
+ * The openssl_x509_* family used to be exempt, because Apple's chain trust lived
+ * here on top of raw OpenSSL. It no longer does: crypto's X509 module supplies the
+ * mathematics and the ban is now package-wide. The *trust* ruling — Apple's pinned
+ * WWDR/G3 anchors, the chain length, and the validity policy — still lives here, in
+ * Apple\Jws\JwsVerifier, and always will.
  */
 arch('no crypto primitive is re-implemented locally')
     ->expect('RoundlyConsulting\Purchases')
@@ -29,10 +29,27 @@ arch('no crypto primitive is re-implemented locally')
         'openssl_pkey_get_public',
         'openssl_pkey_get_details',
         'openssl_pkey_export',
+        'openssl_x509_read',
+        'openssl_x509_parse',
+        'openssl_x509_export',
+        'openssl_x509_fingerprint',
+        'openssl_x509_verify',
         'random_bytes',
         'base64_encode',
         'base64_decode',
     ]);
+
+it('calls no openssl function anywhere in src', function (): void {
+    $offenders = [];
+
+    foreach (packageSourceFiles() as $file) {
+        if (preg_match('/\bopenssl_[a-z0-9_]+\s*\(/i', (string) file_get_contents($file->getPathname())) === 1) {
+            $offenders[] = $file->getBasename();
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});
 
 it('builds on crypto-for-laravel rather than a third-party crypto vendor')
     ->expect('RoundlyConsulting\Purchases')
