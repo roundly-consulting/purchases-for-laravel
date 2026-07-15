@@ -5,6 +5,7 @@ declare(strict_types=1);
 use RoundlyConsulting\Crypto\Codec\Base64Url;
 use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
 use RoundlyConsulting\Crypto\Hash\Hmac;
+use RoundlyConsulting\Crypto\X509\Certificate;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
@@ -56,9 +57,10 @@ it('pins apple published trust anchors', function (): void {
 
 it('pins the fingerprints of the committed chain', function (): void {
     foreach (['leaf.pem', 'intermediate.pem', 'root.pem'] as $index => $fixture) {
-        $certificate = openssl_x509_read(appleFixture($fixture));
-
-        expect(openssl_x509_fingerprint($certificate))
+        // The literals were computed by openssl_x509_fingerprint() on the
+        // pre-retrofit engine; crypto must reproduce them byte for byte,
+        // lower-case hex and all.
+        expect(Certificate::fromPem(appleFixture($fixture))->fingerprint(HashAlgorithm::Sha1))
             ->toBe(FROZEN_CHAIN_FINGERPRINTS[$index])
             ->toMatch('/^[0-9a-f]{40}$/');
     }

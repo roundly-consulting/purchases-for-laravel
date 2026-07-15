@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
@@ -49,13 +50,7 @@ function testRsaKey(): string
 {
     static $key = null;
 
-    if ($key === null) {
-        $resource = openssl_pkey_new([
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ]);
-        openssl_pkey_export($resource, $key);
-    }
+    $key ??= TestKeys::rsa()->privatePem();
 
     return $key;
 }

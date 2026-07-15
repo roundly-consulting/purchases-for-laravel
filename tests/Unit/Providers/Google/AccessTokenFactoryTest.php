@@ -11,6 +11,7 @@ use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Crypto\Signature\InvalidSignatureException;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Crypto\Signature\Rs;
+use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
@@ -20,16 +21,9 @@ use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
  */
 function rsaKeyPair(int $bits = 2048): array
 {
-    $resource = openssl_pkey_new([
-        'private_key_bits' => $bits,
-        'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ...opensslOptions(),
-    ]);
+    $key = TestKeys::rsa($bits);
 
-    openssl_pkey_export($resource, $private);
-    $details = openssl_pkey_get_details($resource);
-
-    return [(string) $private, (string) $details['key']];
+    return [$key->privatePem(), $key->publicPem()];
 }
 
 afterEach(function (): void {
@@ -72,7 +66,9 @@ it('throws on an invalid private key', function (): void {
 })->throws(VerificationException::class, 'Invalid Google service-account private key.');
 
 it('rejects a service-account key that is too weak to sign with', function (): void {
-    [$private] = rsaKeyPair(bits: 1024);
+    // A committed 1024-bit key: crypto refuses to *generate* one, and this
+    // package must refuse to *sign* with one.
+    $private = (string) file_get_contents(__DIR__.'/../../../Fixtures/google/weak-rsa-1024.pem');
 
     (new AccessTokenFactory)->assertion(new ServiceAccountCredentials('svc@example.com', $private));
 })->throws(VerificationException::class, 'Invalid Google service-account private key.');

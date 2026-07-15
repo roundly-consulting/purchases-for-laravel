@@ -9,6 +9,7 @@ use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\InvalidSignatureException;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
+use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\AppStoreServerApi;
@@ -20,7 +21,7 @@ function ecKey(): string
 {
     static $key = null;
 
-    $key ??= privatePem(generateEcKey());
+    $key ??= TestKeys::ec()->privatePem();
 
     return $key;
 }
@@ -81,7 +82,7 @@ it('builds a verifiable es256 app store token', function (): void {
 it('rejects an app store token verified against an unrelated key', function (): void {
     $token = (new AppStoreJwtFactory)->create('KEY123', 'issuer-1', 'com.example.app', ecKey());
 
-    $other = EcKey::private(privatePem(generateEcKey()));
+    $other = TestKeys::ec();
 
     (new Jws)->verify($token, new Es(EcKey::public($other->publicPem())), Algorithm::ES256);
 })->throws(InvalidSignatureException::class);
