@@ -12,6 +12,7 @@ use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Crypto\X509\Certificate;
 use RoundlyConsulting\Crypto\X509\Chain;
+use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 
 /**
@@ -46,6 +47,18 @@ class JwsVerifier
     ];
 
     protected const CHAIN_LENGTH = 3;
+
+    /**
+     * Clock-skew tolerance used when the host has configured none.
+     */
+    protected const DEFAULT_CLOCK_SKEW = 60;
+
+    /**
+     * The largest clock skew that can be called clock skew. Beyond an hour the
+     * value is not absorbing a drifting clock, it is switching the expiry check
+     * off — so it is rejected as a misconfiguration rather than honoured.
+     */
+    protected const MAX_CLOCK_SKEW = 3600;
 
     public function __construct(
         private readonly Jws $jws = new Jws,
@@ -87,7 +100,63 @@ class JwsVerifier
             return false;
         }
 
+        // The chain is Apple's and internally consistent — but a certificate
+        // outside its validity window is not acceptable, no matter who signed it.
+        $this->assertWithinValidity($chain);
+
         return $this->verifySignature($token, $chain->leaf());
+    }
+
+    /**
+     * Every certificate in the chain must be inside its RFC 5280 validity window,
+     * give or take the configured clock skew.
+     *
+     * crypto reports the dates; the ruling that an expired certificate is
+     * unacceptable is ours. It fails with its own message — an expired chain is
+     * an Apple rotation (or a replayed, archived notification), not a forgery,
+     * and the two must never be indistinguishable.
+     */
+    protected function assertWithinValidity(Chain $chain): void
+    {
+        $leeway = $this->clockSkewLeeway();
+
+        foreach ($chain as $certificate) {
+            $name = $certificate->commonName() ?? 'unknown';
+
+            if ($certificate->isExpiredAt(leewaySeconds: $leeway)) {
+                throw VerificationException::certificateExpired($name, $certificate->notAfter()->toIso8601String());
+            }
+
+            if ($certificate->isNotYetValidAt(leewaySeconds: $leeway)) {
+                throw VerificationException::certificateNotYetValid($name, $certificate->notBefore()->toIso8601String());
+            }
+        }
+    }
+
+    /**
+     * The configured clock-skew tolerance, in seconds, applied to both ends of
+     * every certificate's validity window.
+     *
+     * The value is validated rather than coerced: a negative or absurdly large
+     * skew would quietly weaken (or disable) the expiry check, so it fails loudly
+     * instead of falling back to the default.
+     *
+     * @throws InvalidConfigurationException
+     */
+    protected function clockSkewLeeway(): int
+    {
+        $value = config('purchases.settings.apple.certificate_clock_skew', self::DEFAULT_CLOCK_SKEW);
+
+        // env() hands back strings, so a value from the environment arrives as one.
+        if (is_string($value) && preg_match('/^-?\d+$/', $value) === 1) {
+            $value = (int) $value;
+        }
+
+        if (! is_int($value) || $value < 0 || $value > self::MAX_CLOCK_SKEW) {
+            throw InvalidConfigurationException::clockSkew($value, self::MAX_CLOCK_SKEW);
+        }
+
+        return $value;
     }
 
     /**

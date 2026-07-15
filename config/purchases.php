@@ -66,6 +66,18 @@ return [
             'password' => env('PURCHASES_APPLE_PASSWORD'),
 
             /*
+             | Clock-skew tolerance, in SECONDS, applied to both ends of every
+             | certificate's validity window when an App Store notification's
+             | signing chain is checked. It absorbs a slightly fast or slow host
+             | clock — it is not a grace period for expired certificates.
+             |
+             | Must be between 0 and 3600; anything else is a misconfiguration and
+             | is rejected loudly, so a fat-fingered value cannot silently disable
+             | the expiry check.
+             */
+            'certificate_clock_skew' => env('PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW', 60),
+
+            /*
              | App Store Server API (the modern replacement for verifyReceipt). Provide
              | the credentials from App Store Connect to enable transaction lookups.
              */
