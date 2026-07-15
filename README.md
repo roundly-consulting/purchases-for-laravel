@@ -12,15 +12,14 @@ A unified in-app-purchase and payments toolkit for Laravel: one API for **Apple 
 **Google Play**, and **Stripe** purchases and subscriptions. The package ships Eloquent models
 for purchases, purchase items, subscriptions, and subscription items, a pluggable provider
 abstraction with a shared result contract, persistence actions, lifecycle events, and native
-verification for every provider — built only on Laravel's HTTP client, our own
-[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel), and `ext-openssl`
+verification for every provider — built only on Laravel's HTTP client and our own
+[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel)
 (no `stripe/stripe-php`, no `google/apiclient`, no third-party SDKs).
 
 ## Requirements
 
 - PHP 8.4+
 - Laravel 12 or 13
-- The `openssl` PHP extension (used for Apple's X.509 certificate-chain trust)
 
 ## Installation
 
@@ -104,6 +103,7 @@ return [
 | `PURCHASES_APPLE_SANDBOX` | Apple sandbox toggle |
 | `PURCHASES_APPLE_LIVE_URL` / `PURCHASES_APPLE_SANDBOX_URL` | `verifyReceipt` base URLs |
 | `PURCHASES_APPLE_PASSWORD` | Apple shared secret (legacy receipt validation) |
+| `PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW` | Clock-skew tolerance in **seconds** (0–3600, default `60`) for Apple's certificate validity check |
 | `PURCHASES_APPLE_KEY_ID` / `PURCHASES_APPLE_ISSUER_ID` / `PURCHASES_APPLE_BUNDLE_ID` / `PURCHASES_APPLE_PRIVATE_KEY` | App Store Server API credentials |
 | `PURCHASES_GOOGLE_PACKAGE_NAME` | Android package name |
 | `PURCHASES_GOOGLE_CLIENT_EMAIL` / `PURCHASES_GOOGLE_PRIVATE_KEY` | Google service-account credentials |
@@ -351,12 +351,47 @@ hand-rolls no algorithm of its own:
 | Provider | What crypto does | What purchases keeps |
 |---|---|---|
 | **Stripe** | HMAC-SHA256 (`Hash\Hmac`) + constant-time compare (`Hash\ConstantTime`) | the `t=`/`v1=` scheme framing and the replay-tolerance window |
-| **Apple** | ES256 JWS verify + sign (`Jose\Jws`, `Signature\Es`, `Signature\Key\EcKey`), incl. the DER ↔ raw `r‖s` conversion | **the certificate-chain trust decision** — the `x5c` chain is pinned to Apple's published WWDR intermediate and G3 root by fingerprint, and each link is proven to have signed the one below it |
+| **Apple** | ES256 JWS verify + sign (`Jose\Jws`, `Signature\Es`, `Signature\Key\EcKey`), plus all X.509 mathematics — parsing, SHA-1 fingerprints, chain linkage and validity dates (`X509\Chain`, `X509\Certificate`) | **the certificate-chain trust decision** — the `x5c` chain is pinned to Apple's published WWDR intermediate and G3 root by fingerprint, each link is proven to have signed the one below it, and every certificate must be inside its validity window |
 | **Google** | RS256 JWS assertion (`Jose\Jws`, `Signature\Rs`, `Signature\Key\RsaKey`) | the JWT-bearer grant, scope, and token caching |
 
 The split is deliberate: **crypto owns algorithms, purchases owns trust**. Apple's pinned
 fingerprints are what stop a forged App Store notification, so they stay here, next to the
-notification handling they protect.
+notification handling they protect. Purchases calls no `openssl_*` function of its own.
+
+#### Apple certificate validity (and the clock-skew leeway)
+
+An App Store notification is rejected when **any** certificate in its `x5c` chain — leaf,
+intermediate, or root — is outside its `notBefore..notAfter` window. The check has a
+configurable clock-skew tolerance, applied to **both** ends of the window, so a host whose
+clock runs slightly fast or slow does not spuriously reject genuine notifications:
+
+```php
+// config/purchases.php
+'settings' => [
+    'apple' => [
+        // Seconds, 0–3600. Default 60. Anything outside that range is a
+        // misconfiguration and throws InvalidConfigurationException — a
+        // fat-fingered value can never silently switch the check off.
+        'certificate_clock_skew' => env('PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW', 60),
+    ],
+],
+```
+
+The rejection has its own message (naming the certificate and the instant it lapsed), so an
+expired chain is never mistaken for a bad signature:
+
+```
+RoundlyConsulting\Purchases\Exceptions\VerificationException:
+Apple certificate [Apple Worldwide Developer Relations Certification Authority] expired at
+2026-01-01T00:00:00+00:00; the notification's certificate chain is outside its validity period.
+```
+
+> **Behaviour change.** A **replayed or archived** notification signed by a since-rotated,
+> now-expired certificate is now **rejected**, where earlier versions accepted it (only the
+> signatures were checked). If you replay historical Apple payloads, expect them to fail once
+> their signing certificate has lapsed — that is the correct outcome. Raise
+> `certificate_clock_skew` only to absorb clock drift; it is not a grace period and is capped
+> at one hour.
 
 Crypto is zero-config — purchases builds every signer and verifier from its **own**
 `config/purchases.php` (Apple key/issuer/kid, Google service-account credentials, Stripe webhook
