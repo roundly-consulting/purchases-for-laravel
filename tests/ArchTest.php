@@ -34,10 +34,6 @@ arch('no crypto primitive is re-implemented locally')
         'base64_decode',
     ]);
 
-it('keeps apple certificate-chain trust out of crypto')
-    ->expect('RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\CertificateChain')
-    ->not->toUse('RoundlyConsulting\Crypto');
-
 it('builds on crypto-for-laravel rather than a third-party crypto vendor')
     ->expect('RoundlyConsulting\Purchases')
     ->not->toUse([
@@ -61,7 +57,11 @@ it('does not import a crypto class marked @internal', function (): void {
         $internal[] = $namespace[1].'\\'.$file->getBasename('.php');
     }
 
-    expect($internal)->not->toBeEmpty();
+    // Assert the scan actually covers crypto's OpenSSL gateways by name, so the
+    // guard cannot silently stop covering them if a docblock ever moves.
+    expect($internal)
+        ->toContain('RoundlyConsulting\Crypto\X509\OpenSslX509')
+        ->toContain('RoundlyConsulting\Crypto\Signature\OpenSsl');
 
     $offenders = [];
 

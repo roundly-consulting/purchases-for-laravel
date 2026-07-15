@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Apple\Jws;
 
-use OpenSSLCertificate;
 use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
 use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
+use RoundlyConsulting\Crypto\X509\Certificate;
+use RoundlyConsulting\Crypto\X509\Chain;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
-use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\CertificateChain;
 
 /**
  * Verifies an Apple App Store Server JWS payload.
@@ -23,6 +24,11 @@ use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\CertificateChain;
  * proven to have signed the one below it. Only then is the leaf's public key
  * used for the *algorithm* step — an ES256 JWS verification, pinned to ES256,
  * over the untouched compact token.
+ *
+ * crypto-for-laravel supplies the X.509 mathematics (parsing, fingerprints,
+ * "is this signed by that"). It never rules on trust: which anchors are pinned,
+ * how long the chain must be, and what an expired certificate means are all
+ * decided here.
  */
 class JwsVerifier
 {
@@ -65,45 +71,42 @@ class JwsVerifier
             return false;
         }
 
-        $chain = $this->getCertificatesChain($x5c);
+        $chain = $this->chain($x5c);
 
-        if (! $chain->fingerprintIs($this->fingerprints()) ||
-            ! $chain->leafIsValid() ||
-            ! $chain->intermediateIsValid()) {
+        // The pinned anchors are the intermediate and the root; the leaf rotates
+        // and is never pinned. `fingerprints()` is leaf → root, so the leaf is
+        // sliced off before the comparison — same list, same order as before.
+        if (array_slice($chain->fingerprints(HashAlgorithm::Sha1), 1) !== $this->fingerprints()) {
             return false;
         }
 
-        return $this->verifySignature($token, $chain->leaf);
+        // Fingerprints alone only prove the chain *carries* Apple's certificates.
+        // Linkage proves each certificate was actually signed by the one above it,
+        // which is what stops a rogue leaf smuggled under a genuine intermediate.
+        if (! $chain->isLinked()) {
+            return false;
+        }
+
+        return $this->verifySignature($token, $chain->leaf());
     }
 
     /**
-     * @param  list<string>  $certificates
+     * Parse the `x5c` header into a certificate chain.
+     *
+     * `x5c` is standard (padded) base64 of the DER — RFC 7515 §4.1.6, not
+     * base64url. The header is attacker-controlled, so every crypto failure
+     * (malformed base64, unreadable certificate, oversized entry) is translated
+     * into this package's own exception rather than escaping as a CryptoException.
+     *
+     * @param  list<string>  $x5c
      */
-    protected function getCertificatesChain(array $certificates): CertificateChain
+    protected function chain(array $x5c): Chain
     {
-        return new CertificateChain(
-            leaf: $this->getOpenSslCertificate($certificates[0]),
-            intermediate: $this->getOpenSslCertificate($certificates[1]),
-            root: $this->getOpenSslCertificate($certificates[2]),
-        );
-    }
-
-    protected function getOpenSslCertificate(string $certificate): OpenSSLCertificate
-    {
-        $contents =
-            '-----BEGIN CERTIFICATE-----'.PHP_EOL.
-            chunk_split($certificate, 64, PHP_EOL).
-            '-----END CERTIFICATE-----';
-
-        // Silenced deliberately: a malformed `x5c` entry is attacker-controlled
-        // input, so it must surface as our VerificationException, not a warning.
-        $resource = @openssl_x509_read($contents);
-
-        if ($resource === false) {
-            throw VerificationException::because('Unable to read certificate from JWS header.');
+        try {
+            return Chain::fromX5c($x5c);
+        } catch (CryptoException $e) {
+            throw new VerificationException('Unable to read certificate from JWS header.', previous: $e);
         }
-
-        return $resource;
     }
 
     /**
@@ -111,14 +114,16 @@ class JwsVerifier
      * certificate's public key. The algorithm is pinned to ES256 before the
      * signature is touched, so an `alg` swap in the header cannot downgrade it.
      */
-    protected function verifySignature(DecodedToken $token, OpenSSLCertificate $certificate): bool
+    protected function verifySignature(DecodedToken $token, Certificate $certificate): bool
     {
-        if (! openssl_x509_export($certificate, $pem)) {
-            return false;
-        }
-
         try {
-            $this->jws->verify($token->compact, new Es(EcKey::public($pem)), Algorithm::ES256);
+            $key = $certificate->publicKey();
+
+            if (! $key instanceof EcKey) {
+                return false;
+            }
+
+            $this->jws->verify($token->compact, new Es($key), Algorithm::ES256);
         } catch (CryptoException) {
             return false;
         }
