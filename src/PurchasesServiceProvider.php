@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases;
 
+use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 use RoundlyConsulting\Purchases\Commands\InstallCommand;
@@ -18,6 +19,8 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
 final class PurchasesServiceProvider extends PackageServiceProvider
 {
+    use RegistersBlueprintMacros;
+
     public function configurePackage(Package $package): void
     {
         $package
@@ -63,6 +66,15 @@ final class PurchasesServiceProvider extends PackageServiceProvider
 
         $this->app->scoped(Resolver::class);
         $this->app->singleton(Purchases::class);
+    }
+
+    public function boot(): void
+    {
+        parent::boot();
+
+        // The migrations' key-type-aware morph columns are macros, so they must
+        // exist before a host runs `php artisan migrate`.
+        $this->registerBlueprintMacros();
     }
 
     /**

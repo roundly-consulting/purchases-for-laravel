@@ -28,6 +28,16 @@ return [
     ],
 
     /*
+     | The key type used for the polymorphic owner column on purchases and
+     | subscriptions. Use "uuid" or "ulid" when the models that own a purchase use
+     | UUID/ULID primary keys, otherwise leave it as "bigint". Anything unrecognized
+     | falls back to "bigint". Your owner models must share one key type.
+     |
+     | Supported: "bigint", "uuid", "ulid"
+     */
+    'key_type' => env('PURCHASES_KEY_TYPE', 'bigint'),
+
+    /*
      | Persist every verified raw notification payload before it is reduced to
      | model state, giving an auditable log you can inspect or replay.
      */

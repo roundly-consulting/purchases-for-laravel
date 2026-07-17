@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
@@ -12,9 +13,13 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create(SubscriptionModel::new()->getTable(), function (Blueprint $table): void {
+        // Silently falls back to bigint for an unrecognized value, so a typo in
+        // the host's config never leaves the package unable to migrate.
+        $keyType = KeyType::fromConfig('purchases.key_type');
+
+        Schema::create(SubscriptionModel::new()->getTable(), function (Blueprint $table) use ($keyType): void {
             $table->id();
-            $table->nullableMorphs('owner');
+            $table->morphKey('owner', $keyType, nullable: true);
             $table->string('provider')->nullable();
             $table->string('provider_id')->nullable();
             $table->string('transaction_id')->nullable()->index();

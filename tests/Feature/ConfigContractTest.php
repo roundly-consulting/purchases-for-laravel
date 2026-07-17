@@ -46,6 +46,11 @@ it('ships exactly the config keys it reads', function (): void {
                 'purchases.settings.',
                 'purchases.audit.',
                 'purchases.queue.',
+                // Read through `KeyType::fromConfig('purchases.key_type')` in both the
+                // purchases and subscriptions migrations — a real read that decides the
+                // owner morph column type, but not a `config(` token, so the exact key
+                // prefix is what makes it visible to the scraper.
+                'purchases.key_type',
             ],
 
             // Credentials are read as ARRAY OFFSETS on a section the provider resolved
