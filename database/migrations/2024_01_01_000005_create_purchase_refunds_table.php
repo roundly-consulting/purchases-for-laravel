@@ -22,7 +22,7 @@ return new class extends Migration
             $table->integer('price')->nullable();
             $table->string('price_currency', 3)->nullable();
             $table->timestamp('refunded_at')->nullable();
-            $table->json('meta')->nullable();
+            $table->jsonb('meta')->nullable();
             $table->timestamps();
             $table->softDeletes();
 

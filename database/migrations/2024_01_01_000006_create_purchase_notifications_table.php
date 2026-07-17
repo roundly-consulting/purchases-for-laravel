@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('provider')->index();
             $table->string('type')->nullable()->index();
             $table->boolean('signature_verified')->default(false);
-            $table->json('payload');
+            $table->jsonb('payload');
             $table->timestamp('processed_at')->nullable()->index();
             $table->timestamps();
             $table->softDeletes();
