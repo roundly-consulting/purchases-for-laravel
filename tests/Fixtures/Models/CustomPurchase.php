@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Tests\Fixtures\Models;
 
 use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Testing\Fixtures\Concerns\CountsCreations;
 
 /**
  * What `purchases.models.purchase` documents a host doing: extend the packaged
@@ -14,5 +15,11 @@ use RoundlyConsulting\Purchases\Models\Purchase;
  */
 final class CustomPurchase extends Purchase
 {
+    // Required by `toHonourModelSwap`, not detected: it counts rows created as THIS
+    // exact class, the only independent proof the swap took effect. `instanceof` is not
+    // enough — a row created as the packaged class never fires the host's model events
+    // yet can still satisfy an instanceof check.
+    use CountsCreations;
+
     protected $table = 'purchases';
 }

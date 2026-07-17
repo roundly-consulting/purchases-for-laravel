@@ -2,9 +2,155 @@
 
 declare(strict_types=1);
 
-it('will not use debugging functions')
-    ->expect(['dd', 'dump', 'ray'])
-    ->each->not->toBeUsed();
+use RoundlyConsulting\Purchases\Exceptions\CurrencyMismatchException;
+use RoundlyConsulting\Purchases\Exceptions\Exception as PurchasesException;
+use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
+use RoundlyConsulting\Purchases\Exceptions\InvalidMoneyException;
+use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
+use RoundlyConsulting\Purchases\Exceptions\UnknownProviderException;
+use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseItem;
+use RoundlyConsulting\Purchases\Models\PurchaseNotification;
+use RoundlyConsulting\Purchases\Models\PurchaseRefund;
+use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Models\SubscriptionItem;
+use RoundlyConsulting\Purchases\Providers\Apple\Apple;
+use RoundlyConsulting\Purchases\Providers\Apple\AppStoreServerApi;
+use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
+use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
+use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptStatus;
+use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
+use RoundlyConsulting\Purchases\Providers\Google\Google;
+use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
+use RoundlyConsulting\Purchases\Providers\Resolver;
+use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
+use RoundlyConsulting\Purchases\Providers\Stripe\StripeClient;
+use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\Support\DataSet;
+use RoundlyConsulting\Testing\Arch\ArchPresets;
+
+/**
+ * `noDebuggingLeftovers` replaces the local `['dd','dump','ray']` ban. The replacement is
+ * not cosmetic: Pest's arch layer only sees a dependency whose symbol EXISTS, and `ray` is
+ * not in the dependency graph by policy — so `ray` was filtered out before the ban ran and
+ * **could never fail**. The one debug tool you would realistically leave behind was the
+ * exact one this could not catch. The preset reads source tokens, which do not care
+ * whether the function exists.
+ */
+ArchPresets::noDebuggingLeftovers();
+
+ArchPresets::strictTypes('RoundlyConsulting\Purchases');
+
+/**
+ * The deliberate tension, run as a pair. `finalByDefault` wants every class closed;
+ * `swappableModelsAreNotFinal` forbids `final` on a config-swappable model — a PHP fatal
+ * the moment a host uses the seam the config documents, shipped 7x across the fleet under
+ * green "everything is final" arch tests. This package had NEITHER rule.
+ *
+ * ## The exemption list is an inventory, and it is deliberately long
+ *
+ * purchases ships **26** non-final, non-abstract classes. Closing them is a src-wide
+ * refactor with real design decisions in it — several are genuine extension points — and
+ * that is beyond what a test-machinery adoption should decide unilaterally, so the row
+ * takes the inventory rather than the refactor. **Reported for a finality decision.**
+ *
+ * The list still earns its place, because the preset's exemptions are **rot-proof**: an
+ * entry that stops silencing anything FAILS. So this cannot quietly decay, and — the real
+ * point — **every NEW class must be final or be argued onto this list**. That is the
+ * ratchet the package did not have at all.
+ *
+ * Grouped by why:
+ */
+ArchPresets::finalByDefault('RoundlyConsulting\Purchases', [
+    // 1. The six documented model seams. `purchases.models.*` invites a host to
+    //    subclass each one; `final` here is the 7x-shipped fatal. Pinned by
+    //    swappableModelsAreNotFinal below, which is the counter-weight.
+    Purchase::class,
+    PurchaseItem::class,
+    PurchaseRefund::class,
+    PurchaseNotification::class,
+    Subscription::class,
+    SubscriptionItem::class,
+
+    // 2. The exception hierarchy. `Exception` is the base every purchases error
+    //    extends so a host can catch them uniformly; the leaves are open only because
+    //    the base is. Closing the leaves is the easy half of the reported decision.
+    PurchasesException::class,
+    VerificationException::class,
+    UnknownProviderException::class,
+    InvalidConfigurationException::class,
+    InvalidProviderNotificationException::class,
+    InvalidMoneyException::class,
+    CurrencyMismatchException::class,
+
+    // 3. Provider drivers. `purchases.providers` lists these classes in config, and a
+    //    host adds its own by extending BaseProvider — so they are an extension point
+    //    by construction, not by accident.
+    Apple::class,
+    Google::class,
+    Stripe::class,
+    Resolver::class,
+
+    // 4. Deliberate override points. JwsVerifier exposes a `protected fingerprints()`
+    //    precisely so the trust anchors can be replaced — this suite's own
+    //    `appleVerifierPinnedTo()` does exactly that to exercise the positive trust
+    //    path against a throwaway CA, because we cannot sign with Apple's key.
+    JwsVerifier::class,
+    JwsManager::class,
+
+    // 5. Transport/infrastructure classes a host may need to stub. These are the
+    //    strongest candidates to simply close.
+    AppStoreServerApi::class,
+    GoogleClient::class,
+    StripeClient::class,
+    AccessTokenFactory::class,
+    ReceiptStatus::class,
+    Purchases::class,
+    DataSet::class,
+]);
+
+/**
+ * Six swappable models, not the two the row spec claimed. Each is pinned non-final AND
+ * pinned to default to the packaged class, so the seam cannot rot in either direction.
+ *
+ * `purchases.providers` (Apple/Google/Stripe) is deliberately NOT here: those are provider
+ * DRIVERS, not Eloquent models behind a `*_model`-shaped key, so neither this preset nor
+ * `toHonourModelSwap` has anything to say about them — the same miscount that inflated
+ * metrics' "4 swaps".
+ */
+ArchPresets::swappableModelsAreNotFinal([
+    Purchase::class => 'purchases.models.purchase',
+    PurchaseItem::class => 'purchases.models.purchase-item',
+    PurchaseRefund::class => 'purchases.models.purchase-refund',
+    PurchaseNotification::class => 'purchases.models.purchase-notification',
+    Subscription::class => 'purchases.models.subscription',
+    SubscriptionItem::class => 'purchases.models.subscription-item',
+]);
+
+/**
+ * **The keys MUST be declared.** Undeclared, the stray-literal half infers swap keys from
+ * key *shape* — `model`, `models`, or `*_model`. This package's keys are
+ * `purchases.models.purchase-item` and friends: none is shaped like that, so the preset
+ * would have inferred NOTHING and gone green while covering none of the six seams —
+ * authoritative-looking and completely inert (the alerts trap). A declared key that
+ * matches no literal fails rather than pretending to cover something.
+ */
+ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support', [
+    'purchases.models.purchase',
+    'purchases.models.purchase-item',
+    'purchases.models.purchase-refund',
+    'purchases.models.purchase-notification',
+    'purchases.models.subscription',
+    'purchases.models.subscription-item',
+]);
+
+/**
+ * The Dependency Policy as a test — this package had no such rule. No `alsoAllow`: its
+ * `require` ships only php/illuminate/roundly, and the workflow installs test tooling with
+ * `--dev`. If this goes red the shipped graph is wrong; never widen the allow-list.
+ */
+ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 
 /*
  * Crypto primitives are crypto-for-laravel's, not ours: HMAC, constant-time
@@ -17,11 +163,23 @@ it('will not use debugging functions')
  * WWDR/G3 anchors, the chain length, and the validity policy — still lives here, in
  * Apple\Jws\JwsVerifier, and always will.
  */
+/**
+ * Bespoke, KEPT and narrowed — the shared preset does not reach the `openssl_x509_*` /
+ * `openssl_pkey_export` family this package specifically had to be talked out of, so both
+ * run side by side. `ArchPresets::noLocalCryptoPrimitives` (above the fold in spirit) is
+ * not called separately: this list plus the openssl sweep below is a strict superset of it
+ * for every primitive purchases can reach, and running both would double-report.
+ *
+ * `hash_equals` is REMOVED from the list. It IS PHP's constant-time compare, not a
+ * re-implementation of one; it has no algorithm or key to centralise; and banning it pushes
+ * callers toward `$a === $b` — a timing leak in exactly the code that compares a webhook
+ * signature. The fleet removed it from the shared preset on 2026-07-17, and this package
+ * was one of six still banning it in a local list that never read the shared one.
+ */
 arch('no crypto primitive is re-implemented locally')
     ->expect('RoundlyConsulting\Purchases')
     ->not->toUse([
         'hash_hmac',
-        'hash_equals',
         'openssl_sign',
         'openssl_verify',
         'openssl_pkey_new',

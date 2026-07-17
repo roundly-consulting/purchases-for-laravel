@@ -6,6 +6,7 @@ use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
+use RoundlyConsulting\Purchases\Tests\Fixtures\SwappedModelsTestCase;
 use RoundlyConsulting\Purchases\Tests\HostTestCase;
 use RoundlyConsulting\Purchases\Tests\TestCase;
 
@@ -19,6 +20,14 @@ uses(TestCase::class)->in(__DIR__.'/ArchTest.php', __DIR__.'/Feature', __DIR__.'
  * nested path narrow a broader `in()`, so the two roots are listed side by side.
  */
 uses(HostTestCase::class)->in(__DIR__.'/Host');
+
+/*
+ * The model-swap proofs need every `purchases.models.*` key pointed at a host subclass
+ * BEFORE the providers boot — which is what a real host does, by writing it into
+ * `config/purchases.php`. Pest binds a test case per DIRECTORY, not per file, so they get
+ * their own base case and their own directory.
+ */
+uses(SwappedModelsTestCase::class)->in(__DIR__.'/ModelSwap');
 
 /**
  * A committed Apple-shaped fixture (tests/Fixtures/apple).

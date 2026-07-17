@@ -108,9 +108,21 @@ it('reports the package in about', function (): void {
 });
 
 /**
- * This package's config holds live payment credentials. `about` runs on production
- * boxes and its output is routinely pasted into issues — so not one configured
- * secret, key, endpoint, queue name or route prefix may appear in the section.
+ * A — the secret-safe `about` capture, on the package the expectation was BUILT FROM.
+ *
+ * purchases #13: this is the fleet's most credential-heavy `about` section, and it was
+ * guarded by negative assertions against `app(Kernel::class)->output()`, which returns
+ * `''`. **Every "does not leak" check was vacuous** — passing against empty output. The
+ * leak was caught only because one positive assertion happened to exist.
+ *
+ * The capture reader was fixed in an earlier retrofit (this test already used
+ * `Artisan::output()` and already guarded the guard). Adopting the expectation makes the
+ * ordering structural rather than remembered: it asserts (1) output non-empty, (2) every
+ * `mustRender` string present, (3) only then that no secret renders — and `mustRender` is
+ * required and non-empty, so a negative-only check can never be written here again.
+ *
+ * `about` runs on production boxes and its output is routinely pasted into issues, so not
+ * one configured secret, key, endpoint, queue name or route prefix may appear.
  */
 it('never renders a configured secret in about', function (): void {
     $secrets = [
@@ -148,15 +160,32 @@ it('never renders a configured secret in about', function (): void {
     config()->set('purchases.routes.enabled', true);
     config()->set('purchases.routes.prefix', $secrets[13]);
 
-    expect(Artisan::call('about', ['--only' => 'purchases']))->toBe(0);
-
-    $rendered = Artisan::output();
-
-    // Guard the guard: an empty capture would make every assertion below vacuous.
-    expect($rendered)->toContain('Purchase model')
-        ->and($rendered)->toContain('SET');
-
-    foreach ($secrets as $secret) {
-        expect($rendered)->not->toContain($secret);
-    }
+    expect('purchases')->toLeakNoSecrets(
+        secrets: $secrets,
+        // The positive half, and it is deliberately REAL rather than a token string: each
+        // entry is the safe report standing in for one of the credentials above, so this
+        // proves the very lines that could leak actually rendered. A `mustRender` of
+        // ['Purchase model'] alone would pass while every credential line was silently
+        // absent — which is #13's failure mode wearing a different hat.
+        mustRender: [
+            // Credentials report presence, never a value.
+            'Apple credentials',
+            'Google credentials',
+            'Stripe API key',
+            'Stripe webhook secret',
+            'SET',
+            // Host-supplied endpoints report a COUNT of overrides, never a URL. Two are
+            // overridden above (apple.url.live and stripe.base_url), and pinning the exact
+            // count is what proves the line is reporting rather than rendering 'DEFAULT'
+            // over a config it never read.
+            'Provider endpoints',
+            '2 overridden',
+            // Queue topology and routes report SET/DEFAULT and ON/OFF.
+            'Queue processing',
+            'Webhook routes',
+            // And the models, which are the section's non-secret content.
+            'Purchase model',
+            'Subscription model',
+        ],
+    );
 });

@@ -2,89 +2,104 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\ServiceProvider;
+use RoundlyConsulting\PackageToolkit\Enums\DatabaseDriver;
 use RoundlyConsulting\Purchases\PurchasesServiceProvider;
+use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
- * The package ships six CREATEs, and two of them carry a real foreign key:
- * `purchase_items` → `purchases` and `subscription_items` → `subscriptions`.
- * Publishing preserves the source directory's order, so that order has to be
- * runnable end to end from an empty database — every table must exist before
- * anything references it.
+ * M + P + R for the six purchase/subscription tables.
  *
- * SQLite happily creates a table referencing a missing parent (it only complains at
- * insert time), so these tests are the *committed* pin; the order was additionally
- * proved against a real PostgreSQL server, which rejects a dangling foreign key at
- * DDL time — with a negative control that watched it do so.
- *
- * These tests run the *published* files, under their published names, into a database
- * that starts empty — which is what a host actually does.
+ * Every table expression here is a non-literal, in two different shapes — the model
+ * accessor (`Schema::create(PurchaseModel::new()->getTable())`) and a local variable the
+ * FK is constrained onto (`->constrained($purchases)`), because table names follow the
+ * configured model. The resolver **never guesses on a non-literal**: an unmapped
+ * expression FAILS the assertion rather than silently dropping the edge, which is what
+ * keeps `foreignKeys: 2` honest instead of a number that passes over an empty parse.
  */
-beforeEach(function (): void {
-    $this->publishedPath = sys_get_temp_dir().'/purchases-migration-order-'.bin2hex(random_bytes(6));
-    $this->publishedDatabase = $this->publishedPath.'/database.sqlite';
+$migrations = __DIR__.'/../../database/migrations';
 
-    File::makeDirectory($this->publishedPath, recursive: true);
-    File::put($this->publishedDatabase, '');
+$tableResolvers = [
+    // Schema::create(...) — the model accessor form.
+    'PurchaseModel::new()->getTable()' => 'purchases',
+    'PurchaseItemModel::new()->getTable()' => 'purchase_items',
+    'PurchaseRefundModel::new()->getTable()' => 'purchase_refunds',
+    'PurchaseNotificationModel::new()->getTable()' => 'purchase_notifications',
+    'SubscriptionModel::new()->getTable()' => 'subscriptions',
+    'SubscriptionItemModel::new()->getTable()' => 'subscription_items',
+    // ->constrained(...) — the local-variable form, assigned from the same accessors.
+    '$purchases' => 'purchases',
+    '$subscriptions' => 'subscriptions',
+];
 
-    foreach (ServiceProvider::pathsToPublish(PurchasesServiceProvider::class, 'purchases-migrations') as $source => $target) {
-        File::copy($source, $this->publishedPath.'/'.basename((string) $target));
-    }
-
-    config()->set('database.connections.published', [
-        'driver' => 'sqlite',
-        'database' => $this->publishedDatabase,
-        'prefix' => '',
-        'foreign_key_constraints' => true,
-    ]);
-});
-
-afterEach(function (): void {
-    File::deleteDirectory($this->publishedPath);
-});
-
-it('migrates the published files clean from an empty database', function (): void {
-    $schema = Schema::connection('published');
-
-    expect($schema->hasTable('purchases'))->toBeFalse();
-
-    $this->artisan('migrate', [
-        '--database' => 'published',
-        '--path' => $this->publishedPath,
-        '--realpath' => true,
-    ])->assertExitCode(0);
-
-    expect($schema->hasTable('purchases'))->toBeTrue()
-        ->and($schema->hasTable('purchase_items'))->toBeTrue()
-        ->and($schema->hasTable('subscriptions'))->toBeTrue()
-        ->and($schema->hasTable('subscription_items'))->toBeTrue()
-        ->and($schema->hasTable('purchase_refunds'))->toBeTrue()
-        ->and($schema->hasTable('purchase_notifications'))->toBeTrue();
-});
-
-it('keeps every foreign key intact in the published schema', function (): void {
-    $this->artisan('migrate', [
-        '--database' => 'published',
-        '--path' => $this->publishedPath,
-        '--realpath' => true,
-    ])->assertExitCode(0);
-
-    $schema = Schema::connection('published');
-
-    $foreignKeys = static fn (string $table): array => array_map(
-        static fn (array $key): string => $key['columns'][0].' → '.$key['foreign_table'],
-        $schema->getForeignKeys($table),
+/**
+ * M — the structural, engine-independent order pin.
+ *
+ * Publish order IS run order (directory sort), so a migration that constrains onto a table
+ * an earlier one has not created yet is uninstallable in a host. Five packages shipped
+ * exactly that under green SQLite suites, because SQLite happily creates a table whose
+ * foreign key names a missing parent and only complains at insert time.
+ *
+ * `foreignKeys: 2` pins the edge count: purchase_items -> purchases, and
+ * subscription_items -> subscriptions. Nothing is constrained onto the host's users table
+ * — a purchaser can live in any table — and refunds/notifications hang off a purchase by
+ * an unconstrained key on purpose.
+ */
+it('has a runnable migration order', function () use ($migrations, $tableResolvers): void {
+    expect($migrations)->toHaveRunnableMigrationOrder(
+        foreignKeys: 2,
+        tableResolvers: $tableResolvers,
     );
+});
 
-    // The CREATE order is load-bearing, not incidental: each child really does
-    // constrain onto a table created before it, and on the packaged column name —
-    // never one derived from the configured class.
-    expect($foreignKeys('purchase_items'))->toContain('purchase_id → purchases')
-        ->and($foreignKeys('subscription_items'))->toContain('subscription_id → subscriptions');
+/**
+ * P — the publish-only guards. The fleet publishes migrations timestamped rather than
+ * auto-loading them; doing both runs both copies — a duplicate-table failure (bug #5, on
+ * three packages), which is the exact footgun `tests/Host` exists to guard. `count: 6`
+ * pins the file count so neither check can pass over an empty or relocated directory.
+ */
+it('never auto-loads its migrations — the host publishes them', function (): void {
+    expect(PurchasesServiceProvider::class)->toNotAutoLoadMigrations();
+});
 
-    // `purchase_refunds.purchase_id` is deliberately a plain indexed column with no
-    // constraint (a refund can arrive before its purchase is matched).
-    expect($foreignKeys('purchase_refunds'))->toBe([]);
+it('publishes its migrations timestamp-injected into the host', function (): void {
+    expect(PurchasesServiceProvider::class)->toPublishMigrationsTimestamped('purchases-migrations', 6);
+});
+
+/**
+ * R — the real-engine proof, both halves. This package's DDL had never met a real engine:
+ * the suite ran on SQLite for its whole life, with foreign keys OFF (Laravel's SQLite
+ * connector leaves `PRAGMA foreign_keys` off unless the connection sets
+ * `foreign_key_constraints`, which the old hand-rolled TestCase did not).
+ *
+ * `migrations: 6` pins the count, and the expectation additionally fails a set that
+ * "applies cleanly" while creating no tables — an empty `up()` otherwise passes and proves
+ * nothing.
+ */
+it('applies its migrations on postgres', function () use ($migrations): void {
+    expect($migrations)->toApplyOnConnection('pgsql', migrations: 6);
+})->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
+
+/**
+ * The negative control — adoptable here because this package has real FK edges, so a
+ * reversed order gives Postgres something to refuse. A green FK test proves nothing until
+ * you have watched the engine actually reject the broken order (forms #28). This fails
+ * loudly if the engine ACCEPTS the reordered set, which is what makes the positive half
+ * above meaningful.
+ */
+it('rejects a child-before-parent order on postgres', function () use ($migrations): void {
+    expect($migrations)->toRejectBrokenOrderOnConnection(
+        fn (array $files): array => array_reverse($files),
+        'pgsql',
+    );
+})->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
+
+/**
+ * The driver-truth pin: compares the env-declared driver against what the connection
+ * itself answers, so a leg that exports the location vars but not `TESTING_DB_DRIVER` (or
+ * a TestCase that decapitates the base case by overriding `defineEnvironment()` without
+ * `parent::`) reds instead of quietly running sqlite and reporting green as a "postgres"
+ * job. Strictly stronger than reading a skip count by hand.
+ */
+it('runs on the driver the leg declared', function (): void {
+    expect(DatabaseDriver::current())->toBe(DatabaseDriver::from(DriverMatrix::driver()));
 });
