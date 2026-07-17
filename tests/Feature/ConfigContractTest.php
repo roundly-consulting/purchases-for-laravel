@@ -34,12 +34,18 @@ it('ships exactly the config keys it reads', function (): void {
             // `hasRoutes('purchases.php', …)`, a ROUTES FILENAME, and reports
             // `purchases.php` as a config key the file does not ship. Naming the sections
             // keeps every genuine seam read visible without inventing that key.
+            //
+            // No 'purchases.routes.' entry: every key in that section is already read by a
+            // plain `config()` token in the provider, so the prefix proved nothing and was
+            // removed. Unlike allowUnread/allowUnshipped, extraReadPrefixes is NOT
+            // rot-checked — a redundant entry silences no failure and so can never be
+            // noticed, while still carrying the false-positive risk described above. That
+            // asymmetry is why a prefix earns its place or goes.
             'extraReadPrefixes' => [
                 'purchases.models.',
                 'purchases.settings.',
                 'purchases.audit.',
                 'purchases.queue.',
-                'purchases.routes.',
             ],
 
             // Credentials are read as ARRAY OFFSETS on a section the provider resolved
