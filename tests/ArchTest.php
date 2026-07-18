@@ -14,8 +14,11 @@ use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
+use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
+use RoundlyConsulting\Purchases\Providers\Stripe\StripeClient;
 use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\PurchasesServiceProvider;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
@@ -57,6 +60,10 @@ ArchPresets::strictTypes('RoundlyConsulting\Purchases');
  * The list stays **rot-proof**: an entry that stops silencing anything FAILS. So it cannot
  * quietly decay, and — the real point — **every NEW class must be final or be argued onto
  * this list**.
+ *
+ * Declared as a constant rather than inline because the shadow guard further down consumes
+ * the SAME list. Two copies of this would eventually disagree, and the guard's whole job is
+ * to know exactly what these exemptions reach.
  *
  * Grouped by why:
  *
@@ -114,6 +121,102 @@ const FINALITY_EXEMPTIONS = [
 ];
 
 ArchPresets::finalByDefault('RoundlyConsulting\Purchases', FINALITY_EXEMPTIONS);
+
+/**
+ * ## The exemptions above reach FURTHER than they read. This closes that hole.
+ *
+ * Pest matches arch exemptions by **string prefix**, not by class identity —
+ * `pest-plugin-arch/src/Blueprint.php:103` is literally
+ * `if (str_starts_with($object->name, $exclude))`. So exempting a class silently exempts
+ * every class whose FQCN starts with the same characters:
+ *
+ *   `...\Stripe\Stripe`  also silences  `...\Stripe\StripeClient`
+ *   `...\Google\Google`  also silences  `...\Google\GoogleClient`
+ *   `...\Purchases`      also silences  `...\PurchasesServiceProvider`
+ *
+ * This is not theoretical and it is not cosmetic: it was found by biting the preset.
+ * `StripeClient` was un-finalled on purpose and `finalByDefault` stayed **GREEN**, because
+ * the neighbouring `Stripe::class` exemption was covering for it. Three classes sit in that
+ * shadow, and two of them (`GoogleClient`, `StripeClient`) are ones this package just
+ * deliberately closed — so the exact classes we decided to close were the ones the preset
+ * could not have policed. A `final` deleted from any of the three would have gone green.
+ *
+ * The shared preset cannot be fixed from here (it is testing-for-laravel's, and Pest's
+ * prefix semantics are Pest's), so the gap is closed locally and by EXACT match. This does
+ * not re-implement `finalByDefault`; it covers only the set the preset provably cannot see,
+ * derived rather than hand-listed so a new shadowed class is caught the day it appears.
+ *
+ * Pinned with a count: if the shadow set ever measures empty this FAILS rather than passing
+ * over nothing — the vacuous green these checks exist to kill.
+ */
+it('closes the finality hole Pest\'s prefix-matched exemptions open', function (): void {
+    $shadowed = [];
+
+    foreach (concreteSourceClasses() as $class) {
+        // Exactly exempt — argued for above, and genuinely open. Not our business here.
+        if (in_array($class, FINALITY_EXEMPTIONS, true)) {
+            continue;
+        }
+
+        foreach (FINALITY_EXEMPTIONS as $exemption) {
+            if (str_starts_with($class, $exemption)) {
+                $shadowed[$class] = (new ReflectionClass($class))->isFinal();
+
+                break;
+            }
+        }
+    }
+
+    // The shadow set is real and known. If this count moves, the reach of an exemption
+    // moved with it, and that is a review event — in either direction.
+    expect($shadowed)->toHaveCount(3)
+        ->and(array_keys($shadowed))->toEqualCanonicalizing([
+            GoogleClient::class,
+            StripeClient::class,
+            PurchasesServiceProvider::class,
+        ]);
+
+    // Every one of them must be final, since the preset's word on them is worthless.
+    expect(array_keys(array_filter($shadowed, fn (bool $final): bool => ! $final)))->toBe([]);
+});
+
+/**
+ * Every concrete, instantiable class in src — the population `finalByDefault` speaks about.
+ * Abstracts/enums/interfaces are excluded for the same reason the preset excludes them:
+ * `abstract final` is a PHP fatal, so they can never satisfy the ban.
+ *
+ * @return list<class-string>
+ */
+function concreteSourceClasses(): array
+{
+    $classes = [];
+
+    foreach (packageSourceFiles() as $file) {
+        $contents = (string) file_get_contents($file->getPathname());
+
+        if (preg_match('/^namespace\s+([^;]+);/m', $contents, $namespace) !== 1) {
+            continue;
+        }
+
+        $class = $namespace[1].'\\'.$file->getBasename('.php');
+
+        if (! class_exists($class)) {
+            continue;
+        }
+
+        $reflection = new ReflectionClass($class);
+
+        if ($reflection->isAbstract() || $reflection->isEnum()) {
+            continue;
+        }
+
+        $classes[] = $class;
+    }
+
+    sort($classes);
+
+    return $classes;
+}
 
 /**
  * Six swappable models, not the two the row spec claimed. Each is pinned non-final AND
