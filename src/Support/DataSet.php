@@ -13,7 +13,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
  * Thin reader over a decoded JSON payload that tracks which keys were consumed,
  * so value objects can retain only the data they actually mapped.
  */
-class DataSet
+final class DataSet
 {
     /** @var list<string> */
     protected array $retrieved = [];

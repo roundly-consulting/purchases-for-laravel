@@ -11,7 +11,7 @@ namespace RoundlyConsulting\Purchases\Exceptions;
  * forged notification, and a security check must never be able to fall back to a
  * weaker (or absent) rule because a value was typed wrong.
  */
-class InvalidConfigurationException extends Exception
+final class InvalidConfigurationException extends Exception
 {
     public static function clockSkew(mixed $value, int $max): self
     {

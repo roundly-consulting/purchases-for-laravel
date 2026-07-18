@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Exceptions;
 
-class VerificationException extends Exception
+final class VerificationException extends Exception
 {
     /**
      * A certificate in the notification's chain has expired.
@@ -16,7 +16,7 @@ class VerificationException extends Exception
      */
     public static function certificateExpired(string $commonName, string $notAfter): static
     {
-        return new static("Apple certificate [{$commonName}] expired at {$notAfter}; the notification's certificate chain is outside its validity period.");
+        return new self("Apple certificate [{$commonName}] expired at {$notAfter}; the notification's certificate chain is outside its validity period.");
     }
 
     /**

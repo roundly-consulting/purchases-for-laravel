@@ -13,7 +13,7 @@ use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
  * Thin wrapper over Laravel's Http client adding the OAuth2 bearer token and base url
  * for the Google Play Developer API.
  */
-class GoogleClient
+final class GoogleClient
 {
     public function __construct(
         private readonly ServiceAccountCredentials $credentials,

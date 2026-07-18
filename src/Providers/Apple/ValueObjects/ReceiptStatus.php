@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Apple\ValueObjects;
 
-class ReceiptStatus extends BaseValueObject
+final class ReceiptStatus extends BaseValueObject
 {
     public function __construct(public readonly int $value) {}
 

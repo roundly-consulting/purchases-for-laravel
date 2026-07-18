@@ -46,12 +46,24 @@ function fakeProvider(GenericResult $result): Provider
     };
 }
 
+/**
+ * Builds the manager over the REAL Resolver rather than a mock of it.
+ *
+ * The stub provider is registered the way a host registers one: listed in
+ * `purchases.providers` and resolvable from the container. That is the documented seam
+ * (`extend BaseProvider`, list the class), so this exercises Resolver's actual
+ * config-read-and-key-by-id behaviour instead of asserting against a double that agrees
+ * with whatever we tell it. Resolver reads the config in its constructor, so the key must
+ * be set before it is built.
+ */
 function managerFor(GenericResult $result): Purchases
 {
-    $resolver = Mockery::mock(Resolver::class);
-    $resolver->shouldReceive('resolve')->andReturn(fakeProvider($result));
+    $provider = fakeProvider($result);
 
-    return new Purchases($resolver);
+    app()->instance($provider::class, $provider);
+    config()->set('purchases.providers', [$provider::class]);
+
+    return new Purchases(new Resolver);
 }
 
 it('records a raw notification snapshot before reducing it', function (): void {

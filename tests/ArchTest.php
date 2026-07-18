@@ -2,13 +2,7 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\Purchases\Exceptions\CurrencyMismatchException;
 use RoundlyConsulting\Purchases\Exceptions\Exception as PurchasesException;
-use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
-use RoundlyConsulting\Purchases\Exceptions\InvalidMoneyException;
-use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
-use RoundlyConsulting\Purchases\Exceptions\UnknownProviderException;
-use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
@@ -16,18 +10,12 @@ use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
-use RoundlyConsulting\Purchases\Providers\Apple\AppStoreServerApi;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
-use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptStatus;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
-use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
-use RoundlyConsulting\Purchases\Providers\Resolver;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
-use RoundlyConsulting\Purchases\Providers\Stripe\StripeClient;
 use RoundlyConsulting\Purchases\Purchases;
-use RoundlyConsulting\Purchases\Support\DataSet;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
@@ -48,24 +36,37 @@ ArchPresets::strictTypes('RoundlyConsulting\Purchases');
  * the moment a host uses the seam the config documents, shipped 7x across the fleet under
  * green "everything is final" arch tests. This package had NEITHER rule.
  *
- * ## The exemption list is an inventory, and it is deliberately long
+ * ## The inventory was a holding position. This is the decision.
  *
- * purchases ships **26** non-final, non-abstract classes. Closing them is a src-wide
- * refactor with real design decisions in it — several are genuine extension points — and
- * that is beyond what a test-machinery adoption should decide unilaterally, so the row
- * takes the inventory rather than the refactor. **Reported for a finality decision.**
+ * The adoption row found **26** non-final classes and — correctly — declined to decide a
+ * src-wide finality refactor as a side effect of installing test machinery. It shipped a
+ * rot-checked inventory instead and reported it. That decision has now been made class by
+ * class, on evidence: **12 closed, 14 remain open.**
  *
- * The list still earns its place, because the preset's exemptions are **rot-proof**: an
- * entry that stops silencing anything FAILS. So this cannot quietly decay, and — the real
- * point — **every NEW class must be final or be argued onto this list**. That is the
- * ratchet the package did not have at all.
+ * The 12 that closed had nothing extending them, no config key naming them, and no
+ * documented seam — the six exception leaves, Resolver, DataSet, ReceiptStatus,
+ * GoogleClient, StripeClient and AppStoreServerApi. What remains is not a backlog; each
+ * entry below is a seam a host is genuinely invited through, or a PHP requirement.
+ *
+ * An exemption here is **expensive** — it is class-scoped, so it blinds that class to every
+ * other rule this preset carries. That is the reason the bar for staying is evidence and
+ * not convenience, and the reason "our own tests find it easier to stub" was not on its own
+ * enough to keep a class open (Resolver was mocked with Mockery and closed anyway; the test
+ * now drives the real class through the real config seam, which is the better test).
+ *
+ * The list stays **rot-proof**: an entry that stops silencing anything FAILS. So it cannot
+ * quietly decay, and — the real point — **every NEW class must be final or be argued onto
+ * this list**.
  *
  * Grouped by why:
+ *
+ * @var list<class-string>
  */
-ArchPresets::finalByDefault('RoundlyConsulting\Purchases', [
+const FINALITY_EXEMPTIONS = [
     // 1. The six documented model seams. `purchases.models.*` invites a host to
-    //    subclass each one; `final` here is the 7x-shipped fatal. Pinned by
-    //    swappableModelsAreNotFinal below, which is the counter-weight.
+    //    subclass each one ("swap any of these for your own subclass" —
+    //    docs/technical/configuration.md); `final` here is the 7x-shipped fatal.
+    //    Pinned by swappableModelsAreNotFinal below, which is the counter-weight.
     Purchase::class,
     PurchaseItem::class,
     PurchaseRefund::class,
@@ -73,42 +74,46 @@ ArchPresets::finalByDefault('RoundlyConsulting\Purchases', [
     Subscription::class,
     SubscriptionItem::class,
 
-    // 2. The exception hierarchy. `Exception` is the base every purchases error
-    //    extends so a host can catch them uniformly; the leaves are open only because
-    //    the base is. Closing the leaves is the easy half of the reported decision.
+    // 2. The exception BASE — and only the base. Six leaves extend it, so `final` here
+    //    is not a policy call but a PHP fatal; it is also the documented catch-all
+    //    ("All package exceptions extend ... Exceptions\Exception" — README). Its
+    //    constructor is already `final`, so the base is closed where it counts. The
+    //    seven-entry exception block is now one: every leaf is final.
     PurchasesException::class,
-    VerificationException::class,
-    UnknownProviderException::class,
-    InvalidConfigurationException::class,
-    InvalidProviderNotificationException::class,
-    InvalidMoneyException::class,
-    CurrencyMismatchException::class,
 
-    // 3. Provider drivers. `purchases.providers` lists these classes in config, and a
-    //    host adds its own by extending BaseProvider — so they are an extension point
-    //    by construction, not by accident.
+    // 3. The manager. `PurchasesFake extends Purchases` ships IN THIS PACKAGE
+    //    (src/Testing/PurchasesFake.php) as the documented test double, so `final` is a
+    //    fatal in our own source. The fleet's `final class ShopManager` precedent does
+    //    not transfer: shops ships no subclass of it.
+    Purchases::class,
+
+    // 4. Provider drivers, named as class strings in the `purchases.providers` config.
+    //    A host swapping `Apple::class` for its own `extends Apple` is editing a config
+    //    list we ship — structurally the SAME move as a model swap, and so the same
+    //    fatal. (Adding a brand-new provider goes through the abstract BaseProvider,
+    //    which the preset excludes automatically.) git-for-laravel keeps Github/Gitlab/
+    //    Bitbucket open for exactly this reason.
     Apple::class,
     Google::class,
     Stripe::class,
-    Resolver::class,
 
-    // 4. Deliberate override points. JwsVerifier exposes a `protected fingerprints()`
-    //    precisely so the trust anchors can be replaced — this suite's own
-    //    `appleVerifierPinnedTo()` does exactly that to exercise the positive trust
-    //    path against a throwaway CA, because we cannot sign with Apple's key.
+    // 5. The Apple trust + token boundary: override points a host cannot test without.
+    //    JwsVerifier exposes a `protected fingerprints()` precisely so the trust anchors
+    //    can be replaced — this suite's own `appleVerifierPinnedTo()` does exactly that
+    //    to exercise the positive trust path against a throwaway CA, because nobody can
+    //    sign with Apple's key. JwsManager and AccessTokenFactory are the same shape:
+    //    both are subclassed by this suite to stub JWS decoding and Google token minting,
+    //    and a host testing its own purchase flow hits that identical wall. This is what
+    //    separates them from the transport clients that just closed (GoogleClient,
+    //    StripeClient, AppStoreServerApi): those are stubbed with `Http::fake()` and never
+    //    needed subclassing. Here the thing that must be faked is a signature, not a
+    //    response — there is no `Http::fake()` for "pretend Apple signed this".
     JwsVerifier::class,
     JwsManager::class,
-
-    // 5. Transport/infrastructure classes a host may need to stub. These are the
-    //    strongest candidates to simply close.
-    AppStoreServerApi::class,
-    GoogleClient::class,
-    StripeClient::class,
     AccessTokenFactory::class,
-    ReceiptStatus::class,
-    Purchases::class,
-    DataSet::class,
-]);
+];
+
+ArchPresets::finalByDefault('RoundlyConsulting\Purchases', FINALITY_EXEMPTIONS);
 
 /**
  * Six swappable models, not the two the row spec claimed. Each is pinned non-final AND

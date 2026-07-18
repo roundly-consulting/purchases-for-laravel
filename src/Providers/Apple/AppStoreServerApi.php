@@ -16,7 +16,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
  *
  * @link https://developer.apple.com/documentation/appstoreserverapi
  */
-class AppStoreServerApi
+final class AppStoreServerApi
 {
     /** @var array<string, mixed> */
     private readonly array $config;

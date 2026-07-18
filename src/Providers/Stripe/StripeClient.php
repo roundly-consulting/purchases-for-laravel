@@ -12,7 +12,7 @@ use SensitiveParameter;
  * Thin wrapper over Laravel's Http client for Stripe's REST API, pinning the
  * configured API version and authenticating with the secret key.
  */
-class StripeClient
+final class StripeClient
 {
     public function __construct(
         #[SensitiveParameter] private readonly string $secret,

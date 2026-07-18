@@ -6,7 +6,7 @@ namespace RoundlyConsulting\Purchases\Providers;
 
 use Illuminate\Support\Collection;
 
-class Resolver
+final class Resolver
 {
     /** @var list<class-string<Provider>> */
     protected array $providers;
