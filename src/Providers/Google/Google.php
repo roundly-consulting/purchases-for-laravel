@@ -204,7 +204,9 @@ class Google extends BaseProvider implements VerifiesConnectivity
         return new GenericResult(
             provider: $this->id(),
             type: ResultType::Subscription,
-            providerId: $purchase->latestOrderId ?? $token,
+            // The purchase token is the subscription's stable identity (and what its RTDNs
+            // carry); the order id changes with every renewal, so it is the transaction.
+            providerId: $token,
             status: $purchase->subscriptionState?->status() ?? Status::Processing,
             transactionId: $purchase->latestOrderId,
             name: $purchase->productId(),

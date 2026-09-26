@@ -17,13 +17,16 @@ final class RecordSubscriptionAction
 {
     public function execute(RecordSubscriptionData $data): Subscription
     {
-        $attributes = [
-            'name' => $data->name,
-            'status' => $data->status,
+        // A notification that does not know a value (a Google RTDN carries no order id or
+        // expiry) leaves the stored one alone instead of wiping it.
+        $attributes = array_filter([
             'transaction_id' => $data->transactionId,
             'active_from' => $data->activeFrom,
             'trial_ends_at' => $data->trialEndsAt,
             'ends_at' => $data->endsAt,
+        ], static fn (mixed $value): bool => $value !== null) + [
+            'name' => $data->name,
+            'status' => $data->status,
             'meta' => $data->meta,
         ];
 

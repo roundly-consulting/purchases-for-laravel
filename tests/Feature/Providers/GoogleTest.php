@@ -189,7 +189,8 @@ it('maps a subscription to a unified result', function (): void {
 
     expect($result->type())->toBe(ResultType::Subscription)
         ->and($result->status())->toBe(Status::Completed)
-        ->and($result->providerId())->toBe('GPA.SUB.9')
+        ->and($result->providerId())->toBe('sub-token')
+        ->and($result->transactionId())->toBe('GPA.SUB.9')
         ->and($result->endsAt())->not->toBeNull()
         ->and($result->price()?->minor())->toBe('1299')
         ->and($result->price()?->currency()->code)->toBe('USD');
@@ -554,3 +555,25 @@ it('keeps a quantity-based partially voided purchase completed', function (int $
     'quantity-based partial refund' => [2, Status::Completed],
     'full refund' => [1, Status::Refunded],
 ]);
+
+it('keys a verified subscription on its purchase token, like its notifications', function (): void {
+    Http::fake([
+        '*/purchases/subscriptionsv2/*' => Http::sequence()
+            ->push(['subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE', 'latestOrderId' => 'GPA.1-0', 'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED', 'lineItems' => [['productId' => 'pro', 'expiryTime' => '2026-02-01T00:00:00Z']]])
+            ->push(['subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE', 'latestOrderId' => 'GPA.1-1', 'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED', 'lineItems' => [['productId' => 'pro', 'expiryTime' => '2026-03-01T00:00:00Z']]]),
+    ]);
+    $sync = new SyncProviderResultAction;
+
+    // The order id changes on every renewal ("…-0", "…-1"); the purchase token does not.
+    $first = googleProvider()->result(new Request(['purchaseToken' => 'tok-stable']));
+    $sync->execute($first);
+    $sync->execute(googleProvider()->result(new Request(['purchaseToken' => 'tok-stable'])));
+    $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => 'tok-stable', 'subscriptionId' => 'pro']])));
+
+    expect($first->providerId())->toBe('tok-stable')
+        ->and($first->transactionId())->toBe('GPA.1-0')
+        ->and(Subscription::query()->count())->toBe(1)
+        ->and(Subscription::query()->sole()->transaction_id)->toBe('GPA.1-1')
+        // The RTDN carries no order id or expiry: it must not wipe the verified ones.
+        ->and(Subscription::query()->sole()->ends_at?->toIso8601String())->toBe('2026-03-01T00:00:00+00:00');
+});
