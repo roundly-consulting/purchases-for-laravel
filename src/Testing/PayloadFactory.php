@@ -13,22 +13,40 @@ use RoundlyConsulting\Crypto\Codec\Base64Url;
 final class PayloadFactory
 {
     /**
-     * A decoded App Store Server notification payload (the claims a verified JWS
-     * would yield), ready to feed a TransactionInfo/notification mapper.
+     * A decoded App Store Server notification payload — the claims a verified JWS
+     * yields once JwsManager has decoded the nested signed transaction into
+     * `data.transactionInfo` — ready to feed ServerNotificationDecodedPayload::fromRaw()
+     * or a TransactionInfo mapper. Pass a null subtype for the types Apple sends
+     * without one (REFUND, REVOKE, TEST, a plain DID_RENEW).
      *
      * @return array<string, mixed>
      */
-    public static function appleNotification(string $type = 'DID_RENEW', string $subType = 'BILLING_RECOVERY', string $transactionId = 'tx-1'): array
+    public static function appleNotification(string $type = 'DID_RENEW', ?string $subType = 'BILLING_RECOVERY', string $transactionId = 'tx-1'): array
     {
-        return [
+        $payload = [
             'notificationUUID' => 'uuid-'.$transactionId,
             'notificationType' => $type,
-            'subtype' => $subType,
+        ];
+
+        if ($subType !== null) {
+            $payload['subtype'] = $subType;
+        }
+
+        return $payload + [
+            'version' => '2.0',
             'data' => [
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Sandbox',
                 'transactionInfo' => [
+                    'environment' => 'Sandbox',
                     'transactionId' => $transactionId,
                     'originalTransactionId' => $transactionId,
                     'productId' => 'com.example.pro',
+                    'type' => 'Auto-Renewable Subscription',
+                    'inAppOwnershipType' => 'PURCHASED',
+                    'price' => 9990,
+                    'currency' => 'USD',
                 ],
             ],
         ];
