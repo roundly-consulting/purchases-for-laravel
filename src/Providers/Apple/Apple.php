@@ -19,6 +19,8 @@ use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationSubType;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationType;
+use RoundlyConsulting\Purchases\Providers\Apple\Enums\Ownership;
+use RoundlyConsulting\Purchases\Providers\Apple\Enums\ProductType;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
@@ -106,7 +108,7 @@ class Apple extends BaseProvider implements VerifiesConnectivity
                 ?? $payload->uuid;
         }
 
-        $type = $this->resultType($payload->type, $transaction !== null);
+        $type = $this->resultType($payload->type, $transaction);
 
         return new GenericResult(
             provider: $this->id(),
@@ -133,8 +135,8 @@ class Apple extends BaseProvider implements VerifiesConnectivity
      *
      * A refund carries what was refunded: a prorated refund is its
      * `revocationPercentage` share of the price (milli-units × milli-percent, still
-     * rounded once), and a Family Sharing revocation moved no money on this
-     * transaction, so it carries none.
+     * rounded once). A Family Sharing transaction — shared with, or revoked from, a
+     * family member — moved no money on this account, so it carries none.
      */
     private function price(?TransactionInfo $transaction, NotificationType $type): ?Money
     {
@@ -142,7 +144,9 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             return null;
         }
 
-        if ($type === NotificationType::TypeRevoke || $transaction->revocationType === self::FAMILY_REVOKE) {
+        if ($type === NotificationType::TypeRevoke
+            || $transaction->revocationType === self::FAMILY_REVOKE
+            || $transaction->inAppOwnershipType === Ownership::FamilyShared) {
             return null;
         }
 
@@ -165,13 +169,28 @@ class Apple extends BaseProvider implements VerifiesConnectivity
         }
     }
 
-    private function resultType(NotificationType $type, bool $hasTransaction): ResultType
+    /**
+     * ONE_TIME_CHARGE is a consumable, non-consumable or non-renewing purchase; a
+     * REFUND_REVERSED reinstates whichever kind the transaction is. Everything else that
+     * carries a transaction concerns an auto-renewable subscription.
+     */
+    private function resultType(NotificationType $type, ?TransactionInfo $transaction): ResultType
     {
         if ($type->isRefund()) {
             return ResultType::Refund;
         }
 
-        return $hasTransaction ? ResultType::Subscription : ResultType::Notification;
+        if ($transaction === null) {
+            return ResultType::Notification;
+        }
+
+        return match (true) {
+            $type === NotificationType::TypeOneTimeCharge => ResultType::Purchase,
+            $type === NotificationType::TypeRefundReversed => $transaction->type === ProductType::AutoRenewableSubscription
+                ? ResultType::Subscription
+                : ResultType::Purchase,
+            default => ResultType::Subscription,
+        };
     }
 
     /**

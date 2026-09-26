@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Apple\Enums;
 
+/**
+ * App Store Server Notifications V2 `subtype` values.
+ *
+ * @link https://developer.apple.com/documentation/appstoreservernotifications/subtype
+ */
 enum NotificationSubType: string
 {
     case SubtypeInitialBuy = 'INITIAL_BUY';
@@ -19,4 +24,10 @@ enum NotificationSubType: string
     case SubtypeBillingRecovery = 'BILLING_RECOVERY';
     case SubtypePending = 'PENDING';
     case SubtypeAccepted = 'ACCEPTED';
+    case SubtypeProductNotForSale = 'PRODUCT_NOT_FOR_SALE';
+    case SubtypeSummary = 'SUMMARY';
+    case SubtypeFailure = 'FAILURE';
+    case SubtypeCreated = 'CREATED';
+    case SubtypeActiveTokenReminder = 'ACTIVE_TOKEN_REMINDER';
+    case SubtypeUnreported = 'UNREPORTED';
 }

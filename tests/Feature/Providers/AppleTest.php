@@ -3,14 +3,19 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Money\Money;
+use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\Environment;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationSubType;
+use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationType;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
@@ -518,3 +523,142 @@ it('keeps the revocation type and percentage on the value object', function (): 
 it('records no refunded amount when the revocation percentage is out of range', function (int $percentage): void {
     expect(appleRefundPrice('REFUND', ['revocationType' => 'REFUND_PRORATED', 'revocationPercentage' => $percentage]))->toBeNull();
 })->with(['negative' => -1, 'above 100 %' => 100001]);
+
+/**
+ * Apple's decoded notification: `notificationType`, an optional `subtype`, and a `data`
+ * block carrying a signed transaction — or, for the types Apple sends without one, the
+ * given top-level fields instead (`summary`, `externalPurchaseToken`, `appData`).
+ *
+ * @param  array<string, mixed>|null  $transaction  null: no `data` block at all
+ * @param  array<string, mixed>  $extra
+ */
+function appleNotificationFor(string $type, ?string $subtype = null, ?array $transaction = [], array $extra = []): Apple
+{
+    $claims = ['notificationUUID' => 'n-'.strtolower($type), 'notificationType' => $type, 'version' => '2.0'] + $extra;
+
+    if ($subtype !== null) {
+        $claims['subtype'] = $subtype;
+    }
+
+    if ($transaction !== null) {
+        $claims['data'] = [
+            'appAppleId' => 1234567890,
+            'bundleId' => 'com.example.app',
+            'bundleVersion' => '1.0',
+            'environment' => 'Production',
+            'signedTransactionInfo' => 'transaction.jws',
+        ];
+    }
+
+    return new Apple(fakeJwsMapping([
+        'token' => $claims,
+        'transaction.jws' => ($transaction ?? []) + [
+            'environment' => 'Production',
+            'transactionId' => 'txn-'.strtolower($type),
+            'originalTransactionId' => 'orig-'.strtolower($type),
+            'productId' => 'coins.100',
+            'type' => 'Consumable',
+            'inAppOwnershipType' => 'PURCHASED',
+            'price' => 4990,
+            'currency' => 'USD',
+        ],
+    ]));
+}
+
+function appleSignedRequest(): Request
+{
+    return new Request(['signedPayload' => 'token']);
+}
+
+it('parses every documented notification type without crashing', function (string $type, NotificationType $expected): void {
+    $payload = appleNotificationFor($type)->notification(appleSignedRequest());
+
+    expect($payload->type)->toBe($expected);
+})->with([
+    ['ONE_TIME_CHARGE', NotificationType::TypeOneTimeCharge],
+    ['REFUND_REVERSED', NotificationType::TypeRefundReversed],
+    ['RENEWAL_EXTENSION', NotificationType::TypeRenewalExtension],
+    ['EXTERNAL_PURCHASE_TOKEN', NotificationType::TypeExternalPurchaseToken],
+    ['METADATA_UPDATE', NotificationType::TypeMetadataUpdate],
+    ['MIGRATION', NotificationType::TypeMigration],
+    ['PRICE_CHANGE', NotificationType::TypePriceChange],
+    ['RESCIND_CONSENT', NotificationType::TypeRescindConsent],
+    'a type this version does not know yet' => ['SOMETHING_NEW', NotificationType::Unknown],
+]);
+
+it('parses every documented subtype', function (string $subtype, NotificationSubType $expected): void {
+    expect(appleNotificationFor('EXPIRED', $subtype)->notification(appleSignedRequest())->subType)->toBe($expected);
+})->with([
+    ['PRODUCT_NOT_FOR_SALE', NotificationSubType::SubtypeProductNotForSale],
+    ['FAILURE', NotificationSubType::SubtypeFailure],
+    ['SUMMARY', NotificationSubType::SubtypeSummary],
+    ['CREATED', NotificationSubType::SubtypeCreated],
+    ['ACTIVE_TOKEN_REMINDER', NotificationSubType::SubtypeActiveTokenReminder],
+    ['UNREPORTED', NotificationSubType::SubtypeUnreported],
+]);
+
+it('parses the notifications apple sends without a data block', function (string $type, ?string $subtype, array $extra, string $key): void {
+    $apple = appleNotificationFor($type, $subtype, null, $extra);
+
+    $payload = $apple->notification(appleSignedRequest());
+    $result = $apple->result(appleSignedRequest());
+
+    expect($payload->appMetadata)->toBeNull()
+        ->and($payload->transactionInfo)->toBeNull()
+        ->and($payload->toArray())->toHaveKey($key)
+        ->and($result->type())->toBe(ResultType::Notification)
+        ->and($result->providerId())->toBe('n-'.strtolower($type));
+})->with([
+    'renewal extension summary' => ['RENEWAL_EXTENSION', 'SUMMARY', ['summary' => ['requestIdentifier' => 'r-1', 'succeededCount' => 10, 'failedCount' => 0]], 'summary'],
+    'external purchase token' => ['EXTERNAL_PURCHASE_TOKEN', 'CREATED', ['externalPurchaseToken' => ['externalPurchaseId' => 'x-1', 'tokenCreationDate' => 1700000000000]], 'externalPurchaseToken'],
+    'rescinded consent' => ['RESCIND_CONSENT', null, ['appData' => ['appAppleId' => 1, 'bundleId' => 'com.example.app', 'environment' => 'Production']], 'appData'],
+]);
+
+it('maps a one-time charge to a completed purchase with its price', function (): void {
+    Event::fake();
+
+    $result = appleNotificationFor('ONE_TIME_CHARGE')->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Purchase)
+        ->and($result->status())->toBe(Status::Completed)
+        ->and($result->transactionId())->toBe('txn-one_time_charge')
+        ->and($result->price()?->minor())->toBe('499');
+
+    $purchase = (new SyncProviderResultAction)->execute($result);
+
+    expect($purchase)->toBeInstanceOf(Purchase::class)
+        ->and($purchase?->status)->toBe(Status::Completed)
+        ->and($purchase?->price?->minor())->toBe('499');
+
+    Event::assertDispatched(PurchaseCompleted::class);
+});
+
+it('records no price for a family-shared transaction', function (): void {
+    $result = appleNotificationFor('ONE_TIME_CHARGE', null, ['inAppOwnershipType' => 'FAMILY_SHARED'])->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Purchase)
+        ->and($result->price())->toBeNull();
+});
+
+it('reinstates a purchase whose refund apple reversed', function (): void {
+    $sync = new SyncProviderResultAction;
+
+    $sync->execute(appleNotificationFor('ONE_TIME_CHARGE', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest()));
+    $sync->execute(appleNotificationFor('REFUND', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest()));
+
+    expect(Purchase::query()->sole()->status)->toBe(Status::Refunded);
+
+    $reversed = appleNotificationFor('REFUND_REVERSED', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest());
+    $sync->execute($reversed);
+
+    expect($reversed->type())->toBe(ResultType::Purchase)
+        ->and($reversed->status())->toBe(Status::Completed)
+        ->and(Purchase::query()->sole()->status)->toBe(Status::Completed);
+});
+
+it('reinstates a subscription whose refund apple reversed', function (): void {
+    $result = appleNotificationFor('REFUND_REVERSED', null, ['type' => 'Auto-Renewable Subscription', 'productId' => 'pro.monthly'])->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::Completed);
+});
