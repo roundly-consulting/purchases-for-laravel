@@ -13,6 +13,21 @@ All notable changes to `purchases-for-laravel` will be documented in this file.
 - An Apple refund records what was refunded: a `REFUND_PRORATED` refund is its
   `revocationPercentage` share of the price (rounded once), and a Family Sharing `REVOKE` records
   no amount. `TransactionInfo` exposes `revocationType` and `revocationPercentage`.
+- Apple notification types added since the provider was written no longer crash the webhook:
+  ONE_TIME_CHARGE (now a completed `Purchase` with its price), REFUND_REVERSED (reinstates the
+  purchase or subscription), RENEWAL_EXTENSION, EXTERNAL_PURCHASE_TOKEN, METADATA_UPDATE,
+  MIGRATION, PRICE_CHANGE, RESCIND_CONSENT, the subtypes FAILURE, PRODUCT_NOT_FOR_SALE, SUMMARY,
+  CREATED, ACTIVE_TOKEN_REMINDER, UNREPORTED, and the notifications without `data` (their
+  `summary` / `externalPurchaseToken` / `appData` is kept raw). A type Apple adds later parses as
+  `NotificationType::Unknown`. A Family Sharing transaction carries no price.
+- Informational notifications are never applied: an Apple renewal-preference or auto-renew
+  change, price increase, consumption request, declined refund (previously marked the
+  subscription **Failed** and fired `SubscriptionExpired`), TEST or unknown type; a Google test,
+  one-time-product, deferral, price-change, pause-schedule or unknown RTDN; and a Stripe event the
+  package does not map (previously recorded as a bogus `Purchase`). `SyncProviderResultAction`
+  returns `null` for `Notification` / `Unknown` results and `handle()` returns the audit
+  notification. `PayloadFactory::appleNotification()` emits a payload
+  `ServerNotificationDecodedPayload::fromRaw()` parses (`?string $subType`).
 - Stripe `checkout.session.completed`, `invoice.paid` and `invoice.payment_failed` results read
   their own amount (`amount_total`, `amount_paid`, `amount_due`) instead of a missing `amount`,
   and their status: a paid session or invoice is Completed, an unpaid session Pending, a failed

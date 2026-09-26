@@ -165,6 +165,12 @@ and `InGracePeriod`. `ResultType::Refund` covers refunds and chargebacks.
 `SubscriptionExpired`, and `SubscriptionInGracePeriod` — each carrying the persisted model and
 the originating `ProviderResult`.
 
+Informational notifications change nothing: an Apple renewal-preference or auto-renew change,
+price increase, consumption request, declined refund or TEST, a Google deferral or price-change
+update, and any event type a provider does not map are audited but never applied — they cannot
+overwrite a subscription's status or fire `SubscriptionExpired`. `handle()` then returns the audit
+`PurchaseNotification`.
+
 ### Refunds & chargebacks
 
 Apple `REFUND`/`REVOKE`, Google `*_REVOKED` / voided-purchase RTDNs, and Stripe
