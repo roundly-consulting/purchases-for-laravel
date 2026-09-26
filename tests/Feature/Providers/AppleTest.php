@@ -384,7 +384,7 @@ it('leaves the price null when the transaction lacks a usable price', function (
     'unknown currency' => [['price' => 1990, 'currency' => 'ZZZ']],
 ]);
 
-it('parses a notification that carries no subtype', function (string $type): void {
+it('parses a notification that carries no subtype', function (string $type, ?string $minor): void {
     // Apple sends `subtype` only for some types (REFUND, REVOKE, TEST, a plain DID_RENEW never carry one).
     $jws = fakeJwsMapping([
         'token' => [
@@ -412,8 +412,13 @@ it('parses a notification that carries no subtype', function (string $type): voi
     $request = new Request(['signedPayload' => 'token']);
 
     expect($apple->notification($request)->subType)->toBeNull()
-        ->and($apple->result($request)->price()?->minor())->toBe('199');
-})->with(['DID_RENEW', 'REFUND', 'REVOKE']);
+        ->and($apple->result($request)->price()?->minor())->toBe($minor);
+})->with([
+    'DID_RENEW' => ['DID_RENEW', '199'],
+    'REFUND' => ['REFUND', '199'],
+    // A Family Sharing revocation moved no money (see the refund-amount tests below).
+    'REVOKE' => ['REVOKE', null],
+]);
 
 it('reads the subtype from the key apple sends', function (): void {
     $claims = ['notificationUUID' => 'n-st', 'notificationType' => 'DID_FAIL_TO_RENEW', 'subtype' => 'GRACE_PERIOD', 'data' => [
@@ -441,3 +446,75 @@ it('reads the int64 app apple id and tolerates its absence in the sandbox', func
     'production: an int64' => [['appAppleId' => 1234567890], '1234567890'],
     'sandbox: absent' => [[], null],
 ]);
+
+/**
+ * The refund amount a REFUND / REVOKE notification records for a transaction.
+ *
+ * @param  array<string, mixed>  $transaction
+ */
+function appleRefundPrice(string $type, array $transaction): ?Money
+{
+    $jws = fakeJwsMapping([
+        'token' => [
+            'notificationUUID' => 'n-refund-price',
+            'notificationType' => $type,
+            'data' => [
+                'appAppleId' => '1',
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Production',
+                'signedTransactionInfo' => 'transaction.jws',
+            ],
+        ],
+        'transaction.jws' => [
+            'environment' => 'Production',
+            'transactionId' => 'txn-rp',
+            'originalTransactionId' => 'orig-rp',
+            'productId' => 'pro.yearly',
+            'price' => 9990,
+            'currency' => 'USD',
+        ] + $transaction,
+    ]);
+
+    $result = (new Apple($jws))->result(new Request(['signedPayload' => 'token']));
+
+    expect($result->type())->toBe(ResultType::Refund);
+
+    return $result->price();
+}
+
+it('records only the refunded share of a prorated apple refund', function (): void {
+    // 67.932 % of USD 9.99 = 6.7864068 → 6.79, rounded once.
+    $price = appleRefundPrice('REFUND', ['revocationType' => 'REFUND_PRORATED', 'revocationPercentage' => 67932]);
+
+    expect($price?->minor())->toBe('679')
+        ->and($price?->currency()->code)->toBe('USD');
+});
+
+it('records the full price of a full apple refund', function (array $transaction): void {
+    expect(appleRefundPrice('REFUND', $transaction)?->minor())->toBe('999');
+})->with([
+    'REFUND_FULL' => [['revocationType' => 'REFUND_FULL', 'revocationPercentage' => 100000]],
+    'legacy payload without revocation fields' => [[]],
+]);
+
+it('records no refunded amount for a family sharing revocation', function (): void {
+    // REVOKE: the family member never paid — no money moved on this transaction.
+    expect(appleRefundPrice('REVOKE', ['revocationType' => 'FAMILY_REVOKE', 'revocationPercentage' => 100000]))->toBeNull();
+});
+
+it('keeps the revocation type and percentage on the value object', function (): void {
+    $info = TransactionInfo::fromRaw([
+        'environment' => 'Production',
+        'revocationType' => 'REFUND_PRORATED',
+        'revocationPercentage' => 67932,
+    ]);
+
+    expect($info->revocationType)->toBe('REFUND_PRORATED')
+        ->and($info->revocationPercentage)->toBe(67932)
+        ->and($info->raw)->toMatchArray(['revocationType' => 'REFUND_PRORATED', 'revocationPercentage' => 67932]);
+});
+
+it('records no refunded amount when the revocation percentage is out of range', function (int $percentage): void {
+    expect(appleRefundPrice('REFUND', ['revocationType' => 'REFUND_PRORATED', 'revocationPercentage' => $percentage]))->toBeNull();
+})->with(['negative' => -1, 'above 100 %' => 100001]);

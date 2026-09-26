@@ -29,6 +29,16 @@ use Throwable;
 
 class Apple extends BaseProvider implements VerifiesConnectivity
 {
+    /** `price` is in milli-units of the currency. */
+    private const int PRICE_SCALE = 3;
+
+    /** `revocationPercentage` is a percentage in milli-units: 100000 = 100 %, i.e. scale 5. */
+    private const int REVOCATION_SCALE = 5;
+
+    private const int FULL_REVOCATION = 100_000;
+
+    private const string FAMILY_REVOKE = 'FAMILY_REVOKE';
+
     /** @var array<string, mixed> */
     protected readonly array $config;
 
@@ -106,7 +116,7 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             transactionId: $transaction?->transactionId,
             name: $transaction?->productId,
             productId: $transaction?->productId,
-            price: $this->price($transaction),
+            price: $this->price($transaction, $payload->type),
             activeFrom: $transaction?->purchaseDate,
             trialEndsAt: null,
             endsAt: $transaction?->expiresDate,
@@ -120,15 +130,36 @@ class Apple extends BaseProvider implements VerifiesConnectivity
     /**
      * Apple reports the price in milli-units (USD 1.99 = `1990`); anything finer
      * than the currency's minor unit rounds half away from zero, once.
+     *
+     * A refund carries what was refunded: a prorated refund is its
+     * `revocationPercentage` share of the price (milli-units × milli-percent, still
+     * rounded once), and a Family Sharing revocation moved no money on this
+     * transaction, so it carries none.
      */
-    private function price(?TransactionInfo $transaction): ?Money
+    private function price(?TransactionInfo $transaction, NotificationType $type): ?Money
     {
         if ($transaction?->price === null || $transaction->currency === null) {
             return null;
         }
 
+        if ($type === NotificationType::TypeRevoke || $transaction->revocationType === self::FAMILY_REVOKE) {
+            return null;
+        }
+
+        $amount = (string) $transaction->price;
+        $scale = self::PRICE_SCALE;
+
+        if ($type->isRefund() && $transaction->revocationPercentage !== null) {
+            if ($transaction->revocationPercentage < 0 || $transaction->revocationPercentage > self::FULL_REVOCATION) {
+                return null;
+            }
+
+            $amount = bcmul($amount, (string) $transaction->revocationPercentage);
+            $scale += self::REVOCATION_SCALE;
+        }
+
         try {
-            return Money::ofScaled($transaction->price, 3, $transaction->currency, RoundingMode::HalfAwayFromZero);
+            return Money::ofScaled($amount, $scale, $transaction->currency, RoundingMode::HalfAwayFromZero);
         } catch (MoneyException) {
             return null;
         }

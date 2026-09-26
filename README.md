@@ -261,7 +261,9 @@ currency), and an amount stored with a null `price_currency` throws on read.
 currencies where Stripe differs from ISO 4217 (ISK and UGX are sent with two decimals, MGA with
 none) — see `Providers\Stripe\StripeAmount::SCALE_EXCEPTIONS`. A float or `"12.5"` amount is
 refused, never truncated. Apple notifications carry the transaction's `price` in milli-units,
-rounded half away from zero to the currency's minor unit. Google subscriptionsv2 purchases report
+rounded half away from zero to the currency's minor unit; a refund records what was refunded (a
+prorated refund's `revocationPercentage` share, rounded once), and a Family Sharing `REVOKE`
+records no amount. Google subscriptionsv2 purchases report
 the sum of their line items' `autoRenewingPlan.recurringPrice` (prepaid plans carry none). Google
 one-time product purchases carry no price in the Play Developer API, so their `price()` stays
 `null`.

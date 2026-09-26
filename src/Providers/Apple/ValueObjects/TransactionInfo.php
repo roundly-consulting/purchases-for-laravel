@@ -13,7 +13,9 @@ use RoundlyConsulting\Purchases\Providers\Apple\Enums\RevocationReason;
 use RoundlyConsulting\Purchases\Support\DataSet;
 
 /**
- * `price` is in milli-units of `currency` (USD 1.99 arrives as `1990`).
+ * `price` is in milli-units of `currency` (USD 1.99 arrives as `1990`). On a refunded
+ * transaction `revocationType` is REFUND_FULL, REFUND_PRORATED or FAMILY_REVOKE and
+ * `revocationPercentage` the refunded share in milli-percent (`67932` = 67.932 %).
  *
  * @link https://developer.apple.com/documentation/appstoreservernotifications/jwstransaction
  * @link https://developer.apple.com/documentation/appstoreserverapi/price
@@ -46,6 +48,8 @@ final class TransactionInfo extends BaseValueObject implements FromRaw
         public readonly array $raw,
         public readonly ?int $price = null,
         public readonly ?string $currency = null,
+        public readonly ?string $revocationType = null,
+        public readonly ?int $revocationPercentage = null,
     ) {}
 
     /**
@@ -77,6 +81,8 @@ final class TransactionInfo extends BaseValueObject implements FromRaw
             type: $dataset->enum('type', ProductType::class),
             price: is_int($price = $dataset->value('price')) ? $price : null,
             currency: is_string($currency = $dataset->value('currency')) && $currency !== '' ? $currency : null,
+            revocationType: is_string($revocationType = $dataset->value('revocationType')) && $revocationType !== '' ? $revocationType : null,
+            revocationPercentage: is_int($revocationPercentage = $dataset->value('revocationPercentage')) ? $revocationPercentage : null,
             // Last: it snapshots only the keys read above.
             raw: $dataset->retrieved(),
         );
