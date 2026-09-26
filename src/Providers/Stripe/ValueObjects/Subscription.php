@@ -9,6 +9,11 @@ use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\SubscriptionStatus;
 use RoundlyConsulting\Purchases\Support\DataSet;
 
+/**
+ * Since API version 2025-03-31 the billing period lives on each subscription item
+ * (`items.data[].current_period_start/end`), not on the subscription; both shapes are
+ * read — the item periods as the earliest start and the latest end.
+ */
 final class Subscription implements FromRaw
 {
     /**
@@ -36,12 +41,32 @@ final class Subscription implements FromRaw
             id: $dataset->value('id'),
             status: $dataset->enum('status', SubscriptionStatus::class),
             customer: $dataset->value('customer'),
-            currentPeriodStart: self::epoch($dataset->value('current_period_start')),
-            currentPeriodEnd: self::epoch($dataset->value('current_period_end')),
+            currentPeriodStart: self::epoch($dataset->value('current_period_start')) ?? self::itemPeriod($dataset, 'current_period_start', earliest: true),
+            currentPeriodEnd: self::epoch($dataset->value('current_period_end')) ?? self::itemPeriod($dataset, 'current_period_end', earliest: false),
             trialEnd: self::epoch($dataset->value('trial_end')),
             canceledAt: self::epoch($dataset->value('canceled_at')),
             raw: $raw,
         );
+    }
+
+    private static function itemPeriod(DataSet $dataset, string $key, bool $earliest): ?Carbon
+    {
+        $items = $dataset->value('items.data');
+        $picked = null;
+
+        foreach (is_array($items) ? $items : [] as $item) {
+            $value = is_array($item) ? ($item[$key] ?? null) : null;
+
+            if (! is_int($value)) {
+                continue;
+            }
+
+            if ($picked === null || ($earliest ? $value < $picked : $value > $picked)) {
+                $picked = $value;
+            }
+        }
+
+        return self::epoch($picked);
     }
 
     private static function epoch(mixed $value): ?Carbon

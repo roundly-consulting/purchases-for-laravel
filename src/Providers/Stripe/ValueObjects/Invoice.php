@@ -34,7 +34,8 @@ final class Invoice implements FromRaw
             status: $dataset->value('status'),
             amountPaid: StripeMoney::fromDataSet($dataset, 'amount_paid', 'currency'),
             customer: $dataset->value('customer'),
-            subscription: $dataset->value('subscription'),
+            // `parent.subscription_details.subscription` since API version 2025-03-31.
+            subscription: $dataset->value('parent.subscription_details.subscription') ?? $dataset->value('subscription'),
             raw: $raw,
         );
     }

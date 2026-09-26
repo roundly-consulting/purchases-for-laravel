@@ -23,9 +23,10 @@ enum SubscriptionStatus: string
             self::Trialing, self::Active => Status::Completed,
             self::PastDue => Status::InGracePeriod,
             self::Incomplete => Status::Pending,
-            self::Paused => Status::Processing,
+            // No access, but not over: an unpaid subscription's invoices stay open and it
+            // returns to active once paid; a paused one resumes.
+            self::Paused, self::Unpaid => Status::OnHold,
             self::Canceled, self::IncompleteExpired => Status::Canceled,
-            self::Unpaid => Status::Failed,
         };
     }
 }

@@ -13,6 +13,7 @@ use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\ChargebackReceived;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
+use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
@@ -20,6 +21,7 @@ use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
+use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Invoice;
 
 function configureStripe(): void
 {
@@ -465,4 +467,36 @@ it('audits a won dispute it cannot tie to a payment', function (): void {
     expect($result->type())->toBe(ResultType::Notification)
         ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
         ->and(Purchase::query()->count())->toBe(0);
+});
+
+it('holds an unpaid or paused stripe subscription instead of expiring it', function (string $status): void {
+    Event::fake([SubscriptionExpired::class]);
+
+    $result = stripeResultFor('customer.subscription.updated', ['id' => 'sub_h', 'status' => $status]);
+    (new SyncProviderResultAction)->execute($result);
+
+    // Unpaid: invoices stay open and it can be paid back to active; paused: it resumes.
+    expect($result->status())->toBe(Status::OnHold)
+        ->and(Subscription::query()->sole()->status->isActive())->toBeFalse();
+
+    Event::assertNotDispatched(SubscriptionExpired::class);
+})->with(['unpaid', 'paused']);
+
+it('reads the billing period from the subscription items on current api versions', function (): void {
+    $result = stripeResultFor('customer.subscription.updated', [
+        'id' => 'sub_p',
+        'status' => 'active',
+        'items' => ['object' => 'list', 'data' => [
+            ['id' => 'si_1', 'current_period_start' => 1_780_000_000, 'current_period_end' => 1_782_592_000],
+            ['id' => 'si_2', 'current_period_start' => 1_780_000_000, 'current_period_end' => 1_782_600_000],
+        ]],
+    ]);
+
+    expect($result->activeFrom()?->getTimestamp())->toBe(1_780_000_000)
+        ->and($result->endsAt()?->getTimestamp())->toBe(1_782_600_000);
+});
+
+it('reads an invoice\'s subscription from its parent on current api versions', function (): void {
+    expect(Invoice::fromRaw(['id' => 'in_1', 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_9']]])->subscription)->toBe('sub_9')
+        ->and(Invoice::fromRaw(['id' => 'in_2', 'subscription' => 'sub_legacy'])->subscription)->toBe('sub_legacy');
 });

@@ -55,8 +55,8 @@ it('maps subscription status to status', function (SubscriptionStatus $status, S
     [SubscriptionStatus::Active, Status::Completed],
     [SubscriptionStatus::Incomplete, Status::Pending],
     [SubscriptionStatus::PastDue, Status::InGracePeriod],
-    [SubscriptionStatus::Paused, Status::Processing],
+    [SubscriptionStatus::Paused, Status::OnHold],
     [SubscriptionStatus::Canceled, Status::Canceled],
     [SubscriptionStatus::IncompleteExpired, Status::Canceled],
-    [SubscriptionStatus::Unpaid, Status::Failed],
+    [SubscriptionStatus::Unpaid, Status::OnHold],
 ]);
