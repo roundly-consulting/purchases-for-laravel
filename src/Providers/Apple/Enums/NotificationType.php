@@ -56,12 +56,38 @@ enum NotificationType: string
             self::TypeRefundReversed,
             self::TypeRenewalExtended => Status::Completed,
             self::TypeDidFailToRenew => Status::InGracePeriod,
-            self::TypeRefundDeclined => Status::Failed,
             self::TypeExpired,
             self::TypeGracePeriodExpired => Status::Failed,
             self::TypeRefund,
             self::TypeRevoke => Status::Refunded,
             default => Status::Processing,
+        };
+    }
+
+    /**
+     * Whether this notification only reports something — a renewal preference or status
+     * change, a price increase or change, a consumption request, a declined refund, a
+     * test — without changing what the customer is entitled to. Such a notification is
+     * audited but never applied to a purchase or subscription. (A DID_CHANGE_RENEWAL_PREF
+     * UPGRADE takes effect immediately and is the exception; the provider checks it.)
+     */
+    public function isInformational(): bool
+    {
+        return match ($this) {
+            self::TypeConsumptionRequest,
+            self::TypeDidChangeRenewalPref,
+            self::TypeDidChangeRenewalStatus,
+            self::TypeExternalPurchaseToken,
+            self::TypeMetadataUpdate,
+            self::TypeMigration,
+            self::TypePriceChange,
+            self::TypePriceIncrease,
+            self::TypeRefundDeclined,
+            self::TypeRenewalExtension,
+            self::TypeRescindConsent,
+            self::TypeTest,
+            self::Unknown => true,
+            default => false,
         };
     }
 

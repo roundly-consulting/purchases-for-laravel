@@ -108,7 +108,7 @@ class Apple extends BaseProvider implements VerifiesConnectivity
                 ?? $payload->uuid;
         }
 
-        $type = $this->resultType($payload->type, $transaction);
+        $type = $this->resultType($payload->type, $payload->subType, $transaction);
 
         return new GenericResult(
             provider: $this->id(),
@@ -170,17 +170,19 @@ class Apple extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
-     * ONE_TIME_CHARGE is a consumable, non-consumable or non-renewing purchase; a
-     * REFUND_REVERSED reinstates whichever kind the transaction is. Everything else that
-     * carries a transaction concerns an auto-renewable subscription.
+     * An informational notification (and anything without a transaction) is a
+     * Notification: audited, never applied. ONE_TIME_CHARGE is a consumable,
+     * non-consumable or non-renewing purchase; a REFUND_REVERSED reinstates whichever
+     * kind the transaction is. Everything else that carries a transaction concerns an
+     * auto-renewable subscription.
      */
-    private function resultType(NotificationType $type, ?TransactionInfo $transaction): ResultType
+    private function resultType(NotificationType $type, ?NotificationSubType $subType, ?TransactionInfo $transaction): ResultType
     {
         if ($type->isRefund()) {
             return ResultType::Refund;
         }
 
-        if ($transaction === null) {
+        if ($transaction === null || ($type->isInformational() && ! $this->isImmediateUpgrade($type, $subType))) {
             return ResultType::Notification;
         }
 
@@ -195,7 +197,8 @@ class Apple extends BaseProvider implements VerifiesConnectivity
 
     /**
      * Apple signals a billing-retry grace period through DID_FAIL_TO_RENEW with a
-     * GRACE_PERIOD subtype; without it the renewal has genuinely failed.
+     * GRACE_PERIOD subtype; without it the renewal has genuinely failed. An UPGRADE
+     * starts the new plan's billing period at once.
      */
     private function status(NotificationType $type, ?NotificationSubType $subType): Status
     {
@@ -205,7 +208,17 @@ class Apple extends BaseProvider implements VerifiesConnectivity
                 : Status::Failed;
         }
 
+        if ($this->isImmediateUpgrade($type, $subType)) {
+            return Status::Completed;
+        }
+
         return $type->status();
+    }
+
+    private function isImmediateUpgrade(NotificationType $type, ?NotificationSubType $subType): bool
+    {
+        return $type === NotificationType::TypeDidChangeRenewalPref
+            && $subType === NotificationSubType::SubtypeUpgrade;
     }
 
     /**

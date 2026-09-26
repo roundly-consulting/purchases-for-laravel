@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
 use RoundlyConsulting\Purchases\Testing\FakeResult;
 
@@ -80,4 +83,16 @@ it('skips notifications it cannot rebuild', function (): void {
         ->assertSuccessful();
 
     expect(Purchase::query()->count())->toBe(0);
+});
+
+it('replays an informational notification without recording anything', function (): void {
+    storeNotification('apple', fn () => new GenericResult(provider: 'apple', type: ResultType::Notification, providerId: 'orig-info', status: Status::Processing));
+
+    $this->artisan('purchases:replay')
+        ->expectsOutputToContain('Replayed 1 notification(s).')
+        ->assertSuccessful();
+
+    expect(Subscription::query()->count())->toBe(0)
+        ->and(Purchase::query()->count())->toBe(0)
+        ->and(PurchaseNotification::query()->whereNull('processed_at')->count())->toBe(0);
 });

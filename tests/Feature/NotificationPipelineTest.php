@@ -3,12 +3,17 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use RoundlyConsulting\Purchases\Actions\RecordProviderNotificationAction;
 use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Jobs\ProcessProviderNotification;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
+use RoundlyConsulting\Purchases\Models\PurchaseRefund;
+use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Provider;
 use RoundlyConsulting\Purchases\Providers\Resolver;
 use RoundlyConsulting\Purchases\Purchases;
@@ -132,4 +137,53 @@ it('returns a transient notification when auditing is off but queueing is on', f
         ->and($model->exists)->toBeFalse();
 
     Queue::assertPushed(ProcessProviderNotification::class);
+});
+
+/**
+ * An informational result: something happened at the store, but nothing to record.
+ */
+function informationalResult(ResultType $type = ResultType::Notification): GenericResult
+{
+    return new GenericResult(provider: 'stripe', type: $type, providerId: 'evt_info', status: Status::Processing);
+}
+
+it('records nothing and fires nothing for an informational result', function (ResultType $type): void {
+    Event::fake();
+
+    $model = (new SyncProviderResultAction)->execute(informationalResult($type));
+
+    expect($model)->toBeNull()
+        ->and(Purchase::query()->count())->toBe(0)
+        ->and(Subscription::query()->count())->toBe(0)
+        ->and(PurchaseRefund::query()->count())->toBe(0);
+
+    Event::assertNothingDispatched();
+})->with([ResultType::Notification, ResultType::Unknown]);
+
+it('returns the processed audit notification when handling an informational result', function (): void {
+    $model = managerFor(informationalResult())->handle('stripe', Request::create('/'));
+
+    expect($model)->toBeInstanceOf(PurchaseNotification::class)
+        ->and($model->exists)->toBeTrue()
+        ->and($model->getAttribute('processed_at'))->not->toBeNull()
+        ->and(Subscription::query()->count())->toBe(0);
+});
+
+it('returns a transient notification for an informational result when auditing is off', function (): void {
+    config()->set('purchases.audit.enabled', false);
+
+    $model = managerFor(informationalResult())->handle('stripe', Request::create('/'));
+
+    expect($model)->toBeInstanceOf(PurchaseNotification::class)
+        ->and($model->exists)->toBeFalse()
+        ->and(Subscription::query()->count())->toBe(0);
+});
+
+it('marks a queued informational notification processed without recording anything', function (): void {
+    $notification = PurchaseNotification::factory()->create();
+
+    (new ProcessProviderNotification(informationalResult(), $notification->getKey()))->handle(app(SyncProviderResultAction::class));
+
+    expect($notification->refresh()->processed_at)->not->toBeNull()
+        ->and(Subscription::query()->count())->toBe(0);
 });

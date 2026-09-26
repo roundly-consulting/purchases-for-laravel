@@ -28,6 +28,11 @@ use RoundlyConsulting\Purchases\Models\Subscription;
 /**
  * Turns a unified provider result into a persisted model and dispatches the
  * matching lifecycle events.
+ *
+ * A Notification or Unknown result is informational — a store event that changes no
+ * entitlement (a renewal preference, a price increase, a declined refund, a test) or one
+ * this package does not map. It is recorded nowhere, fires nothing, and yields null, so
+ * it can never overwrite a subscription's status.
  */
 final class SyncProviderResultAction
 {
@@ -37,12 +42,13 @@ final class SyncProviderResultAction
         private readonly RecordRefundAction $recordRefund = new RecordRefundAction,
     ) {}
 
-    public function execute(ProviderResult $result): Model
+    public function execute(ProviderResult $result): ?Model
     {
         return match ($result->type()) {
             ResultType::Refund => $this->refund($result),
             ResultType::Purchase => $this->purchase($result),
-            default => $this->subscription($result),
+            ResultType::Subscription => $this->subscription($result),
+            ResultType::Notification, ResultType::Unknown => null,
         };
     }
 

@@ -68,7 +68,7 @@ final class PurchasesFake extends Purchases
 
         $sync = new SyncProviderResultAction;
 
-        return $sync->execute($result);
+        return $sync->execute($result) ?? $this->placeholderNotification($result);
     }
 
     /** @return Collection<int, ProviderResult> */

@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 use Illuminate\Http\Request;
 use PHPUnit\Framework\ExpectationFailedException;
+use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Facades\Purchases;
 use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Testing\FakeResult;
 use RoundlyConsulting\Purchases\Testing\PurchasesFake;
 
@@ -87,4 +91,16 @@ it('falls through to the real provider when nothing is queued', function (): voi
     $result = $fake->result('stripe', $request);
 
     expect($result->providerId())->toBe('pi_real');
+});
+
+it('returns a transient notification for a pushed informational result', function (): void {
+    $fake = Purchases::fake();
+    $fake->push('apple', new GenericResult(provider: 'apple', type: ResultType::Notification, providerId: 'n-1', status: Status::Processing));
+
+    $model = Purchases::handle('apple', Request::create('/'));
+
+    expect($model)->toBeInstanceOf(PurchaseNotification::class)
+        ->and(Subscription::query()->count())->toBe(0);
+
+    $fake->assertHandled('apple');
 });

@@ -79,7 +79,9 @@ class Purchases
      * The request is always verified synchronously. When queue processing is
      * enabled the verified result is logged to the audit table and recorded on a
      * queue (this method then returns the audit notification); otherwise it is
-     * recorded synchronously and the persisted model is returned.
+     * recorded synchronously and the persisted model is returned. An informational
+     * result records nothing, so its audit notification (transient when auditing is
+     * off) is returned instead.
      */
     public function handle(string $id, Request $request): Model
     {
@@ -97,14 +99,15 @@ class Purchases
 
         $notification?->update(['processed_at' => Carbon::now()]);
 
-        return $model;
+        return $model ?? $notification ?? $this->placeholderNotification($result);
     }
 
     /**
-     * When auditing is disabled but queueing is on, return a transient (unsaved)
-     * notification so callers still receive a Model describing what was queued.
+     * When no row describes what was handled — auditing is disabled and the result was
+     * queued or informational — return a transient (unsaved) notification so callers
+     * still receive a Model.
      */
-    private function placeholderNotification(ProviderResult $result): PurchaseNotification
+    protected function placeholderNotification(ProviderResult $result): PurchaseNotification
     {
         $model = PurchaseNotificationModel::class();
 

@@ -12,6 +12,7 @@ use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\Environment;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationSubType;
@@ -661,4 +662,71 @@ it('reinstates a subscription whose refund apple reversed', function (): void {
 
     expect($result->type())->toBe(ResultType::Subscription)
         ->and($result->status())->toBe(Status::Completed);
+});
+
+/** @return array<string, mixed> an auto-renewable subscription's signed transaction */
+function appleSubscriptionTransaction(): array
+{
+    return [
+        'originalTransactionId' => 'orig-sub',
+        'transactionId' => 'txn-sub',
+        'productId' => 'pro.monthly',
+        'type' => 'Auto-Renewable Subscription',
+        'expiresDate' => now()->addMonth()->getTimestampMs(),
+        'price' => 9990,
+        'currency' => 'USD',
+    ];
+}
+
+/** @return array<string, array{0: string, 1: string|null}> */
+function appleInformationalNotifications(): array
+{
+    return [
+        'auto-renew turned off' => ['DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_DISABLED'],
+        'auto-renew turned on' => ['DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_ENABLED'],
+        'downgrade at next renewal' => ['DID_CHANGE_RENEWAL_PREF', 'DOWNGRADE'],
+        'downgrade cancelled' => ['DID_CHANGE_RENEWAL_PREF', null],
+        'price increase pending' => ['PRICE_INCREASE', 'PENDING'],
+        'price increase accepted' => ['PRICE_INCREASE', 'ACCEPTED'],
+        'consumption request' => ['CONSUMPTION_REQUEST', null],
+        'refund declined' => ['REFUND_DECLINED', null],
+        'renewal extension failed' => ['RENEWAL_EXTENSION', 'FAILURE'],
+        'metadata update' => ['METADATA_UPDATE', null],
+        'migration' => ['MIGRATION', null],
+        'price change' => ['PRICE_CHANGE', null],
+        'test' => ['TEST', null],
+        'unknown type' => ['SOMETHING_NEW', null],
+    ];
+}
+
+it('maps an informational notification to no state change', function (string $type, ?string $subtype): void {
+    $result = appleNotificationFor($type, $subtype, appleSubscriptionTransaction())->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and($result->status())->not->toBe(Status::Failed);
+})->with(appleInformationalNotifications());
+
+it('keeps an active subscription untouched by an informational notification', function (string $type, ?string $subtype): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(appleNotificationFor('SUBSCRIBED', 'INITIAL_BUY', appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    Event::fake();
+
+    $model = $sync->execute(appleNotificationFor($type, $subtype, appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    Event::assertNothingDispatched();
+
+    $subscription = Subscription::query()->sole();
+
+    expect($model)->toBeNull()
+        ->and($subscription->status)->toBe(Status::Completed)
+        ->and($subscription->status->isActive())->toBeTrue();
+})->with(appleInformationalNotifications());
+
+it('records an immediate upgrade as the active plan', function (): void {
+    $result = appleNotificationFor('DID_CHANGE_RENEWAL_PREF', 'UPGRADE', ['productId' => 'pro.yearly'] + appleSubscriptionTransaction())->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::Completed)
+        ->and($result->productId())->toBe('pro.yearly');
 });
