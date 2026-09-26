@@ -4,6 +4,20 @@ All notable changes to `purchases-for-laravel` will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Apple App Store Server notifications are parsed from Apple's real payload: the optional
+  `subtype` key (not `subType`) and the int64 `appAppleId`, absent in the sandbox. Every real
+  notification previously failed with a `TypeError`. `ServerNotificationDecodedPayload::$subType`
+  and `AppMetadata::$appAppleId` are nullable.
+- An Apple refund records what was refunded: a `REFUND_PRORATED` refund is its
+  `revocationPercentage` share of the price (rounded once), and a Family Sharing `REVOKE` records
+  no amount. `TransactionInfo` exposes `revocationType` and `revocationPercentage`.
+- Stripe `checkout.session.completed`, `invoice.paid` and `invoice.payment_failed` results read
+  their own amount (`amount_total`, `amount_paid`, `amount_due`) instead of a missing `amount`,
+  and their status: a paid session or invoice is Completed, an unpaid session Pending, a failed
+  invoice Failed.
+
 ### Changed — prices are money-for-laravel `Money`
 
 - `price` on `Purchase`, `PurchaseItem`, `PurchaseRefund`, `Subscription` and `SubscriptionItem`
