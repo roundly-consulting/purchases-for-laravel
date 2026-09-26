@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
@@ -13,6 +14,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
+use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
 
 /**
  * A JwsManager test double that maps each input payload to canned claims.
@@ -314,3 +316,69 @@ it('maps a renewal failure without grace period into a failed result', function 
 
     expect($result->status())->toBe(Status::Failed);
 });
+
+/**
+ * A DID_RENEW notification whose signed transaction carries the given claims.
+ *
+ * @param  array<string, mixed>  $transaction
+ */
+function applePricedResult(array $transaction): ?Money
+{
+    $jws = fakeJwsMapping([
+        'token' => [
+            'notificationUUID' => 'n-price',
+            'notificationType' => 'DID_RENEW',
+            'subType' => 'BILLING_RECOVERY',
+            'data' => [
+                'appAppleId' => '1',
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Production',
+                'signedTransactionInfo' => 'transaction.jws',
+            ],
+        ],
+        'transaction.jws' => [
+            'environment' => 'Production',
+            'transactionId' => 'txn-p',
+            'originalTransactionId' => 'orig-p',
+            'productId' => 'pro.monthly',
+        ] + $transaction,
+    ]);
+
+    return (new Apple($jws))->result(new Request(['signedPayload' => 'token']))->price();
+}
+
+it('maps the transaction price from milli-units', function (int $milli, string $currency, string $minor, string $decimal): void {
+    $price = applePricedResult(['price' => $milli, 'currency' => $currency]);
+
+    expect($price?->minor())->toBe($minor)
+        ->and($price?->toDecimal())->toBe($decimal)
+        ->and($price?->currency()->code)->toBe($currency);
+})->with([
+    'USD 1.99' => [1990, 'USD', '199', '1.99'],
+    'USD 0.999 rounds half away from zero' => [999, 'USD', '100', '1.00'],
+    'USD 0.995 rounds half away from zero' => [995, 'USD', '100', '1.00'],
+    'USD 0.994 rounds down' => [994, 'USD', '99', '0.99'],
+    'JPY 300' => [300000, 'JPY', '300', '300'],
+    'KRW 3300' => [3300000, 'KRW', '3300', '3300'],
+    'BHD 1.995 (exact)' => [1995, 'BHD', '1995', '1.995'],
+]);
+
+it('keeps the transaction price and currency on the value object', function (): void {
+    $info = TransactionInfo::fromRaw(['environment' => 'Production', 'price' => 1990, 'currency' => 'USD']);
+
+    expect($info->price)->toBe(1990)
+        ->and($info->currency)->toBe('USD')
+        ->and($info->raw)->toMatchArray(['price' => 1990, 'currency' => 'USD']);
+});
+
+it('leaves the price null when the transaction lacks a usable price', function (array $transaction): void {
+    expect(applePricedResult($transaction))->toBeNull();
+})->with([
+    'no price fields' => [[]],
+    'price without currency' => [['price' => 1990]],
+    'currency without price' => [['currency' => 'USD']],
+    'string price' => [['price' => '1990', 'currency' => 'USD']],
+    'empty currency' => [['price' => 1990, 'currency' => '']],
+    'unknown currency' => [['price' => 1990, 'currency' => 'ZZZ']],
+]);

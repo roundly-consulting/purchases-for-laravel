@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Google\ValueObjects;
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
+use RoundlyConsulting\Purchases\Providers\Google\GoogleMoney;
 use RoundlyConsulting\Purchases\Support\DataSet;
 
 /**
- * A single line item within a subscriptionsv2 purchase.
+ * A single line item within a subscriptionsv2 purchase. `recurringPrice` is the
+ * auto-renewing plan's current price; prepaid plans carry none.
  */
 final class SubscriptionLineItem implements FromRaw
 {
@@ -22,6 +25,7 @@ final class SubscriptionLineItem implements FromRaw
         public readonly ?string $offerId,
         public readonly ?string $basePlanId,
         public readonly array $raw,
+        public readonly ?Money $recurringPrice = null,
     ) {}
 
     /**
@@ -37,6 +41,7 @@ final class SubscriptionLineItem implements FromRaw
             offerId: $dataset->value('offerDetails.offerId'),
             basePlanId: $dataset->value('offerDetails.basePlanId'),
             raw: $raw,
+            recurringPrice: GoogleMoney::fromMoney($dataset->value('autoRenewingPlan.recurringPrice')),
         );
     }
 }

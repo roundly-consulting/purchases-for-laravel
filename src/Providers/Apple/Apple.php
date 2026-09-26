@@ -8,6 +8,9 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
+use RoundingMode;
+use RoundlyConsulting\Money\Exceptions\MoneyException;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
 use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
@@ -19,6 +22,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationType;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
+use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use Throwable;
@@ -102,7 +106,7 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             transactionId: $transaction?->transactionId,
             name: $transaction?->productId,
             productId: $transaction?->productId,
-            price: null,
+            price: $this->price($transaction),
             activeFrom: $transaction?->purchaseDate,
             trialEndsAt: null,
             endsAt: $transaction?->expiresDate,
@@ -111,6 +115,23 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             refundReason: $payload->type->isRefund() ? $payload->type->value : null,
             chargeback: false,
         );
+    }
+
+    /**
+     * Apple reports the price in milli-units (USD 1.99 = `1990`); anything finer
+     * than the currency's minor unit rounds half away from zero, once.
+     */
+    private function price(?TransactionInfo $transaction): ?Money
+    {
+        if ($transaction?->price === null || $transaction->currency === null) {
+            return null;
+        }
+
+        try {
+            return Money::ofScaled($transaction->price, 3, $transaction->currency, RoundingMode::HalfAwayFromZero);
+        } catch (MoneyException) {
+            return null;
+        }
     }
 
     private function resultType(NotificationType $type, bool $hasTransaction): ResultType

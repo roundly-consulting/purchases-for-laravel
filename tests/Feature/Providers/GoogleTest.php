@@ -166,7 +166,14 @@ it('maps a subscription to a unified result', function (): void {
             'startTime' => '2026-01-01T00:00:00Z',
             'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED',
             'lineItems' => [
-                ['productId' => 'pro.monthly', 'expiryTime' => '2026-02-01T00:00:00Z'],
+                [
+                    'productId' => 'pro.monthly',
+                    'expiryTime' => '2026-02-01T00:00:00Z',
+                    'autoRenewingPlan' => [
+                        'autoRenewEnabled' => true,
+                        'recurringPrice' => ['currencyCode' => 'USD', 'units' => '12', 'nanos' => 990000000],
+                    ],
+                ],
             ],
         ]),
     ]);
@@ -176,7 +183,9 @@ it('maps a subscription to a unified result', function (): void {
     expect($result->type())->toBe(ResultType::Subscription)
         ->and($result->status())->toBe(Status::Completed)
         ->and($result->providerId())->toBe('GPA.SUB.9')
-        ->and($result->endsAt())->not->toBeNull();
+        ->and($result->endsAt())->not->toBeNull()
+        ->and($result->price()?->minor())->toBe('1299')
+        ->and($result->price()?->currency()->code)->toBe('USD');
 });
 
 it('maps a product to a unified purchase result', function (): void {
@@ -192,9 +201,11 @@ it('maps a product to a unified purchase result', function (): void {
 
     $result = googleProvider()->result(new Request(['purchaseToken' => 'tok', 'productId' => 'coins.100']));
 
+    // The one-time products resource carries no price.
     expect($result->type())->toBe(ResultType::Purchase)
         ->and($result->status())->toBe(Status::Completed)
-        ->and($result->providerId())->toBe('GPA.P.1');
+        ->and($result->providerId())->toBe('GPA.P.1')
+        ->and($result->price())->toBeNull();
 });
 
 it('throws when verifying a callback without a token', function (): void {

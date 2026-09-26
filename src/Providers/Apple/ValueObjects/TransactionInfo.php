@@ -13,7 +13,10 @@ use RoundlyConsulting\Purchases\Providers\Apple\Enums\RevocationReason;
 use RoundlyConsulting\Purchases\Support\DataSet;
 
 /**
+ * `price` is in milli-units of `currency` (USD 1.99 arrives as `1990`).
+ *
  * @link https://developer.apple.com/documentation/appstoreservernotifications/jwstransaction
+ * @link https://developer.apple.com/documentation/appstoreserverapi/price
  */
 final class TransactionInfo extends BaseValueObject implements FromRaw
 {
@@ -41,6 +44,8 @@ final class TransactionInfo extends BaseValueObject implements FromRaw
         public readonly ?OfferType $offerType,
         public readonly ?ProductType $type,
         public readonly array $raw,
+        public readonly ?int $price = null,
+        public readonly ?string $currency = null,
     ) {}
 
     /**
@@ -70,6 +75,9 @@ final class TransactionInfo extends BaseValueObject implements FromRaw
             offerIdentifier: $dataset->value('offerIdentifier'),
             offerType: $dataset->enum('offerType', OfferType::class),
             type: $dataset->enum('type', ProductType::class),
+            price: is_int($price = $dataset->value('price')) ? $price : null,
+            currency: is_string($currency = $dataset->value('currency')) && $currency !== '' ? $currency : null,
+            // Last: it snapshots only the keys read above.
             raw: $dataset->retrieved(),
         );
     }

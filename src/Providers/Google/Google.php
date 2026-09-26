@@ -178,6 +178,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
                 transactionId: $purchase->orderId,
                 name: $purchase->productId,
                 productId: $purchase->productId,
+                // The one-time products resource carries no price.
                 price: null,
                 activeFrom: $purchase->purchaseTime,
                 trialEndsAt: null,
@@ -195,7 +196,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
             transactionId: $purchase->latestOrderId,
             name: $purchase->productId(),
             productId: $purchase->productId(),
-            price: null,
+            price: $purchase->price(),
             activeFrom: $purchase->startTime,
             trialEndsAt: null,
             endsAt: $purchase->expiryTime(),

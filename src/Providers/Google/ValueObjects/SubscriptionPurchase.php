@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Google\ValueObjects;
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Money\Exceptions\MoneyException;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\AcknowledgementState;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
@@ -75,6 +77,31 @@ final class SubscriptionPurchase implements FromRaw
         }
 
         return $latest;
+    }
+
+    /**
+     * The subscription's recurring price: the sum of its line items' prices, or
+     * null when none carries one (prepaid plans) or they disagree on currency.
+     */
+    public function price(): ?Money
+    {
+        $prices = [];
+
+        foreach ($this->lineItems as $item) {
+            if ($item->recurringPrice !== null) {
+                $prices[] = $item->recurringPrice;
+            }
+        }
+
+        if ($prices === []) {
+            return null;
+        }
+
+        try {
+            return Money::sum($prices);
+        } catch (MoneyException) {
+            return null;
+        }
     }
 
     public function productId(): ?string
