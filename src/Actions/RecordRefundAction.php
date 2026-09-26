@@ -19,7 +19,8 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
  *
  * A refund keyed to a subscription (Apple's original transaction, Google's purchase
  * token) also revokes that subscription — unless it refunds an earlier period than the
- * one the subscription is in (a transaction id other than its latest).
+ * one the subscription is in (a transaction id other than its latest). Only a full
+ * refund (a Refunded result) flips anything; a partial one is recorded alone.
  */
 final class RecordRefundAction
 {
@@ -46,8 +47,12 @@ final class RecordRefundAction
             $attributes,
         );
 
-        $purchase?->update(['status' => Status::Refunded]);
-        $this->relatedSubscription($data)?->update(['status' => Status::Refunded]);
+        // A partial refund (status other than Refunded) is recorded, but the purchase or
+        // subscription it came from stays as it is.
+        if ($data->status === Status::Refunded) {
+            $purchase?->update(['status' => Status::Refunded]);
+            $this->relatedSubscription($data)?->update(['status' => Status::Refunded]);
+        }
 
         return $refund->refresh();
     }

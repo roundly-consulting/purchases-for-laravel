@@ -26,6 +26,9 @@ use Throwable;
 
 class Google extends BaseProvider implements VerifiesConnectivity
 {
+    /** `voidedPurchaseNotification.refundType`: REFUND_TYPE_QUANTITY_BASED_PARTIAL_REFUND. */
+    private const int PARTIAL_REFUND = 2;
+
     /** @var array<string, mixed> */
     protected readonly array $config;
 
@@ -230,7 +233,9 @@ class Google extends BaseProvider implements VerifiesConnectivity
                 provider: $this->id(),
                 type: ResultType::Refund,
                 providerId: $voided->orderId ?? $voided->purchaseToken ?? '',
-                status: Status::Refunded,
+                // refundType 2 is a quantity-based partial refund of a multi-quantity
+                // purchase: recorded, but the purchase itself stays completed.
+                status: $voided->refundType === self::PARTIAL_REFUND ? Status::Completed : Status::Refunded,
                 transactionId: $voided->orderId,
                 raw: $notification->raw,
                 refundReason: $voided->refundType !== null ? (string) $voided->refundType : null,

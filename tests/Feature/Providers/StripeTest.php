@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
@@ -294,3 +297,29 @@ it('records nothing for a stripe event it does not map', function (): void {
         ->and(Subscription::query()->count())->toBe(0)
         ->and(Purchase::query()->count())->toBe(0);
 });
+
+it('keeps a partially refunded purchase completed', function (bool $fullyRefunded, Status $expected): void {
+    Event::fake([PurchaseRefunded::class]);
+    $sync = new SyncProviderResultAction;
+
+    $sync->execute((new Stripe)->result(signedWebhook((string) json_encode([
+        'id' => 'evt_paid', 'type' => 'payment_intent.succeeded',
+        'data' => ['object' => ['id' => 'pi_part', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']],
+    ]))));
+
+    $refund = $sync->execute((new Stripe)->result(signedWebhook((string) json_encode([
+        'id' => 'evt_refund_part', 'type' => 'charge.refunded',
+        'data' => ['object' => [
+            'id' => 'ch_part', 'payment_intent' => 'pi_part', 'amount' => 5000,
+            'amount_refunded' => $fullyRefunded ? 5000 : 1000, 'refunded' => $fullyRefunded, 'currency' => 'eur',
+        ]],
+    ]))));
+
+    expect(Purchase::query()->sole()->status)->toBe($expected)
+        ->and($refund)->toBeInstanceOf(PurchaseRefund::class);
+
+    Event::assertDispatched(PurchaseRefunded::class);
+})->with([
+    'partial refund' => [false, Status::Completed],
+    'full refund' => [true, Status::Refunded],
+]);

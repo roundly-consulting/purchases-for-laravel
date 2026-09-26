@@ -10,6 +10,7 @@ use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
@@ -18,6 +19,7 @@ use RoundlyConsulting\Purchases\Providers\Google\Enums\PurchaseState;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
+use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Testing\PayloadFactory;
 
 function googleProvider(bool $acknowledge = true): Google
@@ -538,3 +540,17 @@ it('revokes the subscription google revoked', function (): void {
 
     expect(Subscription::query()->sole()->status)->toBe(Status::Refunded);
 });
+
+it('keeps a quantity-based partially voided purchase completed', function (int $refundType, Status $expected): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(new GenericResult(provider: 'google', type: ResultType::Purchase, providerId: 'GPA.9', status: Status::Completed, transactionId: 'GPA.9'));
+
+    $sync->execute(googleProvider()->result(googleRtdn(['voidedPurchaseNotification' => [
+        'purchaseToken' => 'tok-9', 'orderId' => 'GPA.9', 'productType' => 2, 'refundType' => $refundType,
+    ]])));
+
+    expect(Purchase::query()->sole()->status)->toBe($expected);
+})->with([
+    'quantity-based partial refund' => [2, Status::Completed],
+    'full refund' => [1, Status::Refunded],
+]);

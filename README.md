@@ -183,7 +183,9 @@ Apple `REFUND`/`REVOKE`, Google `*_REVOKED` / voided-purchase RTDNs, and Stripe
 `Status::Refunded`, and dispatches `PurchaseRefunded` (or `ChargebackReceived` for disputes). A
 refunded or revoked Apple subscription period and a revoked Google subscription also flip the
 `Subscription` to `Refunded`, so it stops being active; an Apple refund's `refunded_at` is its
-`revocationDate`.
+`revocationDate`. A **partial** refund (a Stripe charge not fully `refunded`, a Google
+quantity-based partial void) is recorded and fires `PurchaseRefunded`, but leaves the purchase
+completed.
 
 ```php
 $purchase->refunds;                 // HasMany<PurchaseRefund>

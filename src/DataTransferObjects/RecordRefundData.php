@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Purchases\DataTransferObjects;
 use Carbon\CarbonInterface;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Enum\Status;
 
 final readonly class RecordRefundData
 {
@@ -22,6 +23,7 @@ final readonly class RecordRefundData
         public ?Money $price = null,
         public ?CarbonInterface $refundedAt = null,
         public array $meta = [],
+        public Status $status = Status::Refunded,
     ) {}
 
     public static function fromResult(ProviderResult $result): self
@@ -35,6 +37,7 @@ final readonly class RecordRefundData
             price: $result->price(),
             refundedAt: $result->endsAt() ?? $result->activeFrom(),
             meta: $result->raw(),
+            status: $result->status(),
         );
     }
 }

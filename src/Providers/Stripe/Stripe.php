@@ -244,7 +244,9 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             provider: $this->id(),
             type: ResultType::Refund,
             providerId: $providerId,
-            status: Status::Refunded,
+            // `charge.refunded` fires for partial refunds too; only a charge Stripe marks
+            // `refunded` is fully refunded, so a partial refund leaves the purchase completed.
+            status: ! $chargeback && $object->value('refunded') === false ? Status::Completed : Status::Refunded,
             transactionId: is_string($paymentIntent) && $paymentIntent !== '' ? $paymentIntent : null,
             price: StripeMoney::fromDataSet($object, $amountKey, 'currency'),
             raw: $event->object,
