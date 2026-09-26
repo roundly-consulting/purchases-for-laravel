@@ -10,6 +10,7 @@ use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\Environment;
+use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationSubType;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
@@ -55,7 +56,7 @@ it('decodes a verified server notification into a payload', function (): void {
     $claims = [
         'notificationUUID' => 'n-1',
         'notificationType' => 'SUBSCRIBED',
-        'subType' => 'INITIAL_BUY',
+        'subtype' => 'INITIAL_BUY',
         'data' => [
             'appAppleId' => '123',
             'bundleId' => 'com.example.app',
@@ -79,7 +80,7 @@ it('decodes nested signed renewal and transaction info', function (): void {
         'token' => [
             'notificationUUID' => 'n-2',
             'notificationType' => 'DID_RENEW',
-            'subType' => 'BILLING_RECOVERY',
+            'subtype' => 'BILLING_RECOVERY',
             'data' => [
                 'appAppleId' => '1',
                 'bundleId' => 'com.example.app',
@@ -163,7 +164,7 @@ it('maps a renewal notification into a unified subscription result', function ()
         'token' => [
             'notificationUUID' => 'n-3',
             'notificationType' => 'DID_RENEW',
-            'subType' => 'BILLING_RECOVERY',
+            'subtype' => 'BILLING_RECOVERY',
             'data' => [
                 'appAppleId' => '1',
                 'bundleId' => 'com.example.app',
@@ -197,7 +198,7 @@ it('maps a notification without transaction info into a notification result', fu
     $jws = fakeJwsReturning([
         'notificationUUID' => 'n-4',
         'notificationType' => 'TEST',
-        'subType' => 'INITIAL_BUY',
+        'subtype' => 'INITIAL_BUY',
         'data' => [
             'appAppleId' => '1',
             'bundleId' => 'com.example.app',
@@ -237,7 +238,7 @@ it('maps a refund notification into a refund result', function (): void {
         'token' => [
             'notificationUUID' => 'n-refund',
             'notificationType' => 'REFUND',
-            'subType' => 'INITIAL_BUY',
+            'subtype' => 'INITIAL_BUY',
             'data' => [
                 'appAppleId' => '1',
                 'bundleId' => 'com.example.app',
@@ -267,7 +268,7 @@ it('maps a grace-period renewal failure into a grace-period result', function ()
         'token' => [
             'notificationUUID' => 'n-grace',
             'notificationType' => 'DID_FAIL_TO_RENEW',
-            'subType' => 'GRACE_PERIOD',
+            'subtype' => 'GRACE_PERIOD',
             'data' => [
                 'appAppleId' => '1',
                 'bundleId' => 'com.example.app',
@@ -295,7 +296,7 @@ it('maps a renewal failure without grace period into a failed result', function 
         'token' => [
             'notificationUUID' => 'n-fail',
             'notificationType' => 'DID_FAIL_TO_RENEW',
-            'subType' => 'BILLING_RETRY',
+            'subtype' => 'BILLING_RETRY',
             'data' => [
                 'appAppleId' => '1',
                 'bundleId' => 'com.example.app',
@@ -328,7 +329,7 @@ function applePricedResult(array $transaction): ?Money
         'token' => [
             'notificationUUID' => 'n-price',
             'notificationType' => 'DID_RENEW',
-            'subType' => 'BILLING_RECOVERY',
+            'subtype' => 'BILLING_RECOVERY',
             'data' => [
                 'appAppleId' => '1',
                 'bundleId' => 'com.example.app',
@@ -381,4 +382,62 @@ it('leaves the price null when the transaction lacks a usable price', function (
     'string price' => [['price' => '1990', 'currency' => 'USD']],
     'empty currency' => [['price' => 1990, 'currency' => '']],
     'unknown currency' => [['price' => 1990, 'currency' => 'ZZZ']],
+]);
+
+it('parses a notification that carries no subtype', function (string $type): void {
+    // Apple sends `subtype` only for some types (REFUND, REVOKE, TEST, a plain DID_RENEW never carry one).
+    $jws = fakeJwsMapping([
+        'token' => [
+            'notificationUUID' => 'n-no-subtype',
+            'notificationType' => $type,
+            'data' => [
+                'appAppleId' => '1',
+                'bundleId' => 'com.example.app',
+                'bundleVersion' => '1.0',
+                'environment' => 'Production',
+                'signedTransactionInfo' => 'transaction.jws',
+            ],
+        ],
+        'transaction.jws' => [
+            'environment' => 'Production',
+            'transactionId' => 'txn-ns',
+            'originalTransactionId' => 'orig-ns',
+            'productId' => 'pro.monthly',
+            'price' => 1990,
+            'currency' => 'USD',
+        ],
+    ]);
+
+    $apple = new Apple($jws);
+    $request = new Request(['signedPayload' => 'token']);
+
+    expect($apple->notification($request)->subType)->toBeNull()
+        ->and($apple->result($request)->price()?->minor())->toBe('199');
+})->with(['DID_RENEW', 'REFUND', 'REVOKE']);
+
+it('reads the subtype from the key apple sends', function (): void {
+    $claims = ['notificationUUID' => 'n-st', 'notificationType' => 'DID_FAIL_TO_RENEW', 'subtype' => 'GRACE_PERIOD', 'data' => [
+        'bundleId' => 'com.example.app',
+        'bundleVersion' => '1.0',
+        'environment' => 'Sandbox',
+    ]];
+
+    $payload = (new Apple(fakeJwsReturning($claims)))->notification(new Request(['signedPayload' => 'token']));
+
+    expect($payload->subType)->toBe(NotificationSubType::SubtypeGracePeriod);
+});
+
+it('reads the int64 app apple id and tolerates its absence in the sandbox', function (array $data, ?string $expected): void {
+    $claims = ['notificationUUID' => 'n-app', 'notificationType' => 'DID_RENEW', 'data' => $data + [
+        'bundleId' => 'com.example.app',
+        'bundleVersion' => '1.0',
+        'environment' => 'Production',
+    ]];
+
+    $payload = (new Apple(fakeJwsReturning($claims)))->notification(new Request(['signedPayload' => 'token']));
+
+    expect($payload->appMetadata->appAppleId)->toBe($expected);
+})->with([
+    'production: an int64' => [['appAppleId' => 1234567890], '1234567890'],
+    'sandbox: absent' => [[], null],
 ]);

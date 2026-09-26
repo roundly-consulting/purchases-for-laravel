@@ -147,7 +147,7 @@ class Apple extends BaseProvider implements VerifiesConnectivity
      * Apple signals a billing-retry grace period through DID_FAIL_TO_RENEW with a
      * GRACE_PERIOD subtype; without it the renewal has genuinely failed.
      */
-    private function status(NotificationType $type, NotificationSubType $subType): Status
+    private function status(NotificationType $type, ?NotificationSubType $subType): Status
     {
         if ($type === NotificationType::TypeDidFailToRenew) {
             return $subType === NotificationSubType::SubtypeGracePeriod
