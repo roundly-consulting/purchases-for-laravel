@@ -138,20 +138,16 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         }
 
         $id = $object->value('id');
-        $statusValue = $object->value('status');
-        $status = is_string($statusValue)
-            ? (PaymentIntentStatus::tryFrom($statusValue)?->status() ?? Status::Processing)
-            : Status::Processing;
 
         return new GenericResult(
             provider: $this->id(),
             type: ResultType::Purchase,
             providerId: is_string($id) ? $id : (string) $event->id,
-            status: $event->type === EventType::PaymentIntentFailed ? Status::Failed : $status,
+            status: $this->purchaseStatus($event->type, $object),
             transactionId: is_string($id) ? $id : null,
             name: null,
             productId: null,
-            price: StripeMoney::fromDataSet($object, 'amount', 'currency'),
+            price: StripeMoney::fromDataSet($object, $this->purchaseAmountKey($event->type), 'currency'),
             activeFrom: null,
             trialEndsAt: null,
             endsAt: null,
@@ -173,6 +169,49 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         }
 
         return ConnectivityResult::ok('Stripe secret key is valid.');
+    }
+
+    /**
+     * Each purchase event carries its amount under the key of its own object: a
+     * PaymentIntent `amount`, a Checkout Session `amount_total`, an Invoice `amount_paid`
+     * (or `amount_due` when the payment failed, where nothing was paid).
+     */
+    private function purchaseAmountKey(EventType $type): string
+    {
+        return match ($type) {
+            EventType::CheckoutSessionCompleted => 'amount_total',
+            EventType::InvoicePaid => 'amount_paid',
+            EventType::InvoicePaymentFailed => 'amount_due',
+            default => 'amount',
+        };
+    }
+
+    /**
+     * A PaymentIntent reports its own `status`; a completed Checkout Session is settled
+     * once its `payment_status` is `paid` (or nothing was due) and still pending for a
+     * delayed payment method; the invoice events say the outcome in their name.
+     */
+    private function purchaseStatus(EventType $type, DataSet $object): Status
+    {
+        if ($type === EventType::PaymentIntentFailed || $type === EventType::InvoicePaymentFailed) {
+            return Status::Failed;
+        }
+
+        if ($type === EventType::InvoicePaid) {
+            return Status::Completed;
+        }
+
+        if ($type === EventType::CheckoutSessionCompleted) {
+            return in_array($object->value('payment_status'), ['paid', 'no_payment_required'], true)
+                ? Status::Completed
+                : Status::Pending;
+        }
+
+        $status = $object->value('status');
+
+        return is_string($status)
+            ? (PaymentIntentStatus::tryFrom($status)?->status() ?? Status::Processing)
+            : Status::Processing;
     }
 
     private function refundResult(StripeEvent $event, DataSet $object): GenericResult

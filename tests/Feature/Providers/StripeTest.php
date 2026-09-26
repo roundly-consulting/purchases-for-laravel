@@ -263,3 +263,20 @@ it('falls back to the event id for a subscription without an object id', functio
 
     expect($result->providerId())->toBe('evt_subnoid');
 });
+
+it('maps checkout session and invoice events with their own amount and status', function (string $type, array $object, string $minor, Status $status): void {
+    $payload = (string) json_encode(['id' => 'evt_amt', 'type' => $type, 'data' => ['object' => $object + ['currency' => 'eur']]]);
+
+    $result = (new Stripe)->result(signedWebhook($payload));
+
+    expect($result->type())->toBe(ResultType::Purchase)
+        ->and($result->price()?->minor())->toBe($minor)
+        ->and($result->price()?->currency()->code)->toBe('EUR')
+        ->and($result->status())->toBe($status);
+})->with([
+    'checkout.session.completed, paid' => ['checkout.session.completed', ['id' => 'cs_1', 'status' => 'complete', 'payment_status' => 'paid', 'amount_total' => 2000], '2000', Status::Completed],
+    'checkout.session.completed, no payment required' => ['checkout.session.completed', ['id' => 'cs_2', 'status' => 'complete', 'payment_status' => 'no_payment_required', 'amount_total' => 0], '0', Status::Completed],
+    'checkout.session.completed, async payment pending' => ['checkout.session.completed', ['id' => 'cs_3', 'status' => 'complete', 'payment_status' => 'unpaid', 'amount_total' => 2500], '2500', Status::Pending],
+    'invoice.paid' => ['invoice.paid', ['id' => 'in_1', 'status' => 'paid', 'amount_due' => 3000, 'amount_paid' => 3000], '3000', Status::Completed],
+    'invoice.payment_failed' => ['invoice.payment_failed', ['id' => 'in_2', 'status' => 'open', 'amount_due' => 4000, 'amount_paid' => 0], '4000', Status::Failed],
+]);
