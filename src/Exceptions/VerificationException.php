@@ -25,6 +25,6 @@ final class VerificationException extends Exception
      */
     public static function certificateNotYetValid(string $commonName, string $notBefore): static
     {
-        return new static("Apple certificate [{$commonName}] is not valid before {$notBefore}; the notification's certificate chain is outside its validity period.");
+        return new self("Apple certificate [{$commonName}] is not valid before {$notBefore}; the notification's certificate chain is outside its validity period.");
     }
 }
