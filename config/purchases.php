@@ -114,6 +114,32 @@ return [
             ],
             'base_url' => env('PURCHASES_GOOGLE_BASE_URL', 'https://androidpublisher.googleapis.com'),
             'acknowledge' => env('PURCHASES_GOOGLE_ACKNOWLEDGE', true),
+
+            /*
+             | Real-time Developer Notifications arrive as Cloud Pub/Sub pushes, which
+             | anyone could forge. Every push is authenticated before it is read, and
+             | this is FAIL-CLOSED: with nothing configured, every push is rejected.
+             |
+             | OIDC (recommended): on the push subscription, enable authentication
+             | with a service account and an audience, then set both here. Pub/Sub
+             | signs each push with a Google OIDC token; its signature (Google's JWKS,
+             | cached), issuer, audience, service-account email and expiry are checked.
+             |
+             | URL token (optional, alone or on top of OIDC): append ?token=<secret>
+             | to the push endpoint URL and set the same secret here.
+             |
+             | Set "authenticate" to false ONLY when something upstream has already
+             | authenticated the message — e.g. your own pull subscriber hands it to
+             | Purchases::handle().
+             */
+            'push' => [
+                'authenticate' => (bool) env('PURCHASES_GOOGLE_PUSH_AUTHENTICATE', true),
+                'audience' => env('PURCHASES_GOOGLE_PUSH_AUDIENCE'),
+                'service_account_email' => env('PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT'),
+                'token' => env('PURCHASES_GOOGLE_PUSH_TOKEN'),
+                'jwks_url' => env('PURCHASES_GOOGLE_PUSH_JWKS_URL', 'https://www.googleapis.com/oauth2/v3/certs'),
+                'jwks_cache_ttl' => env('PURCHASES_GOOGLE_PUSH_JWKS_CACHE_TTL', 3600),
+            ],
         ],
 
         'stripe' => [

@@ -66,6 +66,9 @@ it('ships exactly the config keys it reads', function (): void {
                 // `fromConfig(array $config)` is handed
                 // config('purchases.settings.google.service_account').
                 'ServiceAccountCredentials.php' => ['$config' => 'purchases.settings.google.service_account'],
+                // `authenticate(Request $request, array $config)` is handed
+                // config('purchases.settings.google.push') by Google::notification().
+                'PushAuthenticator.php' => ['$config' => 'purchases.settings.google.push'],
             ],
 
             // `purchases.settings.stripe.api_version` IS read — `Stripe::client()` does

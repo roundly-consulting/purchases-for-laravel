@@ -15,6 +15,7 @@ use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
+use RoundlyConsulting\Purchases\Providers\Google\Auth\PushAuthenticator;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\NotificationType;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\DeveloperNotification;
@@ -30,12 +31,15 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
     private ?GoogleClient $client;
 
-    public function __construct(?GoogleClient $client = null)
+    private readonly PushAuthenticator $push;
+
+    public function __construct(?GoogleClient $client = null, ?PushAuthenticator $push = null)
     {
         /** @var array<string, mixed> $config */
         $config = config('purchases.settings.google');
         $this->config = $config;
         $this->client = $client;
+        $this->push = $push ?? new PushAuthenticator;
     }
 
     /**
@@ -101,6 +105,11 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function notification(Request $request): DeveloperNotification
     {
+        // Prove the push came from Google Pub/Sub before trusting a byte of it.
+        /** @var array<string, mixed> $push */
+        $push = is_array($this->config['push'] ?? null) ? $this->config['push'] : [];
+        $this->push->authenticate($request, $push);
+
         $data = $request->input('message.data');
 
         if (! is_string($data) || $data === '') {

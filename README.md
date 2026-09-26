@@ -111,6 +111,10 @@ return [
 | `PURCHASES_GOOGLE_CLIENT_EMAIL` / `PURCHASES_GOOGLE_PRIVATE_KEY` | Google service-account credentials |
 | `PURCHASES_GOOGLE_TOKEN_URI` | Google OAuth2 token endpoint |
 | `PURCHASES_GOOGLE_ACKNOWLEDGE` | Auto-acknowledge purchases (default `true`) |
+| `PURCHASES_GOOGLE_PUSH_AUDIENCE` / `PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT` | Pub/Sub push OIDC authentication: the push subscription's audience and service account |
+| `PURCHASES_GOOGLE_PUSH_TOKEN` | Optional shared secret expected as `?token=` on the push endpoint URL |
+| `PURCHASES_GOOGLE_PUSH_AUTHENTICATE` | Authenticate Pub/Sub pushes (default `true`, fail-closed); `false` only behind an upstream authenticator |
+| `PURCHASES_GOOGLE_PUSH_JWKS_URL` / `PURCHASES_GOOGLE_PUSH_JWKS_CACHE_TTL` | Google's signing keys (default `https://www.googleapis.com/oauth2/v3/certs`, cached `3600` s) |
 | `PURCHASES_STRIPE_SECRET` | Stripe secret/restricted key |
 | `PURCHASES_STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `PURCHASES_STRIPE_API_VERSION` | Pinned Stripe API version |
@@ -315,6 +319,28 @@ $google->notification($request);                 // DeveloperNotification (RTDN)
 
 Auto-acknowledgement is on by default; set `PURCHASES_GOOGLE_ACKNOWLEDGE=false` to opt out.
 
+**Authenticating RTDN pushes.** A Pub/Sub push is a plain HTTPS POST that anyone could forge, so
+`notification()` (and therefore the webhook route) authenticates every push first and is
+**fail-closed** — with nothing configured, every push is rejected (`400` on the route):
+
+1. In Google Cloud, edit the push subscription → *Enable authentication*, pick a service account
+   and set the audience (e.g. your endpoint URL).
+2. Set the same two values:
+
+```dotenv
+PURCHASES_GOOGLE_PUSH_AUDIENCE=https://app.test/purchases/webhooks/google
+PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT=rtdn-push@my-project.iam.gserviceaccount.com
+```
+
+Each push's `Authorization: Bearer` OIDC token is then verified with crypto-for-laravel: the RS256
+signature against Google's JWKS (fetched and cached; re-fetched for a rotated key at most once a
+minute), the issuer (`accounts.google.com`), audience, service-account `email`, `email_verified`
+and expiry. Optionally (alone or on top), append a secret to the push URL
+(`…/webhooks/google?token=<secret>`) and set `PURCHASES_GOOGLE_PUSH_TOKEN=<secret>`; it is compared
+in constant time. If your own pull subscriber hands messages to `Purchases::handle()`, set
+`PURCHASES_GOOGLE_PUSH_AUTHENTICATE=false` — only when something upstream already authenticated
+them.
+
 ### Stripe
 
 Verifies webhook signatures natively (HMAC-SHA256 over `t.payload`, constant-time comparison,
@@ -335,7 +361,7 @@ $stripe->invoice('in_123');                      // Invoice
 
 Disabled by default. Set `PURCHASES_ROUTES_ENABLED=true` to register
 `POST /{prefix}/webhooks/{provider}`, which verifies, persists, fires events, and returns `204`
-(invalid signature → `400`, unknown provider → `404`).
+(invalid signature or an unauthenticated Google push → `400`, unknown provider → `404`).
 
 ### Commands
 

@@ -6,6 +6,14 @@ All notable changes to `purchases-for-laravel` will be documented in this file.
 
 ### Fixed
 
+- **Security:** Google Play Real-time Developer Notifications were accepted without any proof
+  they came from Google — anyone could POST a forged Pub/Sub push (e.g. "subscription
+  recovered" for their own token). `Google::notification()` now authenticates every push first,
+  fail-closed: the push subscription's OIDC token (RS256 against Google's cached JWKS; issuer,
+  audience, service-account email, `email_verified`, expiry) via
+  `purchases.settings.google.push.audience` + `service_account_email`, and/or a `?token=` URL
+  secret (`push.token`). With nothing configured every push is rejected;
+  `push.authenticate = false` opts out for messages authenticated upstream.
 - Apple App Store Server notifications are parsed from Apple's real payload: the optional
   `subtype` key (not `subType`) and the int64 `appAppleId`, absent in the sandbox. Every real
   notification previously failed with a `TypeError`. `ServerNotificationDecodedPayload::$subType`

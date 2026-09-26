@@ -33,6 +33,9 @@ function googleProvider(bool $acknowledge = true): Google
         ],
         'base_url' => 'https://androidpublisher.googleapis.com',
         'acknowledge' => $acknowledge,
+        // These tests are about decoding and mapping RTDNs; proving a push came from
+        // Google is GooglePushAuthTest's job, so it is switched off here.
+        'push' => ['authenticate' => false],
     ]);
 
     return new Google(new GoogleClient(
