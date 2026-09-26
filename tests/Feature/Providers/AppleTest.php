@@ -10,6 +10,7 @@ use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
+use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\Subscription;
@@ -321,7 +322,8 @@ it('maps a renewal failure without grace period into a failed result', function 
 
     $result = (new Apple($jws))->result(new Request(['signedPayload' => 'token']));
 
-    expect($result->status())->toBe(Status::Failed);
+    // Billing retry, not expiry: access stops but Apple keeps retrying.
+    expect($result->status())->toBe(Status::OnHold);
 });
 
 /**
@@ -730,3 +732,44 @@ it('records an immediate upgrade as the active plan', function (): void {
         ->and($result->status())->toBe(Status::Completed)
         ->and($result->productId())->toBe('pro.yearly');
 });
+
+it('holds a subscription in billing retry instead of expiring it', function (string $type, ?string $subtype): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(appleNotificationFor('SUBSCRIBED', 'INITIAL_BUY', appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    Event::fake();
+
+    $result = appleNotificationFor($type, $subtype, appleSubscriptionTransaction())->result(appleSignedRequest());
+    $sync->execute($result);
+
+    // Apple keeps retrying billing for 60 days: access stops, but the subscription has
+    // not expired and a DID_RENEW / BILLING_RECOVERY brings it back.
+    expect($result->status())->toBe(Status::OnHold)
+        ->and(Subscription::query()->sole()->status)->toBe(Status::OnHold)
+        ->and(Subscription::query()->sole()->status->isActive())->toBeFalse();
+
+    Event::assertNotDispatched(SubscriptionExpired::class);
+})->with([
+    'renewal failed, no grace period' => ['DID_FAIL_TO_RENEW', null],
+    'grace period ran out' => ['GRACE_PERIOD_EXPIRED', null],
+]);
+
+it('keeps the grace period and a real expiry as they were', function (string $type, ?string $subtype, Status $expected): void {
+    expect(appleNotificationFor($type, $subtype, appleSubscriptionTransaction())->result(appleSignedRequest())->status())->toBe($expected);
+})->with([
+    'grace period' => ['DID_FAIL_TO_RENEW', 'GRACE_PERIOD', Status::InGracePeriod],
+    'expired after billing retry' => ['EXPIRED', 'BILLING_RETRY', Status::Failed],
+]);
+
+it('does not switch the plan for an offer that downgrades at the next renewal', function (): void {
+    $result = appleNotificationFor('OFFER_REDEEMED', 'DOWNGRADE', ['productId' => 'basic.monthly'] + appleSubscriptionTransaction())->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Notification);
+});
+
+it('applies an offer that upgrades immediately', function (?string $subtype): void {
+    $result = appleNotificationFor('OFFER_REDEEMED', $subtype, appleSubscriptionTransaction())->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::Completed);
+})->with(['upgrade' => 'UPGRADE', 'offer on the active subscription' => null]);

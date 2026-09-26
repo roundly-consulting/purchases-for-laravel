@@ -56,8 +56,10 @@ enum NotificationType: string
             self::TypeRefundReversed,
             self::TypeRenewalExtended => Status::Completed,
             self::TypeDidFailToRenew => Status::InGracePeriod,
-            self::TypeExpired,
-            self::TypeGracePeriodExpired => Status::Failed,
+            // Billing retry: access stops, but Apple keeps retrying for 60 days and a
+            // DID_RENEW (BILLING_RECOVERY) restores it — held, not expired.
+            self::TypeGracePeriodExpired => Status::OnHold,
+            self::TypeExpired => Status::Failed,
             self::TypeRefund,
             self::TypeRevoke => Status::Refunded,
             default => Status::Processing,

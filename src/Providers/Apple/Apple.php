@@ -182,7 +182,9 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             return ResultType::Refund;
         }
 
-        if ($transaction === null || ($type->isInformational() && ! $this->isImmediateUpgrade($type, $subType))) {
+        if ($transaction === null
+            || ($type->isInformational() && ! $this->isImmediateUpgrade($type, $subType))
+            || $this->isDeferredDowngrade($type, $subType)) {
             return ResultType::Notification;
         }
 
@@ -196,16 +198,17 @@ class Apple extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
-     * Apple signals a billing-retry grace period through DID_FAIL_TO_RENEW with a
-     * GRACE_PERIOD subtype; without it the renewal has genuinely failed. An UPGRADE
-     * starts the new plan's billing period at once.
+     * DID_FAIL_TO_RENEW with a GRACE_PERIOD subtype keeps access through the grace
+     * period; without one the subscription is in billing retry — access stops, but it
+     * has not expired (Apple retries for 60 days), so it is held, not failed. An
+     * UPGRADE starts the new plan's billing period at once.
      */
     private function status(NotificationType $type, ?NotificationSubType $subType): Status
     {
         if ($type === NotificationType::TypeDidFailToRenew) {
             return $subType === NotificationSubType::SubtypeGracePeriod
                 ? Status::InGracePeriod
-                : Status::Failed;
+                : Status::OnHold;
         }
 
         if ($this->isImmediateUpgrade($type, $subType)) {
@@ -219,6 +222,16 @@ class Apple extends BaseProvider implements VerifiesConnectivity
     {
         return $type === NotificationType::TypeDidChangeRenewalPref
             && $subType === NotificationSubType::SubtypeUpgrade;
+    }
+
+    /**
+     * An offer that downgrades takes effect at the next renewal: until then the current
+     * plan stays, so the notification changes nothing yet.
+     */
+    private function isDeferredDowngrade(NotificationType $type, ?NotificationSubType $subType): bool
+    {
+        return $type === NotificationType::TypeOfferRedeemed
+            && $subType === NotificationSubType::SubtypeDowngrade;
     }
 
     /**
