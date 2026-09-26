@@ -21,8 +21,7 @@ return new class extends Migration
             $table->foreignId('subscription_id')->constrained($subscriptions)->cascadeOnDelete();
             $table->string('provider_id')->nullable();
             $table->string('name');
-            $table->integer('price')->nullable();
-            $table->string('price_currency', 3)->nullable();
+            $table->money('price', nullable: true);
             $table->timestamps();
             $table->softDeletes();
         });

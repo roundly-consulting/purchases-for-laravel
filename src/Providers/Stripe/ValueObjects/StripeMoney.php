@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects;
 
+use RoundlyConsulting\Money\Exceptions\MoneyException;
+use RoundlyConsulting\Money\Money;
+use RoundlyConsulting\Purchases\Providers\Stripe\StripeAmount;
 use RoundlyConsulting\Purchases\Support\DataSet;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
- * Builds the package Money value object from Stripe's integer minor-unit amount
- * and (lowercase) ISO currency fields.
+ * Builds Money from Stripe's integer smallest-unit amount and (lowercase) ISO
+ * currency fields.
+ *
+ * Only an int or an integer string is an amount: a float or `"12.5"` is refused
+ * rather than truncated, and so is a currency money does not know.
  */
 final class StripeMoney
 {
@@ -18,10 +23,18 @@ final class StripeMoney
         $amount = $dataset->value($amountKey);
         $currency = $dataset->value($currencyKey);
 
-        if (! is_numeric($amount) || ! is_string($currency) || $currency === '') {
+        if (! is_int($amount) && ! (is_string($amount) && preg_match('/^-?\d+$/', $amount) === 1)) {
             return null;
         }
 
-        return new Money((int) $amount, strtoupper($currency));
+        if (! is_string($currency) || $currency === '') {
+            return null;
+        }
+
+        try {
+            return StripeAmount::toMoney($amount, $currency);
+        } catch (MoneyException) {
+            return null;
+        }
     }
 }

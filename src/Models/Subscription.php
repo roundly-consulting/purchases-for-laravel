@@ -13,12 +13,12 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
-use RoundlyConsulting\Purchases\Concerns\HasPrice;
+use RoundlyConsulting\Money\Casts\AsMoney;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Concerns\HasProviderScopes;
 use RoundlyConsulting\Purchases\Database\Factories\SubscriptionFactory;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * @property int $id
@@ -42,7 +42,6 @@ class Subscription extends Model
     /** @use HasFactory<SubscriptionFactory> */
     use HasFactory;
 
-    use HasPrice;
     use HasProviderScopes;
     use SoftDeletes;
 
@@ -52,6 +51,7 @@ class Subscription extends Model
     protected function casts(): array
     {
         return [
+            'price' => AsMoney::class,
             'status' => Status::class,
             'meta' => 'collection',
             'active_from' => 'datetime',

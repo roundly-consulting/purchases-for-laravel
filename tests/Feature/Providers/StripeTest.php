@@ -81,8 +81,8 @@ it('maps a payment intent event to a unified purchase result', function (): void
     expect($result->type())->toBe(ResultType::Purchase)
         ->and($result->status())->toBe(Status::Completed)
         ->and($result->providerId())->toBe('pi_2')
-        ->and($result->price()?->amount)->toBe(5000)
-        ->and($result->price()?->currency)->toBe('EUR');
+        ->and($result->price()?->minor())->toBe('5000')
+        ->and($result->price()?->currency()->code)->toBe('EUR');
 });
 
 it('maps a failed payment intent event to a failed result', function (): void {
@@ -128,7 +128,7 @@ it('retrieves a payment intent', function (): void {
     $intent = (new Stripe)->paymentIntent('pi_9');
 
     expect($intent->status)->toBe(PaymentIntentStatus::Succeeded)
-        ->and($intent->amount?->amount)->toBe(1000);
+        ->and($intent->amount?->minor())->toBe('1000');
 });
 
 it('retrieves a subscription and a session and an invoice', function (): void {
@@ -141,8 +141,8 @@ it('retrieves a subscription and a session and an invoice', function (): void {
     $stripe = new Stripe;
 
     expect($stripe->subscription('sub_9')->id)->toBe('sub_9')
-        ->and($stripe->session('cs_9')->amountTotal?->amount)->toBe(2000)
-        ->and($stripe->invoice('in_9')->amountPaid?->amount)->toBe(3000);
+        ->and($stripe->session('cs_9')->amountTotal?->minor())->toBe('2000')
+        ->and($stripe->invoice('in_9')->amountPaid?->minor())->toBe('3000');
 });
 
 it('pins the configured api version', function (): void {
@@ -192,7 +192,7 @@ it('maps a charge.refunded webhook to a refund result', function (): void {
         ->and($result->status())->toBe(Status::Refunded)
         ->and($result->providerId())->toBe('pi_refund')
         ->and($result->isChargeback())->toBeFalse()
-        ->and($result->price()?->amount)->toBe(999);
+        ->and($result->price()?->minor())->toBe('999');
 });
 
 it('maps a charge.dispute.created webhook to a chargeback', function (): void {

@@ -9,10 +9,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use RoundlyConsulting\Purchases\Concerns\HasPrice;
+use RoundlyConsulting\Money\Casts\AsMoney;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Database\Factories\SubscriptionItemFactory;
 use RoundlyConsulting\Purchases\Support\SubscriptionModel;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * @property int $id
@@ -30,10 +30,17 @@ class SubscriptionItem extends Model
     /** @use HasFactory<SubscriptionItemFactory> */
     use HasFactory;
 
-    use HasPrice;
     use SoftDeletes;
 
     protected $guarded = [];
+
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return [
+            'price' => AsMoney::class,
+        ];
+    }
 
     /** @return BelongsTo<Subscription, $this> */
     public function subscription(): BelongsTo

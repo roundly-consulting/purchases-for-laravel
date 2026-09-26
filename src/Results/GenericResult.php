@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Results;
 
 use Carbon\CarbonInterface;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * A concrete, provider-agnostic ProviderResult that every provider maps its native

@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 use Carbon\CarbonInterface;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\AppMetadata;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
 use RoundlyConsulting\Purchases\Support\DataSet;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('reads a value and tracks retrieved keys', function (): void {
     $dataset = new DataSet(['a' => 1, 'b' => 2]);
@@ -121,6 +121,6 @@ final class MoneyBag implements FromRaw
 
     public function unused(): Money
     {
-        return new Money(0, 'USD');
+        return Money::ofMinor(0, 'USD');
     }
 }

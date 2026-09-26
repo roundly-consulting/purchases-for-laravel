@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects;
 
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Support\DataSet;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 final class PaymentIntent implements FromRaw
 {

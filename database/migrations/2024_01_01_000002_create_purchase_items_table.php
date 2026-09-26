@@ -23,8 +23,7 @@ return new class extends Migration
             $table->foreignId('purchase_id')->constrained($purchases)->cascadeOnDelete();
             $table->string('provider_id')->nullable();
             $table->string('name');
-            $table->integer('price')->nullable();
-            $table->string('price_currency', 3)->nullable();
+            $table->money('price', nullable: true);
             $table->integer('quantity')->default(1);
             $table->timestamps();
             $table->softDeletes();

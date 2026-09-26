@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\DataTransferObjects;
 
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 final readonly class RecordPurchaseData
 {

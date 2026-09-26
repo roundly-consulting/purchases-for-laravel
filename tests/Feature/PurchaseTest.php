@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Collection;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('creates a purchase with its factory and casts status', function (): void {
     $purchase = Purchase::factory()->create([
@@ -19,21 +19,19 @@ it('creates a purchase with its factory and casts status', function (): void {
 
 it('exposes the price columns as a money value object', function (): void {
     $purchase = Purchase::factory()->create([
-        'price' => 2599,
-        'price_currency' => 'USD',
+        'price' => Money::ofMinor(2599, 'USD'),
     ]);
 
     $purchase->refresh();
 
     expect($purchase->price)->toBeInstanceOf(Money::class)
-        ->and($purchase->price->amount)->toBe(2599)
-        ->and($purchase->price->currency)->toBe('USD');
+        ->and($purchase->price->minor())->toBe('2599')
+        ->and($purchase->price->currency()->code)->toBe('USD');
 });
 
 it('returns a null price when no amount is stored', function (): void {
     $purchase = Purchase::factory()->create([
         'price' => null,
-        'price_currency' => null,
     ]);
 
     expect($purchase->refresh()->price)->toBeNull();
@@ -42,10 +40,10 @@ it('returns a null price when no amount is stored', function (): void {
 it('writes both columns when set with a money object', function (): void {
     $purchase = Purchase::factory()->create();
 
-    $purchase->price = new Money(4200, 'EUR');
+    $purchase->price = Money::ofMinor(4200, 'EUR');
     $purchase->save();
 
-    expect($purchase->getAttributes()['price'])->toBe(4200)
+    expect($purchase->getAttributes()['price'])->toBe('4200')
         ->and($purchase->getAttributes()['price_currency'])->toBe('EUR');
 });
 

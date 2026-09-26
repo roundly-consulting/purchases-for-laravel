@@ -31,8 +31,7 @@ final class RecordRefundAction
         ];
 
         if ($data->price !== null) {
-            $attributes['price'] = $data->price->amount;
-            $attributes['price_currency'] = $data->price->currency;
+            $attributes['price'] = $data->price;
         }
 
         /** @var PurchaseRefund $refund */

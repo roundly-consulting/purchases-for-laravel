@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
 
@@ -20,8 +21,7 @@ final class PurchaseItemFactory extends Factory
             'purchase_id' => PurchaseFactory::new(),
             'provider_id' => (string) $this->faker->uuid(),
             'name' => $this->faker->words(2, true),
-            'price' => $this->faker->numberBetween(99, 99999),
-            'price_currency' => 'USD',
+            'price' => Money::ofMinor($this->faker->numberBetween(99, 99999), 'USD'),
             'quantity' => $this->faker->numberBetween(1, 5),
         ];
     }

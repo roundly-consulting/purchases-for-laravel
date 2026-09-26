@@ -24,8 +24,7 @@ final class RecordPurchaseAction
         ];
 
         if ($data->price !== null) {
-            $attributes['price'] = $data->price->amount;
-            $attributes['price_currency'] = $data->price->currency;
+            $attributes['price'] = $data->price;
         }
 
         /** @var Purchase $purchase */
@@ -57,8 +56,7 @@ final class RecordPurchaseAction
             ];
 
             if ($item->price !== null) {
-                $attributes['price'] = $item->price->amount;
-                $attributes['price_currency'] = $item->price->currency;
+                $attributes['price'] = $item->price;
             }
 
             $purchase->items()->save(new $itemModel($attributes));

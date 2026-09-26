@@ -3,17 +3,17 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Results\GenericResult;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('exposes every provider-agnostic field', function (): void {
     $activeFrom = Carbon::parse('2026-01-01');
     $trialEndsAt = Carbon::parse('2026-01-08');
     $endsAt = Carbon::parse('2026-02-01');
-    $item = new ResultItem(name: 'Pro', providerId: 'sku_pro', price: new Money(999, 'USD'), quantity: 2);
+    $item = new ResultItem(name: 'Pro', providerId: 'sku_pro', price: Money::ofMinor(999, 'USD'), quantity: 2);
 
     $result = new GenericResult(
         provider: 'stripe',
@@ -23,7 +23,7 @@ it('exposes every provider-agnostic field', function (): void {
         transactionId: 'txn_1',
         name: 'Pro plan',
         productId: 'prod_1',
-        price: new Money(999, 'USD'),
+        price: Money::ofMinor(999, 'USD'),
         activeFrom: $activeFrom,
         trialEndsAt: $trialEndsAt,
         endsAt: $endsAt,
@@ -38,7 +38,7 @@ it('exposes every provider-agnostic field', function (): void {
         ->and($result->transactionId())->toBe('txn_1')
         ->and($result->name())->toBe('Pro plan')
         ->and($result->productId())->toBe('prod_1')
-        ->and($result->price()?->amount)->toBe(999)
+        ->and($result->price()?->minor())->toBe('999')
         ->and($result->activeFrom())->toBe($activeFrom)
         ->and($result->trialEndsAt())->toBe($trialEndsAt)
         ->and($result->endsAt())->toBe($endsAt)

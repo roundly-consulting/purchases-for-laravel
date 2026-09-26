@@ -3,12 +3,12 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Actions\RecordSubscriptionAction;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordSubscriptionData;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Subscription;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('creates a subscription with lifecycle dates', function (): void {
     $activeFrom = Carbon::parse('2026-01-01');
@@ -19,7 +19,7 @@ it('creates a subscription with lifecycle dates', function (): void {
         providerId: 'GPA.1',
         status: Status::Completed,
         name: 'pro.monthly',
-        price: new Money(999, 'USD'),
+        price: Money::ofMinor(999, 'USD'),
         activeFrom: $activeFrom,
         endsAt: $endsAt,
     ));
@@ -27,7 +27,7 @@ it('creates a subscription with lifecycle dates', function (): void {
     expect($subscription->name)->toBe('pro.monthly')
         ->and($subscription->active_from?->toDateString())->toBe('2026-01-01')
         ->and($subscription->ends_at?->toDateString())->toBe('2026-02-01')
-        ->and($subscription->price?->amount)->toBe(999);
+        ->and($subscription->price?->minor())->toBe('999');
 });
 
 it('updates rather than duplicates a subscription', function (): void {
@@ -45,7 +45,7 @@ it('syncs subscription items', function (): void {
         providerId: 'GPA.1',
         status: Status::Completed,
         name: 'pro',
-        items: [new ResultItem(name: 'Pro plan', providerId: 'pro.monthly', price: new Money(999, 'USD'))],
+        items: [new ResultItem(name: 'Pro plan', providerId: 'pro.monthly', price: Money::ofMinor(999, 'USD'))],
     ));
 
     expect($subscription->items()->count())->toBe(1)

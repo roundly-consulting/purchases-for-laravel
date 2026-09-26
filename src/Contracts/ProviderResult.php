@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Contracts;
 
 use Carbon\CarbonInterface;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * A provider-agnostic view over a verified purchase, subscription, or notification.

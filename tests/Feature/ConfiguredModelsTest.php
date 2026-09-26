@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Actions\RecordPurchaseAction;
 use RoundlyConsulting\Purchases\Actions\RecordRefundAction;
 use RoundlyConsulting\Purchases\Actions\RecordSubscriptionAction;
@@ -17,7 +18,6 @@ use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchaseRefund;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomSubscription;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomSubscriptionItem;
 use RoundlyConsulting\Purchases\Tests\Fixtures\User;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * `purchases.models` documents swapping any of the six models for a host subclass.
@@ -56,9 +56,9 @@ it('records a purchase and its line items through the configured subclasses', fu
         provider: 'stripe',
         providerId: 'cs_swap_1',
         status: Status::Completed,
-        price: new Money(2500, 'EUR'),
+        price: Money::ofMinor(2500, 'EUR'),
         items: [
-            new ResultItem(providerId: 'price_1', name: 'Pro plan', price: new Money(2500, 'EUR'), quantity: 1),
+            new ResultItem(providerId: 'price_1', name: 'Pro plan', price: Money::ofMinor(2500, 'EUR'), quantity: 1),
         ],
     ));
 
@@ -78,9 +78,9 @@ it('records a subscription and its items through the configured subclasses', fun
         providerId: 'sub_swap_1',
         status: Status::Completed,
         name: 'pro',
-        price: new Money(999, 'EUR'),
+        price: Money::ofMinor(999, 'EUR'),
         items: [
-            new ResultItem(providerId: 'price_1', name: 'Pro seat', price: new Money(999, 'EUR')),
+            new ResultItem(providerId: 'price_1', name: 'Pro seat', price: Money::ofMinor(999, 'EUR')),
         ],
     ));
 
@@ -97,14 +97,14 @@ it('links a refund back to its purchase through the configured subclasses', func
         providerId: 'cs_swap_2',
         transactionId: 'pi_swap_2',
         status: Status::Completed,
-        price: new Money(2500, 'EUR'),
+        price: Money::ofMinor(2500, 'EUR'),
     ));
 
     $refund = app(RecordRefundAction::class)->execute(new RecordRefundData(
         provider: 'stripe',
         providerId: 're_swap_2',
         transactionId: 'pi_swap_2',
-        price: new Money(2500, 'EUR'),
+        price: Money::ofMinor(2500, 'EUR'),
     ));
 
     expect($refund)->toBeInstanceOf(CustomPurchaseRefund::class)

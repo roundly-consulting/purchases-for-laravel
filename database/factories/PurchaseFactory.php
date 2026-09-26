@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Purchase;
 
@@ -20,8 +21,7 @@ final class PurchaseFactory extends Factory
             'provider' => 'apple',
             'provider_id' => (string) $this->faker->uuid(),
             'status' => Status::Completed->value,
-            'price' => $this->faker->numberBetween(99, 99999),
-            'price_currency' => 'USD',
+            'price' => Money::ofMinor($this->faker->numberBetween(99, 99999), 'USD'),
             'meta' => [],
         ];
     }

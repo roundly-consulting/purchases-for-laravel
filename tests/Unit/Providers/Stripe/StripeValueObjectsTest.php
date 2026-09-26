@@ -22,8 +22,8 @@ it('maps a payment intent with money', function (): void {
 
     expect($intent->id)->toBe('pi_1')
         ->and($intent->status)->toBe(PaymentIntentStatus::Succeeded)
-        ->and($intent->amount?->amount)->toBe(1999)
-        ->and($intent->amount?->currency)->toBe('USD')
+        ->and($intent->amount?->minor())->toBe('1999')
+        ->and($intent->amount?->currency()->code)->toBe('USD')
         ->and($intent->customer)->toBe('cus_1');
 });
 
@@ -66,9 +66,9 @@ it('maps a checkout session and invoice', function (): void {
         'currency' => 'usd',
     ]);
 
-    expect($session->amountTotal?->amount)->toBe(2500)
+    expect($session->amountTotal?->minor())->toBe('2500')
         ->and($session->subscription)->toBe('sub_1')
-        ->and($invoice->amountPaid?->amount)->toBe(4200);
+        ->and($invoice->amountPaid?->minor())->toBe('4200');
 });
 
 it('decodes an event with a missing object', function (): void {

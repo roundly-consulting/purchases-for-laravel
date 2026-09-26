@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\DataTransferObjects;
 
 use Carbon\CarbonInterface;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 final readonly class RecordRefundData
 {

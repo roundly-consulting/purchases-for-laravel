@@ -11,11 +11,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
-use RoundlyConsulting\Purchases\Concerns\HasPrice;
+use RoundlyConsulting\Money\Casts\AsMoney;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Concerns\HasProviderScopes;
 use RoundlyConsulting\Purchases\Database\Factories\PurchaseRefundFactory;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * @property int $id
@@ -38,7 +38,6 @@ class PurchaseRefund extends Model
     /** @use HasFactory<PurchaseRefundFactory> */
     use HasFactory;
 
-    use HasPrice;
     use HasProviderScopes;
     use SoftDeletes;
 
@@ -48,6 +47,7 @@ class PurchaseRefund extends Model
     protected function casts(): array
     {
         return [
+            'price' => AsMoney::class,
             'chargeback' => 'bool',
             'refunded_at' => 'datetime',
             'meta' => 'collection',

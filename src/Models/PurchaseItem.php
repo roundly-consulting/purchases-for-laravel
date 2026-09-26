@@ -9,10 +9,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use RoundlyConsulting\Purchases\Concerns\HasPrice;
+use RoundlyConsulting\Money\Casts\AsMoney;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Database\Factories\PurchaseItemFactory;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * @property int $id
@@ -31,7 +31,6 @@ class PurchaseItem extends Model
     /** @use HasFactory<PurchaseItemFactory> */
     use HasFactory;
 
-    use HasPrice;
     use SoftDeletes;
 
     protected $guarded = [];
@@ -40,6 +39,7 @@ class PurchaseItem extends Model
     protected function casts(): array
     {
         return [
+            'price' => AsMoney::class,
             'quantity' => 'int',
         ];
     }

@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Support;
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Money\Exceptions\MoneyException;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Results\GenericResult;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * Serializes a ProviderResult into a storable snapshot and rebuilds it again, so
@@ -33,7 +34,7 @@ final class NotificationResultFactory
             'transaction_id' => $result->transactionId(),
             'name' => $result->name(),
             'product_id' => $result->productId(),
-            'price' => $price === null ? null : ['amount' => $price->amount, 'currency' => $price->currency],
+            'price' => $price?->toArray(),
             'active_from' => $result->activeFrom()?->toIso8601String(),
             'trial_ends_at' => $result->trialEndsAt()?->toIso8601String(),
             'ends_at' => $result->endsAt()?->toIso8601String(),
@@ -62,6 +63,14 @@ final class NotificationResultFactory
         /** @var array<string, mixed> $raw */
         $raw = is_array($data['raw'] ?? null) ? $data['raw'] : [];
 
+        // A price money refuses makes the whole snapshot unparseable: replaying it
+        // without the price would record a purchase that silently lost its amount.
+        try {
+            $price = self::money($data['price'] ?? null);
+        } catch (MoneyException) {
+            return null;
+        }
+
         return new GenericResult(
             provider: (string) ($data['provider'] ?? $notification->provider),
             type: $type,
@@ -70,7 +79,7 @@ final class NotificationResultFactory
             transactionId: self::string($data['transaction_id'] ?? null),
             name: self::string($data['name'] ?? null),
             productId: self::string($data['product_id'] ?? null),
-            price: self::money($data['price'] ?? null),
+            price: $price,
             activeFrom: self::date($data['active_from'] ?? null),
             trialEndsAt: self::date($data['trial_ends_at'] ?? null),
             endsAt: self::date($data['ends_at'] ?? null),
@@ -86,13 +95,16 @@ final class NotificationResultFactory
         return is_string($value) ? $value : null;
     }
 
+    /**
+     * Rebuild the snapshot's `{minor, decimal, currency}` price; anything that is
+     * not an array reads as "no price".
+     *
+     * @throws MoneyException for an array money refuses (a float `minor`, a
+     *                        `decimal` that disagrees with it, an unknown currency)
+     */
     private static function money(mixed $value): ?Money
     {
-        if (! is_array($value) || ! isset($value['amount'], $value['currency'])) {
-            return null;
-        }
-
-        return new Money((int) $value['amount'], (string) $value['currency']);
+        return is_array($value) ? Money::fromArray($value) : null;
     }
 
     private static function date(mixed $value): ?Carbon

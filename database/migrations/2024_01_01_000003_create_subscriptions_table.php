@@ -25,8 +25,7 @@ return new class extends Migration
             $table->string('transaction_id')->nullable()->index();
             $table->string('name');
             $table->string('status')->default(Status::New->value)->index();
-            $table->integer('price')->nullable();
-            $table->string('price_currency', 3)->nullable();
+            $table->money('price', nullable: true);
             $table->timestamp('active_from')->nullable();
             $table->timestamp('trial_ends_at')->nullable();
             $table->timestamp('ends_at')->nullable();

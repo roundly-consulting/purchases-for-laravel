@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Subscription;
 
@@ -21,8 +22,7 @@ final class SubscriptionFactory extends Factory
             'provider_id' => (string) $this->faker->uuid(),
             'name' => $this->faker->words(2, true),
             'status' => Status::Completed->value,
-            'price' => $this->faker->numberBetween(99, 99999),
-            'price_currency' => 'USD',
+            'price' => Money::ofMinor($this->faker->numberBetween(99, 99999), 'USD'),
             'active_from' => now(),
             'trial_ends_at' => null,
             'ends_at' => null,

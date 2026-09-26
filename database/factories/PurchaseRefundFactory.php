@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 
 /** @extends Factory<PurchaseRefund> */
@@ -22,8 +23,7 @@ final class PurchaseRefundFactory extends Factory
             'transaction_id' => (string) $this->faker->uuid(),
             'reason' => null,
             'chargeback' => false,
-            'price' => $this->faker->numberBetween(99, 99999),
-            'price_currency' => 'USD',
+            'price' => Money::ofMinor($this->faker->numberBetween(99, 99999), 'USD'),
             'refunded_at' => now(),
             'meta' => [],
         ];

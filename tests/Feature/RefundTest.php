@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Actions\RecordRefundAction;
 use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordRefundData;
@@ -13,7 +14,6 @@ use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Results\GenericResult;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('records a refund and flips the related purchase status', function (): void {
     $purchase = Purchase::factory()->create([
@@ -28,12 +28,12 @@ it('records a refund and flips the related purchase status', function (): void {
         providerId: 're_1',
         transactionId: 'pi_1',
         reason: 'requested_by_customer',
-        price: new Money(999, 'USD'),
+        price: Money::ofMinor(999, 'USD'),
     ));
 
     expect($refund)->toBeInstanceOf(PurchaseRefund::class)
         ->and($refund->purchase_id)->toBe($purchase->getKey())
-        ->and($refund->price?->amount)->toBe(999)
+        ->and($refund->price?->minor())->toBe('999')
         ->and($purchase->refresh()->status)->toBe(Status::Refunded)
         ->and($purchase->refunds()->count())->toBe(1);
 });

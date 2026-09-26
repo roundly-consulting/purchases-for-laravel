@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Testing;
 
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Results\GenericResult;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * Convenience builders for fake provider results, so tests can drive
@@ -24,7 +24,7 @@ final class FakeResult
             providerId: $providerId ?? ('pi_'.uniqid()),
             status: $status,
             transactionId: $providerId ?? ('pi_'.uniqid()),
-            price: new Money(999, 'USD'),
+            price: Money::ofMinor(999, 'USD'),
         );
     }
 
@@ -38,7 +38,7 @@ final class FakeResult
             transactionId: $providerId ?? ('sub_'.uniqid()),
             name: $name,
             productId: $name,
-            price: new Money(1999, 'USD'),
+            price: Money::ofMinor(1999, 'USD'),
             activeFrom: Carbon::now(),
             endsAt: Carbon::now()->addMonth(),
         );
@@ -52,7 +52,7 @@ final class FakeResult
             providerId: $providerId ?? ('re_'.uniqid()),
             status: Status::Refunded,
             transactionId: $providerId ?? ('re_'.uniqid()),
-            price: new Money(999, 'USD'),
+            price: Money::ofMinor(999, 'USD'),
             refundReason: $chargeback ? 'fraudulent' : 'requested_by_customer',
             chargeback: $chargeback,
         );

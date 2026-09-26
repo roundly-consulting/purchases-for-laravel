@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\DataTransferObjects;
 
-use RoundlyConsulting\Purchases\ValueObjects\Money;
+use RoundlyConsulting\Money\Money;
 
 /**
  * A single line item belonging to a provider result.

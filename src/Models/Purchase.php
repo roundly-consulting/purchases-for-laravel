@@ -11,13 +11,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
-use RoundlyConsulting\Purchases\Concerns\HasPrice;
+use RoundlyConsulting\Money\Casts\AsMoney;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Concerns\HasProviderScopes;
 use RoundlyConsulting\Purchases\Database\Factories\PurchaseFactory;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Support\PurchaseItemModel;
 use RoundlyConsulting\Purchases\Support\PurchaseRefundModel;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * @property int $id
@@ -37,7 +37,6 @@ class Purchase extends Model
     /** @use HasFactory<PurchaseFactory> */
     use HasFactory;
 
-    use HasPrice;
     use HasProviderScopes;
     use SoftDeletes;
 
@@ -47,6 +46,7 @@ class Purchase extends Model
     protected function casts(): array
     {
         return [
+            'price' => AsMoney::class,
             'status' => Status::class,
             'meta' => 'collection',
         ];

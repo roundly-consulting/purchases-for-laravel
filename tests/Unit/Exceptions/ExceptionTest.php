@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Purchases\Exceptions\Exception;
-use RoundlyConsulting\Purchases\Exceptions\InvalidMoneyException;
 use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 
@@ -20,5 +19,4 @@ it('returns the concrete subclass from the because factory', function (string $c
 })->with([
     VerificationException::class,
     InvalidProviderNotificationException::class,
-    InvalidMoneyException::class,
 ]);

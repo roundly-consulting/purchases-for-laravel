@@ -19,8 +19,7 @@ return new class extends Migration
             $table->string('transaction_id')->nullable();
             $table->string('reason')->nullable();
             $table->boolean('chargeback')->default(false)->index();
-            $table->integer('price')->nullable();
-            $table->string('price_currency', 3)->nullable();
+            $table->money('price', nullable: true);
             $table->timestamp('refunded_at')->nullable();
             $table->jsonb('meta')->nullable();
             $table->timestamps();

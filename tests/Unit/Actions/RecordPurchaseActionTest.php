@@ -2,26 +2,26 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Actions\RecordPurchaseAction;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordPurchaseData;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Purchase;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('creates a purchase from result data', function (): void {
     $purchase = (new RecordPurchaseAction)->execute(new RecordPurchaseData(
         provider: 'stripe',
         providerId: 'pi_1',
         status: Status::Completed,
-        price: new Money(1999, 'USD'),
+        price: Money::ofMinor(1999, 'USD'),
         meta: ['id' => 'pi_1'],
     ));
 
     expect($purchase->provider)->toBe('stripe')
         ->and($purchase->provider_id)->toBe('pi_1')
         ->and($purchase->status)->toBe(Status::Completed)
-        ->and($purchase->price?->amount)->toBe(1999);
+        ->and($purchase->price?->minor())->toBe('1999');
 
     expect(Purchase::query()->count())->toBe(1);
 });
@@ -42,7 +42,7 @@ it('syncs purchase items', function (): void {
         providerId: 'pi_1',
         status: Status::Completed,
         items: [
-            new ResultItem(name: 'Pro', providerId: 'sku', price: new Money(500, 'USD'), quantity: 2),
+            new ResultItem(name: 'Pro', providerId: 'sku', price: Money::ofMinor(500, 'USD'), quantity: 2),
         ],
     ));
 

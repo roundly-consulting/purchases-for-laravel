@@ -16,6 +16,7 @@ use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
+use RoundlyConsulting\Purchases\Providers\Stripe\StripeAmount;
 use RoundlyConsulting\Purchases\Providers\Stripe\StripeClient;
 use RoundlyConsulting\Purchases\Purchases;
 use RoundlyConsulting\Purchases\PurchasesServiceProvider;
@@ -134,9 +135,11 @@ ArchPresets::finalByDefault('RoundlyConsulting\Purchases', FINALITY_EXEMPTIONS);
  *   `...\Google\Google`  also silences  `...\Google\GoogleClient`
  *   `...\Purchases`      also silences  `...\PurchasesServiceProvider`
  *
+ * (and, since the money integration, `...\Stripe\StripeAmount`)
+ *
  * This is not theoretical and it is not cosmetic: it was found by biting the preset.
  * `StripeClient` was un-finalled on purpose and `finalByDefault` stayed **GREEN**, because
- * the neighbouring `Stripe::class` exemption was covering for it. Three classes sit in that
+ * the neighbouring `Stripe::class` exemption was covering for it. Four classes sit in that
  * shadow, and two of them (`GoogleClient`, `StripeClient`) are ones this package just
  * deliberately closed — so the exact classes we decided to close were the ones the preset
  * could not have policed. A `final` deleted from any of the three would have gone green.
@@ -169,9 +172,10 @@ it('closes the finality hole Pest\'s prefix-matched exemptions open', function (
 
     // The shadow set is real and known. If this count moves, the reach of an exemption
     // moved with it, and that is a review event — in either direction.
-    expect($shadowed)->toHaveCount(3)
+    expect($shadowed)->toHaveCount(4)
         ->and(array_keys($shadowed))->toEqualCanonicalizing([
             GoogleClient::class,
+            StripeAmount::class,
             StripeClient::class,
             PurchasesServiceProvider::class,
         ]);
@@ -354,6 +358,44 @@ it('does not import a crypto class marked @internal', function (): void {
     expect($internal)
         ->toContain('RoundlyConsulting\Crypto\X509\OpenSslX509')
         ->toContain('RoundlyConsulting\Crypto\Signature\OpenSsl');
+
+    $offenders = [];
+
+    foreach (packageSourceFiles() as $file) {
+        $contents = (string) file_get_contents($file->getPathname());
+
+        foreach ($internal as $class) {
+            if (str_contains($contents, 'use '.$class.';')) {
+                $offenders[] = $file->getBasename().' → '.$class;
+            }
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});
+
+it('does not import a money class marked @internal', function (): void {
+    $internal = [];
+
+    foreach (phpFilesIn(__DIR__.'/../vendor/roundly-consulting/money-for-laravel/src') as $file) {
+        $contents = (string) file_get_contents($file->getPathname());
+
+        // Class-level only: money also tags single methods of public classes
+        // (`Ratio::fromIntegers()`), which does not make the class off-limits.
+        if (preg_match('/@internal\b[^\n]*\n(?:\s*\*[^\n]*\n)*\s*\*\/\s*\n(?:#\[[^\n]*\]\s*\n)*(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s/', $contents) !== 1
+            || preg_match('/^namespace\s+([^;]+);/m', $contents, $namespace) !== 1) {
+            continue;
+        }
+
+        $internal[] = $namespace[1].'\\'.$file->getBasename('.php');
+    }
+
+    // Pinned by name so the scan cannot silently cover nothing: the cast
+    // implementation and the bcmath gateway are money's internals.
+    expect($internal)
+        ->toContain('RoundlyConsulting\Money\Casts\MoneyCast')
+        ->toContain('RoundlyConsulting\Money\Math\Calculator')
+        ->not->toContain('RoundlyConsulting\Money\Ratio');
 
     $offenders = [];
 

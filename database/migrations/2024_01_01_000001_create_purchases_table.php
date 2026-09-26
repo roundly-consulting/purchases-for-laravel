@@ -24,8 +24,7 @@ return new class extends Migration
             $table->string('provider_id')->nullable();
             $table->string('transaction_id')->nullable()->index();
             $table->string('status')->default(Status::New->value)->index();
-            $table->integer('price')->nullable();
-            $table->string('price_currency', 3)->nullable();
+            $table->money('price', nullable: true);
             $table->jsonb('meta')->nullable();
             $table->timestamps();
             $table->softDeletes();

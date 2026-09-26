@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 it('creates a subscription with date casts', function (): void {
     $subscription = Subscription::factory()->create([
@@ -19,12 +19,11 @@ it('creates a subscription with date casts', function (): void {
 
 it('exposes the subscription price as money', function (): void {
     $subscription = Subscription::factory()->create([
-        'price' => 999,
-        'price_currency' => 'GBP',
+        'price' => Money::ofMinor(999, 'GBP'),
     ]);
 
     expect($subscription->refresh()->price)->toBeInstanceOf(Money::class)
-        ->and($subscription->price->currency)->toBe('GBP');
+        ->and($subscription->price->currency()->code)->toBe('GBP');
 });
 
 it('has many subscription items', function (): void {

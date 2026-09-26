@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Actions\RecordPurchaseAction;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordPurchaseData;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchase;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchaseItem;
-use RoundlyConsulting\Purchases\ValueObjects\Money;
 
 /**
  * S — the model-swap proof, with every `purchases.models.*` key swapped BEFORE boot.
@@ -26,7 +26,7 @@ it('records a purchase as the configured model', function (): void {
             provider: 'stripe',
             providerId: 'pi_swap_1',
             status: Status::Completed,
-            price: new Money(1999, 'USD'),
+            price: Money::ofMinor(1999, 'USD'),
             meta: ['id' => 'pi_swap_1'],
         ));
 
@@ -47,15 +47,14 @@ it('relates purchase items to the configured parent without deriving the key', f
         provider: 'stripe',
         providerId: 'pi_swap_2',
         status: Status::Completed,
-        price: new Money(500, 'USD'),
+        price: Money::ofMinor(500, 'USD'),
         meta: ['id' => 'pi_swap_2'],
     ));
 
     expect('purchases.models.purchase-item')->toHonourModelSwap(CustomPurchaseItem::class, function () use ($purchase): array {
         $item = $purchase->items()->create([
             'name' => 'Seat',
-            'price' => 500,
-            'price_currency' => 'USD',
+            'price' => Money::ofMinor(500, 'USD'),
         ]);
 
         // Created through the relation, and read back through it: if the FK were derived
@@ -76,7 +75,7 @@ it('reads an existing purchase back as the configured model', function (): void 
         provider: 'stripe',
         providerId: 'pi_swap_3',
         status: Status::Completed,
-        price: new Money(100, 'USD'),
+        price: Money::ofMinor(100, 'USD'),
         meta: ['id' => 'pi_swap_3'],
     ));
 
@@ -97,7 +96,7 @@ it('updates rather than duplicates on the configured model', function (): void {
         provider: 'stripe',
         providerId: 'pi_swap_4',
         status: Status::Pending,
-        price: new Money(700, 'USD'),
+        price: Money::ofMinor(700, 'USD'),
         meta: ['id' => 'pi_swap_4'],
     ));
 
@@ -108,7 +107,7 @@ it('updates rather than duplicates on the configured model', function (): void {
                 provider: 'stripe',
                 providerId: 'pi_swap_4',
                 status: Status::Completed,
-                price: new Money(700, 'USD'),
+                price: Money::ofMinor(700, 'USD'),
                 meta: ['id' => 'pi_swap_4'],
             ));
 
