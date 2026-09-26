@@ -274,30 +274,77 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
     {
         $chargeback = $event->type->isChargeback();
 
-        // Disputes key on payment_intent; charge refunds expose it directly too.
         $paymentIntent = $object->value('payment_intent');
+        $paymentIntent = is_string($paymentIntent) && $paymentIntent !== '' ? $paymentIntent : null;
         $id = $object->value('id');
+        $id = is_string($id) && $id !== '' ? $id : (string) $event->id;
 
-        $providerId = is_string($paymentIntent) && $paymentIntent !== ''
-            ? $paymentIntent
-            : (is_string($id) ? $id : (string) $event->id);
+        if ($chargeback) {
+            $dispute = $this->disputeResult($event, $object, $id, $paymentIntent);
 
-        $amountKey = $chargeback ? 'amount' : 'amount_refunded';
+            if ($dispute !== null) {
+                return $dispute;
+            }
+        }
+
         $reason = $object->value('reason');
 
         return new GenericResult(
             provider: $this->id(),
             type: ResultType::Refund,
-            providerId: $providerId,
+            // A refund keys on the payment it refunds; a dispute on itself, so a refund
+            // and a dispute of one payment are two records, not one overwriting the other.
+            providerId: $chargeback ? $id : ($paymentIntent ?? $id),
             // `charge.refunded` fires for partial refunds too; only a charge Stripe marks
             // `refunded` is fully refunded, so a partial refund leaves the purchase completed.
             status: ! $chargeback && $object->value('refunded') === false ? Status::Completed : Status::Refunded,
-            transactionId: is_string($paymentIntent) && $paymentIntent !== '' ? $paymentIntent : null,
-            price: StripeMoney::fromDataSet($object, $amountKey, 'currency'),
+            transactionId: $paymentIntent,
+            price: StripeMoney::fromDataSet($object, $chargeback ? 'amount' : 'amount_refunded', 'currency'),
             raw: $event->object,
             refundReason: is_string($reason) ? $reason : null,
             chargeback: $chargeback,
         );
+    }
+
+    /**
+     * A dispute is a chargeback only while the funds are actually gone: an inquiry
+     * (`warning_*` status) never withdraws them, an update changes nothing, and a dispute
+     * closed as won returns them — the purchase is reinstated (a Completed purchase keyed
+     * on its PaymentIntent). A lost one stays the chargeback it was. Null means "record it
+     * as a chargeback".
+     */
+    private function disputeResult(StripeEvent $event, DataSet $object, string $id, ?string $paymentIntent): ?GenericResult
+    {
+        $status = $object->value('status');
+        $status = is_string($status) ? $status : '';
+
+        $informational = $event->type === EventType::ChargeDisputeUpdated
+            || str_starts_with($status, 'warning_')
+            || ($event->type === EventType::ChargeDisputeClosed && ! in_array($status, ['won', 'lost'], true));
+
+        if ($informational || ($status === 'won' && $paymentIntent === null)) {
+            return new GenericResult(
+                provider: $this->id(),
+                type: ResultType::Notification,
+                providerId: $id,
+                status: Status::Processing,
+                transactionId: $paymentIntent,
+                raw: $event->object,
+            );
+        }
+
+        if ($status === 'won') {
+            return new GenericResult(
+                provider: $this->id(),
+                type: ResultType::Purchase,
+                providerId: (string) $paymentIntent,
+                status: Status::Completed,
+                transactionId: $paymentIntent,
+                raw: $event->object,
+            );
+        }
+
+        return null;
     }
 
     public function id(): string

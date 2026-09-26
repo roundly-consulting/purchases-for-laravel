@@ -357,6 +357,11 @@ Subscription billing is not: a subscription- or setup-mode Checkout, a subscript
 PaymentIntent behind it are audited only, and the subscription's own `customer.subscription.*`
 events keep its state.
 
+A dispute is a chargeback only while the funds are gone: an inquiry (`warning_*`) and
+`charge.dispute.updated` change nothing, a dispute closed as **won** reinstates the purchase
+(`PurchaseCompleted`), and a **lost** one stays the single chargeback recorded at
+`charge.dispute.created` (keyed on the dispute id).
+
 ```php
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 

@@ -10,6 +10,8 @@ use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Events\ChargebackReceived;
+use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
@@ -214,7 +216,9 @@ it('maps a charge.dispute.created webhook to a chargeback', function (): void {
     expect($result->type())->toBe(ResultType::Refund)
         ->and($result->isChargeback())->toBeTrue()
         ->and($result->refundReason())->toBe('fraudulent')
-        ->and($result->providerId())->toBe('pi_dispute');
+        // Keyed on the dispute itself; the payment it disputes is the transaction.
+        ->and($result->providerId())->toBe('dp_1')
+        ->and($result->transactionId())->toBe('pi_dispute');
 });
 
 it('maps a past_due subscription update into a grace-period result', function (): void {
@@ -379,4 +383,86 @@ it('still records a one-off invoice as a purchase', function (): void {
     expect($result->type())->toBe(ResultType::Purchase)
         ->and($result->status())->toBe(Status::Completed)
         ->and($result->price()?->minor())->toBe('4500');
+});
+
+/**
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function stripeDispute(string $status, array $overrides = []): array
+{
+    return $overrides + ['id' => 'dp_1', 'object' => 'dispute', 'charge' => 'ch_d', 'payment_intent' => 'pi_d', 'amount' => 5000, 'currency' => 'eur', 'reason' => 'fraudulent', 'status' => $status];
+}
+
+it('maps a dispute through its lifecycle without mistaking a won one for a chargeback', function (): void {
+    Event::fake([ChargebackReceived::class, PurchaseCompleted::class]);
+    $sync = new SyncProviderResultAction;
+
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_d', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']));
+
+    $created = stripeResultFor('charge.dispute.created', stripeDispute('needs_response'));
+    $sync->execute($created);
+
+    expect($created->type())->toBe(ResultType::Refund)
+        ->and($created->isChargeback())->toBeTrue()
+        ->and($created->providerId())->toBe('dp_1')
+        ->and($created->transactionId())->toBe('pi_d')
+        ->and(Purchase::query()->sole()->status)->toBe(Status::Refunded);
+    Event::assertDispatchedTimes(ChargebackReceived::class, 1);
+
+    $updated = stripeResultFor('charge.dispute.updated', stripeDispute('under_review'));
+    expect($updated->type())->toBe(ResultType::Notification)
+        ->and($sync->execute($updated))->toBeNull();
+
+    $won = stripeResultFor('charge.dispute.closed', stripeDispute('won'));
+    $sync->execute($won);
+
+    expect($won->type())->toBe(ResultType::Purchase)
+        ->and($won->status())->toBe(Status::Completed)
+        ->and(Purchase::query()->sole()->status)->toBe(Status::Completed)
+        ->and(Purchase::query()->sole()->price?->minor())->toBe('5000')
+        ->and(PurchaseRefund::query()->count())->toBe(1);
+    Event::assertDispatchedTimes(ChargebackReceived::class, 1);
+    Event::assertDispatched(PurchaseCompleted::class);
+});
+
+it('records a lost dispute as the same single chargeback', function (): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response')));
+    $sync->execute(stripeResultFor('charge.dispute.closed', stripeDispute('lost')));
+
+    expect(PurchaseRefund::query()->sole()->provider_id)->toBe('dp_1')
+        ->and(PurchaseRefund::query()->sole()->chargeback)->toBeTrue();
+});
+
+it('does not treat an inquiry as a chargeback', function (string $type, string $status): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_d', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']));
+
+    $result = stripeResultFor($type, stripeDispute($status));
+    $sync->execute($result);
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and(Purchase::query()->sole()->status)->toBe(Status::Completed)
+        ->and(PurchaseRefund::query()->count())->toBe(0);
+})->with([
+    'inquiry opened' => ['charge.dispute.created', 'warning_needs_response'],
+    'inquiry closed' => ['charge.dispute.closed', 'warning_closed'],
+]);
+
+it('does not link a refund and a dispute of one payment into one row', function (): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(stripeResultFor('charge.refunded', ['id' => 'ch_d', 'payment_intent' => 'pi_d', 'amount' => 5000, 'amount_refunded' => 1000, 'refunded' => false, 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response', ['amount' => 4000])));
+
+    expect(PurchaseRefund::query()->count())->toBe(2)
+        ->and(PurchaseRefund::query()->where('chargeback', false)->sole()->price?->minor())->toBe('1000');
+});
+
+it('audits a won dispute it cannot tie to a payment', function (): void {
+    $result = stripeResultFor('charge.dispute.closed', stripeDispute('won', ['payment_intent' => null]));
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(Purchase::query()->count())->toBe(0);
 });
