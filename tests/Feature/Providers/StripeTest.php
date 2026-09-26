@@ -5,9 +5,12 @@ declare(strict_types=1);
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
@@ -280,3 +283,14 @@ it('maps checkout session and invoice events with their own amount and status', 
     'invoice.paid' => ['invoice.paid', ['id' => 'in_1', 'status' => 'paid', 'amount_due' => 3000, 'amount_paid' => 3000], '3000', Status::Completed],
     'invoice.payment_failed' => ['invoice.payment_failed', ['id' => 'in_2', 'status' => 'open', 'amount_due' => 4000, 'amount_paid' => 0], '4000', Status::Failed],
 ]);
+
+it('records nothing for a stripe event it does not map', function (): void {
+    $payload = (string) json_encode(['id' => 'evt_other', 'type' => 'customer.created', 'data' => ['object' => ['id' => 'cus_1', 'object' => 'customer']]]);
+
+    $result = (new Stripe)->result(signedWebhook($payload));
+
+    expect($result->type())->toBe(ResultType::Unknown)
+        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(Subscription::query()->count())->toBe(0)
+        ->and(Purchase::query()->count())->toBe(0);
+});

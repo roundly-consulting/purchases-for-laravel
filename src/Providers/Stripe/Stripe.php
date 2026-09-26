@@ -113,6 +113,17 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         $event = $this->event($request);
         $object = new DataSet($event->object);
 
+        // An event this package does not map is audited, never recorded as a purchase.
+        if ($event->type->resultType() === ResultType::Unknown) {
+            return new GenericResult(
+                provider: $this->id(),
+                type: ResultType::Unknown,
+                providerId: (string) $event->id,
+                status: Status::Processing,
+                raw: $event->object,
+            );
+        }
+
         if ($event->type->resultType() === ResultType::Refund) {
             return $this->refundResult($event, $object);
         }
