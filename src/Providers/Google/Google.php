@@ -16,6 +16,7 @@ use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
+use RoundlyConsulting\Purchases\Providers\Google\Enums\NotificationType;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\DeveloperNotification;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\ProductPurchase;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
@@ -235,7 +236,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
         return new GenericResult(
             provider: $this->id(),
-            type: $type?->isRefund() === true ? ResultType::Refund : ResultType::Subscription,
+            type: $this->notificationResultType($type),
             providerId: $token ?? '',
             status: $type?->status() ?? Status::Processing,
             transactionId: null,
@@ -244,6 +245,21 @@ class Google extends BaseProvider implements VerifiesConnectivity
             raw: $notification->raw,
             refundReason: $type?->isRefund() === true ? $type->name : null,
         );
+    }
+
+    /**
+     * A subscription RTDN of a known, state-changing type is applied to the subscription.
+     * A test notification, a one-time product RTDN (it carries no order or price — verify
+     * the token through callback() instead), an informational type and a type this
+     * version does not know are audited as a Notification and never applied.
+     */
+    private function notificationResultType(?NotificationType $type): ResultType
+    {
+        return match (true) {
+            $type === null, $type->isInformational() => ResultType::Notification,
+            $type->isRefund() => ResultType::Refund,
+            default => ResultType::Subscription,
+        };
     }
 
     /**

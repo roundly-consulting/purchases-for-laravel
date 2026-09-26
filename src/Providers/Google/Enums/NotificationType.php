@@ -26,7 +26,11 @@ enum NotificationType: int
     case PauseScheduleChanged = 11;
     case Revoked = 12;
     case Expired = 13;
+    case ItemsChanged = 17;
+    case CancellationScheduled = 18;
+    case PriceChangeUpdated = 19;
     case PendingPurchaseCanceled = 20;
+    case PriceStepUpConsentUpdated = 22;
 
     /**
      * Map a developer notification type onto the package's normalized status.
@@ -40,7 +44,33 @@ enum NotificationType: int
             self::Canceled, self::PendingPurchaseCanceled => Status::Canceled,
             self::Revoked => Status::Refunded,
             self::Expired => Status::Failed,
-            self::Deferred, self::PriceChangeConfirmed, self::PauseScheduleChanged => Status::Processing,
+            self::Deferred,
+            self::PriceChangeConfirmed,
+            self::PauseScheduleChanged,
+            self::ItemsChanged,
+            self::CancellationScheduled,
+            self::PriceChangeUpdated,
+            self::PriceStepUpConsentUpdated => Status::Processing,
+        };
+    }
+
+    /**
+     * Whether this notification only reports something — a deferral, a price change or
+     * consent update, a pause schedule, a changed bundle item, a scheduled cancellation —
+     * without changing what the customer is entitled to now. Such a notification is
+     * audited but never applied to a subscription.
+     */
+    public function isInformational(): bool
+    {
+        return match ($this) {
+            self::Deferred,
+            self::PriceChangeConfirmed,
+            self::PauseScheduleChanged,
+            self::ItemsChanged,
+            self::CancellationScheduled,
+            self::PriceChangeUpdated,
+            self::PriceStepUpConsentUpdated => true,
+            default => false,
         };
     }
 

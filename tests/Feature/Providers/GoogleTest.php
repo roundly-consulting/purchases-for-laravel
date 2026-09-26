@@ -6,9 +6,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
+use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\NotificationType;
@@ -468,3 +470,59 @@ it('reports failed google connectivity gracefully', function (): void {
 
     expect($provider->verifyConnectivity()->ok)->toBeFalse();
 });
+
+/**
+ * A Pub/Sub push carrying the given RTDN body.
+ *
+ * @param  array<string, mixed>  $notification
+ */
+function googleRtdn(array $notification): Request
+{
+    return new Request(['message' => ['data' => base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'eventTimeMillis' => '1700000000000',
+    ] + $notification))]]);
+}
+
+it('maps an informational RTDN to no state change', function (array $notification): void {
+    $result = googleProvider()->result(googleRtdn($notification));
+
+    expect($result->type())->toBe(ResultType::Notification);
+})->with([
+    'test notification' => [['testNotification' => ['version' => '1.0']]],
+    'one-time product purchased' => [['oneTimeProductNotification' => ['version' => '1.0', 'notificationType' => 1, 'purchaseToken' => 'tok-otp', 'sku' => 'coins.100']]],
+    'price change confirmed' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 8, 'purchaseToken' => 'tok-s', 'subscriptionId' => 'pro']]],
+    'deferred' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 9, 'purchaseToken' => 'tok-s', 'subscriptionId' => 'pro']]],
+    'pause schedule changed' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 11, 'purchaseToken' => 'tok-s', 'subscriptionId' => 'pro']]],
+    'items changed' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 17, 'purchaseToken' => 'tok-s']]],
+    'cancellation scheduled' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 18, 'purchaseToken' => 'tok-s']]],
+    'price change updated' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 19, 'purchaseToken' => 'tok-s']]],
+    'price step-up consent updated' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 22, 'purchaseToken' => 'tok-s']]],
+    'a type this version does not know' => [['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 99, 'purchaseToken' => 'tok-s']]],
+]);
+
+it('keeps an active google subscription untouched by an informational RTDN', function (): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 4, 'purchaseToken' => 'tok-live', 'subscriptionId' => 'pro']])));
+
+    $model = $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 9, 'purchaseToken' => 'tok-live', 'subscriptionId' => 'pro']])));
+    $sync->execute(googleProvider()->result(googleRtdn(['testNotification' => ['version' => '1.0']])));
+
+    expect($model)->toBeNull()
+        ->and(Subscription::query()->count())->toBe(1)
+        ->and(Subscription::query()->sole()->status)->toBe(Status::Completed);
+});
+
+it('names every documented subscription RTDN type', function (int $value, NotificationType $expected): void {
+    expect(NotificationType::from($value))->toBe($expected)
+        ->and($expected->isInformational())->toBeTrue();
+})->with([
+    [8, NotificationType::PriceChangeConfirmed],
+    [9, NotificationType::Deferred],
+    [11, NotificationType::PauseScheduleChanged],
+    [17, NotificationType::ItemsChanged],
+    [18, NotificationType::CancellationScheduled],
+    [19, NotificationType::PriceChangeUpdated],
+    [22, NotificationType::PriceStepUpConsentUpdated],
+]);
