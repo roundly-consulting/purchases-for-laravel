@@ -58,6 +58,10 @@ final class SyncProviderResultAction
 
         PurchaseRecorded::dispatch($purchase, $result);
 
+        if (! self::statusChanged($purchase)) {
+            return $purchase;
+        }
+
         match ($result->status()) {
             Status::Completed => PurchaseCompleted::dispatch($purchase, $result),
             Status::Failed, Status::Canceled => PurchaseFailed::dispatch($purchase, $result),
@@ -71,22 +75,42 @@ final class SyncProviderResultAction
     {
         $subscription = $this->recordSubscription->execute(RecordSubscriptionData::fromResult($result));
 
+        $changed = self::statusChanged($subscription);
+
         match ($result->status()) {
-            Status::Completed => $subscription->wasRecentlyCreated
-                ? SubscriptionStarted::dispatch($subscription, $result)
-                : SubscriptionRenewed::dispatch($subscription, $result),
-            Status::InGracePeriod => SubscriptionInGracePeriod::dispatch($subscription, $result),
-            Status::Canceled => SubscriptionCanceled::dispatch($subscription, $result),
-            Status::Failed => SubscriptionExpired::dispatch($subscription, $result),
+            Status::Completed => match (true) {
+                $subscription->wasRecentlyCreated => SubscriptionStarted::dispatch($subscription, $result),
+                // A renewal moves the paid period forward — or brings a held subscription back.
+                $changed || $subscription->wasChanged('ends_at') => SubscriptionRenewed::dispatch($subscription, $result),
+                default => null,
+            },
+            Status::InGracePeriod => $changed ? SubscriptionInGracePeriod::dispatch($subscription, $result) : null,
+            Status::Canceled => $changed ? SubscriptionCanceled::dispatch($subscription, $result) : null,
+            Status::Failed => $changed ? SubscriptionExpired::dispatch($subscription, $result) : null,
             default => null,
         };
 
         return $subscription;
     }
 
+    /**
+     * Stores deliver at least once and may repeat a delivery: a lifecycle event states that
+     * something changed, so it fires only for a new row or a status that actually moved.
+     */
+    private static function statusChanged(Model $model): bool
+    {
+        return $model->wasRecentlyCreated || $model->wasChanged('status');
+    }
+
     private function refund(ProviderResult $result): PurchaseRefund
     {
         $refund = $this->recordRefund->execute(RecordRefundData::fromResult($result));
+
+        // A repeated delivery of the same refund is not a new refund; a larger cumulative
+        // amount (another partial refund of the same charge) is.
+        if (! $refund->wasRecentlyCreated && ! $refund->wasChanged(['price', 'chargeback'])) {
+            return $refund;
+        }
 
         if ($refund->chargeback) {
             ChargebackReceived::dispatch($refund, $result);

@@ -167,7 +167,10 @@ and `InGracePeriod`. `ResultType::Refund` covers refunds and chargebacks.
 `PurchaseRecorded`, `PurchaseCompleted`, `PurchaseFailed`, `PurchaseRefunded`,
 `ChargebackReceived`, `SubscriptionStarted`, `SubscriptionRenewed`, `SubscriptionCanceled`,
 `SubscriptionExpired`, and `SubscriptionInGracePeriod` — each carrying the persisted model and
-the originating `ProviderResult`.
+the originating `ProviderResult`. Every store may deliver a notification more than once, so these
+fire only when something changed (a new row, a status that moved, a renewal that extended
+`ends_at`, a new refunded amount) — a repeated delivery never fulfils an order twice.
+`PurchaseRecorded` fires for every recorded purchase result.
 
 Informational notifications change nothing: an Apple renewal-preference or auto-renew change,
 price increase, consumption request, declined refund or TEST, a Google deferral or price-change
