@@ -11,20 +11,9 @@ use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Crypto\Signature\InvalidSignatureException;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Crypto\Signature\Rs;
-use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
-
-/**
- * @return array{0: string, 1: string} private and public PEM
- */
-function rsaKeyPair(int $bits = 2048): array
-{
-    $key = TestKeys::rsa($bits);
-
-    return [$key->privatePem(), $key->publicPem()];
-}
 
 afterEach(function (): void {
     Cache::flush();

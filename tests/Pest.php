@@ -5,6 +5,7 @@ declare(strict_types=1);
 use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
+use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
 use RoundlyConsulting\Purchases\Tests\Fixtures\SwappedModelsTestCase;
 use RoundlyConsulting\Purchases\Tests\HostTestCase;
@@ -101,4 +102,23 @@ function appleVerifierPinnedTo(array $fingerprints): JwsVerifier
             return $this->pins;
         }
     };
+}
+
+/*
+ * Helpers shared ACROSS test files live here and only here. Under `--parallel` each
+ * worker loads just the files it runs (plus this one), so a helper declared inside
+ * another test file is undefined whenever that file lands on a different worker.
+ * The ArchTest "shared test helpers" guard enforces this.
+ */
+
+/**
+ * A fresh RSA key pair.
+ *
+ * @return array{0: string, 1: string} private and public PEM
+ */
+function rsaKeyPair(int $bits = 2048): array
+{
+    $key = TestKeys::rsa($bits);
+
+    return [$key->privatePem(), $key->publicPem()];
 }

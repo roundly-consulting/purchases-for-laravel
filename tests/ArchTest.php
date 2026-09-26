@@ -414,6 +414,37 @@ it('does not import a money class marked @internal', function (): void {
     expect($offenders)->toBe([]);
 });
 
+it('declares every helper shared across test files in tests/Pest.php', function (): void {
+    // `--parallel` workers load only the files they run plus tests/Pest.php, so a helper
+    // declared in one test file and called from another is order-dependent.
+    $sources = [];
+
+    foreach (phpFilesIn(__DIR__) as $file) {
+        $path = (string) $file->getRealPath();
+        $sources[$path] = (string) file_get_contents($path);
+    }
+
+    $pest = (string) realpath(__DIR__.'/Pest.php');
+    $offenders = [];
+
+    foreach ($sources as $declaringFile => $source) {
+        if ($declaringFile === $pest || preg_match_all('/^function (\w+)\(/m', $source, $matches) === 0) {
+            continue;
+        }
+
+        foreach ($matches[1] as $helper) {
+            foreach ($sources as $callingFile => $callingSource) {
+                if ($callingFile !== $declaringFile && preg_match('/(?<![\w$>:])'.$helper.'\(/', $callingSource) === 1) {
+                    $offenders[] = sprintf('%s() from %s used in %s', $helper, basename($declaringFile), basename($callingFile));
+                }
+            }
+        }
+    }
+
+    expect($sources)->toHaveKey($pest)
+        ->and($offenders)->toBe([]);
+});
+
 /**
  * @return list<SplFileInfo>
  */
