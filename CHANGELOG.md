@@ -4,6 +4,23 @@ All notable changes to `purchases-for-laravel` will be documented in this file.
 
 ## Unreleased
 
+### Changed — prices are money-for-laravel `Money`
+
+- `price` on `Purchase`, `PurchaseItem`, `PurchaseRefund`, `Subscription` and `SubscriptionItem`
+  is cast with `AsMoney`; the columns are `decimal(38,0)` `price` + `price_currency`
+  (`$table->money('price', nullable: true)`, migrations edited in place). The cast refuses raw
+  integers.
+- The built-in `ValueObjects\Money`, `Concerns\HasPrice`, `InvalidMoneyException` and
+  `CurrencyMismatchException` are removed. Amounts are strings: `->amount` → `->minor()`,
+  `->currency` → `->currency()->code`, `Money::of()` → `Money::ofMinor()`.
+- Notification snapshots store the price as `{minor, decimal, currency}` (`minor` a string);
+  the old `{amount, currency}` shape is not read. A snapshot with a price money refuses is
+  skipped by `purchases:replay`.
+- Stripe amounts must be an int or integer string (a float is refused, not truncated) and are
+  re-scaled for Stripe's ISO deviations (ISK, UGX, MGA).
+- Apple results carry the transaction price (milli-units); Google subscriptionsv2 results carry
+  the line items' recurring price. Requires `ext-bcmath`.
+
 ### Changed — Apple certificate validity is now enforced
 
 An App Store Server notification is rejected when any certificate in its `x5c` chain (leaf,

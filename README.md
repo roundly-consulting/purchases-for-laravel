@@ -13,12 +13,13 @@ A unified in-app-purchase and payments toolkit for Laravel: one API for **Apple 
 for purchases, purchase items, subscriptions, and subscription items, a pluggable provider
 abstraction with a shared result contract, persistence actions, lifecycle events, and native
 verification for every provider — built only on Laravel's HTTP client and our own
-[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel)
+[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel) and
+[`money-for-laravel`](https://github.com/roundly-consulting/money-for-laravel)
 (no `stripe/stripe-php`, no `google/apiclient`, no third-party SDKs).
 
 ## Requirements
 
-- PHP 8.4+
+- PHP 8.4+ with `ext-bcmath`
 - Laravel 12 or 13
 
 ## Installation
@@ -233,20 +234,45 @@ $user->subscribedTo('pro');          // bool
 `Purchase`, `PurchaseItem`, `Subscription`, `SubscriptionItem`, `PurchaseRefund`, and
 `PurchaseNotification` (under `RoundlyConsulting\Purchases\Models`) are standard Eloquent models
 with soft deletes and factories. Every model is swappable via `config('purchases.models.*')`.
-The `price` attribute is a dependency-free `Money` value object backed by an integer minor-unit
-column and a 3-letter currency column.
+
+The `price` attribute on the five priced models is a
+[`money-for-laravel`](https://github.com/roundly-consulting/money-for-laravel) `Money`, cast with
+`AsMoney` over two columns: `price` (`decimal(38,0)` minor units) and `price_currency` (ISO
+code). Amounts are arbitrary-precision strings, so there is no 32- or 64-bit ceiling on
+PostgreSQL or MySQL, and JPY/BHD use their real exponents.
 
 ```php
-use RoundlyConsulting\Purchases\ValueObjects\Money;
+use RoundlyConsulting\Money\Money;
 
-$price = Money::of(2599, 'USD');        // $25.99
-$price->plus(Money::of(100, 'USD'));    // Money(2699, USD)
-$price->times(2);                       // Money(5198, USD)
-$price->greaterThan(Money::zero('USD'));// true
-$price->format('en_US');                // "$25.99" (uses ext-intl when present)
+$purchase->price = Money::ofMinor(2599, 'USD');   // writes price + price_currency
+$purchase->price->minor();                         // "2599" (string)
+$purchase->price->currency()->code;                // "USD"
+$purchase->price->toDecimal();                     // "25.99"
+$purchase->price->add(Money::ofMinor(100, 'USD')); // 26.99 USD
+$purchase->price->format('en_US');                 // "$25.99"
+
+$purchase->price = null;                           // clears the amount, keeps price_currency
 ```
 
-Mixing currencies throws `CurrencyMismatchException`.
+The cast is strict: assigning a raw integer throws `InvalidMoneyValue` (a bare number has no
+currency), and an amount stored with a null `price_currency` throws on read.
+
+**Store prices.** Stripe amounts are read in Stripe's smallest currency unit and re-scaled for the
+currencies where Stripe differs from ISO 4217 (ISK and UGX are sent with two decimals, MGA with
+none) — see `Providers\Stripe\StripeAmount::SCALE_EXCEPTIONS`. A float or `"12.5"` amount is
+refused, never truncated. Apple notifications carry the transaction's `price` in milli-units,
+rounded half away from zero to the currency's minor unit. Google subscriptionsv2 purchases report
+the sum of their line items' `autoRenewingPlan.recurringPrice` (prepaid plans carry none). Google
+one-time product purchases carry no price in the Play Developer API, so their `price()` stays
+`null`.
+
+**Upgrading from the built-in money class.** `RoundlyConsulting\Purchases\ValueObjects\Money`,
+`HasPrice`, `InvalidMoneyException` and `CurrencyMismatchException` are gone. `->amount` (int) is
+`->minor()` (string), `->currency` is `->currency()->code`, `new Money()` / `Money::of()` is
+`Money::ofMinor()`, `plus`/`minus`/`times` are `add`/`subtract`/`multiply`, and
+`greaterThan`/`lessThan` are `isGreaterThan`/`isLessThan`. Stored notification snapshots now keep
+the price as `{"minor": "1999", "decimal": "19.99", "currency": "USD"}`; a snapshot whose price
+money refuses is skipped by `purchases:replay`.
 
 ### Apple
 
@@ -317,8 +343,9 @@ Disabled by default. Set `PURCHASES_ROUTES_ENABLED=true` to register
 ### Exceptions
 
 All package exceptions extend `RoundlyConsulting\Purchases\Exceptions\Exception` with a
-`because()` factory: `VerificationException`, `InvalidProviderNotificationException`,
-`InvalidMoneyException`, `CurrencyMismatchException`, and `UnknownProviderException`.
+`because()` factory: `VerificationException`, `InvalidProviderNotificationException`, and
+`UnknownProviderException`. Money errors come from money-for-laravel (all extend
+`RoundlyConsulting\Money\Exceptions\MoneyException`).
 
 ### Testing helpers
 
@@ -419,6 +446,22 @@ $status?->isActive();                        // domain entitlement check is unch
 `Enum\ResultType` gains the same surface (`options()`, `toOptions()`, `validationRule()`, case
 lookups). The ~20 Apple/Google/Stripe provider enums deliberately stay bare — they mirror external
 wire contracts and are mapped internally, never surfaced as user-choosable option sets.
+
+### money-for-laravel (required)
+
+Purchases builds on [`money-for-laravel`](https://github.com/roundly-consulting/money-for-laravel)
+for every price:
+
+- **One Money type** — `ProviderResult::price()`, `ResultItem`, the `Record*Data` DTOs, the Stripe
+  value objects and the models all speak `RoundlyConsulting\Money\Money`.
+- **`AsMoney` cast + `$table->money('price', nullable: true)`** on the five priced tables.
+- **Exact store conversions** — `Money::ofMinor` for Stripe (plus its documented scale
+  exceptions), `Money::ofScaled` for Apple milli-units and Google `units`/`nanos`.
+- **A stable snapshot shape** — audit notifications store `Money::toArray()` and replay through
+  `Money::fromArray()`.
+
+Money needs no configuration here; its own `config/money.php` (precision, formatter, exchange
+rates) applies. Revenue across currencies (`MoneyBag::total()`) is available to host code today.
 
 ### Host recipes (no dependency added)
 
