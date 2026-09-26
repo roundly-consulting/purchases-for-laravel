@@ -21,6 +21,34 @@ All notable changes to `purchases-for-laravel` will be documented in this file.
 - An Apple refund records what was refunded: a `REFUND_PRORATED` refund is its
   `revocationPercentage` share of the price (rounded once), and a Family Sharing `REVOKE` records
   no amount. `TransactionInfo` exposes `revocationType` and `revocationPercentage`.
+- Notifications recorded under the wrong type or status:
+  - Apple DID_FAIL_TO_RENEW without a grace period and GRACE_PERIOD_EXPIRED were **Failed** (and
+    fired `SubscriptionExpired`) although Apple keeps retrying billing for 60 days — now
+    **OnHold**. An OFFER_REDEEMED DOWNGRADE (effective at the next renewal) no longer switches the
+    plan now.
+  - A refunded or revoked Apple subscription period, and a revoked Google subscription, left the
+    `Subscription` **Completed** (active) — it is now **Refunded**. An Apple refund's `refunded_at`
+    is its `revocationDate`, not the period's expiry.
+  - A partial refund (a Stripe charge not fully `refunded`, a Google quantity-based partial void)
+    flipped the whole purchase to **Refunded** — it is recorded and leaves the purchase
+    completed (`RecordRefundData::$status`).
+  - Stripe subscription billing (a subscription/setup-mode Checkout, a subscription invoice, a
+    PaymentIntent paying an invoice) was recorded as a one-off **Purchase**, firing
+    `PurchaseCompleted` for every renewal — it is audited only. A payment-mode Checkout is keyed
+    on its PaymentIntent, so it and `payment_intent.*` record one purchase.
+  - Stripe disputes: an inquiry (`warning_*`) and `charge.dispute.updated` were recorded as
+    chargebacks, and a dispute closed as **won** left the purchase **Refunded** — inquiries and
+    updates are informational, a won dispute reinstates the purchase, and a dispute keys on its
+    own id so it no longer overwrites a refund of the same payment.
+  - Stripe `unpaid` was **Failed** (`SubscriptionExpired`) and `paused` **Processing** — both are
+    **OnHold**. Billing periods are read from subscription items (API versions since
+    2025-03-31), where they moved; `Invoice::$subscription` from `parent.subscription_details`.
+  - A verified Google subscription was keyed on `latestOrderId`, which changes every renewal —
+    one subscription became many rows, none matching its RTDNs. It is keyed on the purchase
+    token; a notification without an order id or expiry no longer wipes the stored ones.
+- Lifecycle events fired again for every repeated delivery (all three stores deliver at least
+  once): a duplicate `PurchaseCompleted` fulfilled an order twice. Events now fire only for a
+  new row, a status that moved, a renewal that extended `ends_at`, or a new refunded amount.
 - Apple notification types added since the provider was written no longer crash the webhook:
   ONE_TIME_CHARGE (now a completed `Purchase` with its price), REFUND_REVERSED (reinstates the
   purchase or subscription), RENEWAL_EXTENSION, EXTERNAL_PURCHASE_TOKEN, METADATA_UPDATE,
