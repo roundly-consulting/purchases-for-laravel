@@ -351,6 +351,12 @@ them.
 Verifies webhook signatures natively (HMAC-SHA256 over `t.payload`, constant-time comparison,
 configurable timestamp tolerance) and reads REST objects with the pinned API version.
 
+One-off payments (`payment_intent.*`, a payment-mode `checkout.session.completed` — keyed on its
+PaymentIntent so both describe one purchase — and one-off invoices) are recorded as purchases.
+Subscription billing is not: a subscription- or setup-mode Checkout, a subscription invoice and the
+PaymentIntent behind it are audited only, and the subscription's own `customer.subscription.*`
+events keep its state.
+
 ```php
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 

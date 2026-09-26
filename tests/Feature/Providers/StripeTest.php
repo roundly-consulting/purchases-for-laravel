@@ -7,6 +7,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
@@ -323,3 +324,59 @@ it('keeps a partially refunded purchase completed', function (bool $fullyRefunde
     'partial refund' => [false, Status::Completed],
     'full refund' => [true, Status::Refunded],
 ]);
+
+/**
+ * @param  array<string, mixed>  $object
+ */
+function stripeResultFor(string $type, array $object): ProviderResult
+{
+    return (new Stripe)->result(signedWebhook((string) json_encode(['id' => 'evt_'.md5($type.json_encode($object)), 'type' => $type, 'data' => ['object' => $object]])));
+}
+
+it('does not record a subscription or setup checkout as a one-off purchase', function (string $mode): void {
+    $result = stripeResultFor('checkout.session.completed', [
+        'id' => 'cs_'.$mode, 'mode' => $mode, 'status' => 'complete', 'payment_status' => 'paid',
+        'amount_total' => 2000, 'currency' => 'eur', 'subscription' => 'sub_1',
+    ]);
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(Purchase::query()->count())->toBe(0);
+})->with(['subscription', 'setup']);
+
+it('records a payment checkout and its payment intent as one purchase', function (): void {
+    $sync = new SyncProviderResultAction;
+
+    $session = stripeResultFor('checkout.session.completed', [
+        'id' => 'cs_pay', 'mode' => 'payment', 'status' => 'complete', 'payment_status' => 'paid',
+        'amount_total' => 2000, 'currency' => 'eur', 'payment_intent' => 'pi_pay',
+    ]);
+    $sync->execute($session);
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_pay', 'status' => 'succeeded', 'amount' => 2000, 'currency' => 'eur']));
+
+    expect($session->providerId())->toBe('pi_pay')
+        ->and($session->transactionId())->toBe('pi_pay')
+        ->and(Purchase::query()->sole()->provider_id)->toBe('pi_pay');
+});
+
+it('leaves subscription invoices and their payments to the subscription', function (string $type, array $object): void {
+    $result = stripeResultFor($type, $object + ['currency' => 'eur']);
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(Purchase::query()->count())->toBe(0);
+})->with([
+    'renewal invoice paid (parent)' => ['invoice.paid', ['id' => 'in_1', 'status' => 'paid', 'amount_paid' => 999, 'billing_reason' => 'subscription_cycle', 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]]],
+    'renewal invoice failed (parent)' => ['invoice.payment_failed', ['id' => 'in_2', 'status' => 'open', 'amount_due' => 999, 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]]],
+    'first invoice (legacy subscription field)' => ['invoice.paid', ['id' => 'in_3', 'status' => 'paid', 'amount_paid' => 999, 'subscription' => 'sub_1']],
+    'subscription billing reason only' => ['invoice.paid', ['id' => 'in_4', 'status' => 'paid', 'amount_paid' => 999, 'billing_reason' => 'subscription_create']],
+    'invoice payment intent (legacy invoice field)' => ['payment_intent.succeeded', ['id' => 'pi_inv', 'status' => 'succeeded', 'amount' => 999, 'invoice' => 'in_3']],
+]);
+
+it('still records a one-off invoice as a purchase', function (): void {
+    $result = stripeResultFor('invoice.paid', ['id' => 'in_once', 'status' => 'paid', 'amount_paid' => 4500, 'billing_reason' => 'manual', 'currency' => 'eur']);
+
+    expect($result->type())->toBe(ResultType::Purchase)
+        ->and($result->status())->toBe(Status::Completed)
+        ->and($result->price()?->minor())->toBe('4500');
+});
