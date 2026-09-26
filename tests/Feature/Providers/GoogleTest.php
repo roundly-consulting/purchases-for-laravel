@@ -529,3 +529,12 @@ it('names every documented subscription RTDN type', function (int $value, Notifi
     [19, NotificationType::PriceChangeUpdated],
     [22, NotificationType::PriceStepUpConsentUpdated],
 ]);
+
+it('revokes the subscription google revoked', function (): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 4, 'purchaseToken' => 'tok-rev', 'subscriptionId' => 'pro']])));
+
+    $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 12, 'purchaseToken' => 'tok-rev', 'subscriptionId' => 'pro']])));
+
+    expect(Subscription::query()->sole()->status)->toBe(Status::Refunded);
+});

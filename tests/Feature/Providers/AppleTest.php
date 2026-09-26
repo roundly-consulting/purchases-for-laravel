@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Money\Money;
@@ -13,6 +14,7 @@ use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\Environment;
@@ -773,3 +775,29 @@ it('applies an offer that upgrades immediately', function (?string $subtype): vo
     expect($result->type())->toBe(ResultType::Subscription)
         ->and($result->status())->toBe(Status::Completed);
 })->with(['upgrade' => 'UPGRADE', 'offer on the active subscription' => null]);
+
+it('revokes the subscription whose current transaction apple refunded', function (string $type): void {
+    Carbon::setTestNow('2026-09-20 12:00:00');
+    $sync = new SyncProviderResultAction;
+    $sync->execute(appleNotificationFor('SUBSCRIBED', 'INITIAL_BUY', appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    $revokedAt = Carbon::parse('2026-09-21 08:30:00');
+    $refund = $sync->execute(appleNotificationFor($type, null, ['revocationDate' => $revokedAt->getTimestampMs()] + appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    expect(Subscription::query()->sole()->status)->toBe(Status::Refunded)
+        ->and(Subscription::query()->sole()->status->isActive())->toBeFalse()
+        ->and($refund)->toBeInstanceOf(PurchaseRefund::class)
+        // The refund date, not the subscription period's end.
+        ->and($refund?->getAttribute('refunded_at')?->equalTo($revokedAt))->toBeTrue();
+
+    Carbon::setTestNow();
+})->with(['REFUND', 'REVOKE']);
+
+it('keeps the subscription when apple refunds an earlier period', function (): void {
+    $sync = new SyncProviderResultAction;
+    $sync->execute(appleNotificationFor('DID_RENEW', null, appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    $sync->execute(appleNotificationFor('REFUND', null, ['transactionId' => 'txn-last-month'] + appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    expect(Subscription::query()->sole()->status)->toBe(Status::Completed);
+});

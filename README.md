@@ -180,7 +180,10 @@ overwrite a subscription's status or fire `SubscriptionExpired`. `handle()` then
 Apple `REFUND`/`REVOKE`, Google `*_REVOKED` / voided-purchase RTDNs, and Stripe
 `charge.refunded` / `charge.dispute.*` events decode into a first-class `PurchaseRefund` model.
 `handle()` records the refund, links it to the originating purchase, flips that purchase to
-`Status::Refunded`, and dispatches `PurchaseRefunded` (or `ChargebackReceived` for disputes).
+`Status::Refunded`, and dispatches `PurchaseRefunded` (or `ChargebackReceived` for disputes). A
+refunded or revoked Apple subscription period and a revoked Google subscription also flip the
+`Subscription` to `Refunded`, so it stops being active; an Apple refund's `refunded_at` is its
+`revocationDate`.
 
 ```php
 $purchase->refunds;                 // HasMany<PurchaseRefund>

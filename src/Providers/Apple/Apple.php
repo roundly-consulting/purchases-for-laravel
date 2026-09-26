@@ -121,7 +121,10 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             price: $this->price($transaction, $payload->type),
             activeFrom: $transaction?->purchaseDate,
             trialEndsAt: null,
-            endsAt: $transaction?->expiresDate,
+            // A refund ends at its revocation — that is the refund's date, not the period's end.
+            endsAt: $type === ResultType::Refund
+                ? ($transaction->revocationDate ?? $transaction?->expiresDate)
+                : $transaction?->expiresDate,
             items: [],
             raw: $payload->toArray(),
             refundReason: $payload->type->isRefund() ? $payload->type->value : null,
