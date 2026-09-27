@@ -296,13 +296,9 @@ the sum of their line items' `autoRenewingPlan.recurringPrice` (prepaid plans ca
 one-time product purchases carry no price in the Play Developer API, so their `price()` stays
 `null`.
 
-**Upgrading from the built-in money class.** `RoundlyConsulting\Purchases\ValueObjects\Money`,
-`HasPrice`, `InvalidMoneyException` and `CurrencyMismatchException` are gone. `->amount` (int) is
-`->minor()` (string), `->currency` is `->currency()->code`, `new Money()` / `Money::of()` is
-`Money::ofMinor()`, `plus`/`minus`/`times` are `add`/`subtract`/`multiply`, and
-`greaterThan`/`lessThan` are `isGreaterThan`/`isLessThan`. Stored notification snapshots now keep
-the price as `{"minor": "1999", "decimal": "19.99", "currency": "USD"}`; a snapshot whose price
-money refuses is skipped by `purchases:replay`.
+Stored notification snapshots keep the price as
+`{"minor": "1999", "decimal": "19.99", "currency": "USD"}`; a snapshot whose price money refuses is
+skipped by `purchases:replay`.
 
 ### Apple
 
@@ -477,16 +473,16 @@ Apple certificate [Apple Worldwide Developer Relations Certification Authority] 
 2026-01-01T00:00:00+00:00; the notification's certificate chain is outside its validity period.
 ```
 
-> **Behaviour change.** A **replayed or archived** notification signed by a since-rotated,
-> now-expired certificate is now **rejected**, where earlier versions accepted it (only the
-> signatures were checked). If you replay historical Apple payloads, expect them to fail once
-> their signing certificate has lapsed — that is the correct outcome. Raise
+> **Expired certificates are rejected.** A **replayed or archived** notification signed by a
+> since-rotated, expired certificate is **rejected** — a valid signature alone is not enough. If
+> you replay historical Apple payloads, expect them to fail once their signing certificate has
+> lapsed — that is the correct outcome. Raise
 > `certificate_clock_skew` only to absorb clock drift; it is not a grace period and is capped
 > at one hour.
 
 Crypto is zero-config — purchases builds every signer and verifier from its **own**
 `config/purchases.php` (Apple key/issuer/kid, Google service-account credentials, Stripe webhook
-secret). No env key changed; there is nothing extra to publish.
+secret). It needs no extra env keys and nothing extra to publish.
 
 ### enums-for-laravel (required)
 
