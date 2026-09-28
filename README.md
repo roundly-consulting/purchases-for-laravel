@@ -555,7 +555,7 @@ hand-rolls no algorithm of its own:
 | Provider | What crypto does | What purchases keeps |
 |---|---|---|
 | **Stripe** | HMAC-SHA256 (`Hash\Hmac`) + constant-time compare (`Hash\ConstantTime`) | the `t=`/`v1=` scheme framing and the replay-tolerance window |
-| **Apple** | ES256 JWS verify + sign (`Jose\Jws`, `Signature\Es`, `Signature\Key\EcKey`), plus all X.509 mathematics — parsing, SHA-1 fingerprints, chain linkage and validity dates (`X509\Chain`, `X509\Certificate`) | **the certificate-chain trust decision** — the `x5c` chain is pinned to Apple's published WWDR intermediate and G3 root by fingerprint, each link is proven to have signed the one below it, and every certificate must be inside its validity window |
+| **Apple** | ES256 JWS verify + sign (`Jose\Jws`, `Signature\Es`, `Signature\Key\EcKey`), plus all X.509 mathematics — parsing, SHA-1 fingerprints, chain linkage and validity dates (`X509\Chain`, `X509\Certificate`) | **the certificate-chain trust decision** — the `x5c` chain is pinned to Apple's published WWDR intermediate and G3 root by fingerprint, each link is proven to have signed the one below it, every certificate must be inside its validity window, and the leaf and intermediate must carry Apple's App Store signing (`1.2.840.113635.100.6.11.1`) and WWDR (`1.2.840.113635.100.6.2.1`) marker extensions — then **the app binding** (bundle id, environment, Apple ID) |
 | **Google** | RS256 JWS assertion (`Jose\Jws`, `Signature\Rs`, `Signature\Key\RsaKey`) | the JWT-bearer grant, scope, and token caching |
 
 The split is deliberate: **crypto owns algorithms, purchases owns trust**. Apple's pinned

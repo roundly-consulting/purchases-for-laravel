@@ -3,11 +3,13 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
 use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Crypto\Testing\TestCertificateChain;
 use RoundlyConsulting\Crypto\Testing\TestCertificates;
+use RoundlyConsulting\Crypto\Testing\TestLeafOptions;
 use RoundlyConsulting\Crypto\X509\Certificate;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\DecodedToken;
@@ -42,11 +44,23 @@ function verifierPinnedTo(TestCertificateChain $chain): JwsVerifier
     return appleVerifierPinnedTo($chain->pinnedFingerprints());
 }
 
-it('verifies a genuine apple notification end to end', function (): void {
-    $chain = TestCertificates::chain();
-    $compact = signWithChain($chain, ['notificationUUID' => 'n-1', 'notificationType' => 'DID_RENEW']);
+/**
+ * The verifier pinned to the committed Apple-shaped fixture chain, whose leaf and
+ * intermediate carry Apple's App Store signing markers (TestCertificates cannot put an
+ * extension on an intermediate, so a positive path needs the committed chain).
+ */
+function fixtureVerifier(string $intermediate = 'intermediate.pem'): JwsVerifier
+{
+    return appleVerifierPinnedTo([
+        Certificate::fromPem(appleFixture($intermediate))->fingerprint(HashAlgorithm::Sha1),
+        Certificate::fromPem(appleFixture('root.pem'))->fingerprint(HashAlgorithm::Sha1),
+    ]);
+}
 
-    $manager = new JwsManager(verifierPinnedTo($chain));
+it('verifies a genuine apple notification end to end', function (): void {
+    $compact = appleFixtureToken(['notificationUUID' => 'n-1', 'notificationType' => 'DID_RENEW'], appleFixtureChain());
+
+    $manager = new JwsManager(fixtureVerifier());
 
     $manager->verify($compact);
 
@@ -64,8 +78,7 @@ it('pins the intermediate and root, never the leaf', function (): void {
 });
 
 it('rejects a notification whose payload was tampered with', function (): void {
-    $chain = TestCertificates::chain();
-    $compact = signWithChain($chain, ['notificationUUID' => 'n-1', 'transactionId' => 'tx-1']);
+    $compact = appleFixtureToken(['notificationUUID' => 'n-1', 'transactionId' => 'tx-1'], appleFixtureChain());
 
     // Swap the payload segment for a forged one, keeping header and signature.
     [$header, , $signature] = explode('.', $compact);
@@ -73,8 +86,53 @@ it('rejects a notification whose payload was tampered with', function (): void {
         .'.'.Base64Url::encode('{"notificationUUID":"n-1","transactionId":"tx-EVIL"}')
         .'.'.$signature;
 
-    (new JwsManager(verifierPinnedTo($chain)))->verify($forged);
+    (new JwsManager(fixtureVerifier()))->verify($forged);
 })->throws(VerificationException::class, 'Payload verification failed.');
+
+/*
+ | Apple's CA issues leaves for many purposes (code signing, push, Wallet). Only a leaf
+ | carrying the App Store signing marker, under an intermediate carrying the WWDR
+ | marker, may sign a notification — Apple's reference ChainVerifier checks both.
+ */
+it('rejects a leaf without apple\'s app store signing marker', function (): void {
+    $x5c = [appleFixtureX5c('no-oid-leaf.pem'), appleFixtureX5c('intermediate.pem'), appleFixtureX5c('root.pem')];
+
+    // Pinned anchors, a linked chain, inside its validity window, signed by the leaf key.
+    (new JwsManager(fixtureVerifier()))->verify(appleFixtureToken(['notificationUUID' => 'n-1'], $x5c));
+})->throws(VerificationException::class, 'Payload verification failed.');
+
+it('rejects an intermediate without apple\'s wwdr marker', function (): void {
+    $x5c = [
+        appleFixtureX5c('no-oid-intermediate-leaf.pem'),
+        appleFixtureX5c('no-oid-intermediate.pem'),
+        appleFixtureX5c('root.pem'),
+    ];
+
+    // Even pinned as the anchor, an intermediate without the marker is not Apple's WWDR CA.
+    (new JwsManager(fixtureVerifier('no-oid-intermediate.pem')))->verify(appleFixtureToken(['notificationUUID' => 'n-1'], $x5c));
+})->throws(VerificationException::class, 'Payload verification failed.');
+
+it('rejects a pinned chain that carries no apple markers at all', function (): void {
+    $chain = TestCertificates::chain();
+
+    expect(verifierPinnedTo($chain)->verify(new DecodedToken(
+        header: ['alg' => 'ES256', 'x5c' => $chain->x5c()],
+        claims: [],
+        compact: signWithChain($chain, ['notificationUUID' => 'n-1']),
+    )))->toBeFalse();
+});
+
+it('still rejects a minted chain whose intermediate lacks the wwdr marker', function (): void {
+    // TestCertificates marks the leaf only; the intermediate check still refuses it.
+    $chain = TestCertificates::chain(leafOptions: new TestLeafOptions(rawExtensions: ['1.2.840.113635.100.6.11.1' => "\x05\x00"]));
+
+    expect($chain->leaf()->extension('1.2.840.113635.100.6.11.1'))->not->toBeNull()
+        ->and(verifierPinnedTo($chain)->verify(new DecodedToken(
+            header: ['alg' => 'ES256', 'x5c' => $chain->x5c()],
+            claims: [],
+            compact: signWithChain($chain, ['notificationUUID' => 'n-1']),
+        )))->toBeFalse();
+});
 
 it('rejects a chain that does not match the pinned fingerprints', function (): void {
     $chain = TestCertificates::chain();
@@ -98,12 +156,10 @@ it('rejects a leaf that the pinned intermediate did not sign', function (): void
 })->throws(VerificationException::class, 'Payload verification failed.');
 
 it('rejects a token signed by a key other than the leaf certificate', function (): void {
-    $chain = TestCertificates::chain();
-
     // Genuine, fully trusted chain — but the signature is from a foreign key.
-    $compact = signWithChain($chain, ['notificationUUID' => 'n-1'], key: EcKey::generate());
+    $compact = appleFixtureToken(['notificationUUID' => 'n-1'], appleFixtureChain(), 'foreign-key.pem');
 
-    (new JwsManager(verifierPinnedTo($chain)))->verify($compact);
+    (new JwsManager(fixtureVerifier()))->verify($compact);
 })->throws(VerificationException::class, 'Payload verification failed.');
 
 it('rejects a chain that is not exactly three certificates', function (): void {

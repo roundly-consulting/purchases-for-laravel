@@ -15,11 +15,12 @@ use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
  | Frozen Apple trust vectors
  |--------------------------------------------------------------------------
  |
- | Everything here was computed from the openssl_x509_* engine that shipped
- | before the crypto X.509 retrofit, and is asserted against COMMITTED
- | certificate fixtures (tests/Fixtures/apple) rather than freshly minted
- | ones — so these vectors are engine-independent and stay valid across the
- | swap. Apple's chain trust is what stops a forged App Store notification:
+ | Everything here is asserted against COMMITTED certificate fixtures
+ | (tests/Fixtures/apple) rather than freshly minted ones — so these vectors
+ | are engine-independent. The genuine chain was regenerated on 2026-09-28
+ | (tests/Fixtures/apple/generate-apple-chain.sh) to carry Apple's App Store
+ | signing markers on the leaf and intermediate; the literals below are the
+ | openssl CLI's SHA-1 fingerprints of those files. Apple's chain trust is what stops a forged App Store notification:
  | if any of this moves, real notifications stop verifying (or worse, a
  | forged one starts).
  |
@@ -27,15 +28,15 @@ use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
 
 /** SHA-1 fingerprints of the committed fixture chain, lower-case hex, leaf → root. */
 const FROZEN_CHAIN_FINGERPRINTS = [
-    '53c75aa63e2d369532b65e158677646788544eb3', // leaf
-    '53d383651ef60004ae0fd68877e2edd1568446a5', // intermediate
-    '1365ac424857fea64faeed0771d72e11decb064e', // root
+    '094c42108d32b20863d775e6853e0c8779b262c1', // leaf
+    'f66fb600d3e019b8570cb29cb668251b7c41b82b', // intermediate
+    '6e05272e17dc84ad0954bce1e5a85e302aade28a', // root
 ];
 
 /** What a pinning verifier compares: [intermediate, root] — the leaf is never pinned. */
 const FROZEN_PINNED_FINGERPRINTS = [
-    '53d383651ef60004ae0fd68877e2edd1568446a5',
-    '1365ac424857fea64faeed0771d72e11decb064e',
+    'f66fb600d3e019b8570cb29cb668251b7c41b82b',
+    '6e05272e17dc84ad0954bce1e5a85e302aade28a',
 ];
 
 function frozenVerifier(): JwsVerifier
@@ -52,14 +53,16 @@ it('pins apple published trust anchors', function (): void {
         '0be38bfe21fd434d8cc51cbe0e2bc7758ddbf97b',
         'b52cb02fd567e0359fe8fa4d4c41037970fe01b0',
     ])
-        ->and($reflection->getConstant('CHAIN_LENGTH'))->toBe(3);
+        ->and($reflection->getConstant('CHAIN_LENGTH'))->toBe(3)
+        // Apple's App Store signing (leaf) and WWDR (intermediate) marker extensions.
+        ->and($reflection->getConstant('LEAF_OID'))->toBe('1.2.840.113635.100.6.11.1')
+        ->and($reflection->getConstant('INTERMEDIATE_OID'))->toBe('1.2.840.113635.100.6.2.1');
 });
 
 it('pins the fingerprints of the committed chain', function (): void {
     foreach (['leaf.pem', 'intermediate.pem', 'root.pem'] as $index => $fixture) {
-        // The literals were computed by openssl_x509_fingerprint() on the
-        // pre-retrofit engine; crypto must reproduce them byte for byte,
-        // lower-case hex and all.
+        // The literals were computed by the openssl CLI (see the generator);
+        // crypto must reproduce them byte for byte, lower-case hex and all.
         expect(Certificate::fromPem(appleFixture($fixture))->fingerprint(HashAlgorithm::Sha1))
             ->toBe(FROZEN_CHAIN_FINGERPRINTS[$index])
             ->toMatch('/^[0-9a-f]{40}$/');

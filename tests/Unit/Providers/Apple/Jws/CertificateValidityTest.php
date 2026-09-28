@@ -26,8 +26,8 @@ use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 
 /** [intermediate, root] of the genuine committed chain. */
 const VALIDITY_PINS = [
-    '53d383651ef60004ae0fd68877e2edd1568446a5',
-    '1365ac424857fea64faeed0771d72e11decb064e',
+    'f66fb600d3e019b8570cb29cb668251b7c41b82b',
+    '6e05272e17dc84ad0954bce1e5a85e302aade28a',
 ];
 
 /** [intermediate, root] of the chain whose INTERMEDIATE expires long before its leaf. */

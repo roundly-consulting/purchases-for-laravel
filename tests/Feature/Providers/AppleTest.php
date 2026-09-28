@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
+use RoundlyConsulting\Crypto\X509\Certificate;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
@@ -965,3 +967,38 @@ it('binds the notifications that carry their app outside a data block', function
     'another external purchase token' => [['externalPurchaseToken' => ['bundleId' => 'com.other.app', 'appAppleId' => 1]], false],
     'no app block at all' => [[], false],
 ]);
+
+it('refuses another app\'s genuinely signed notification through the real verifier', function (): void {
+    Event::fake();
+
+    $pins = [
+        Certificate::fromPem(appleFixture('intermediate.pem'))->fingerprint(HashAlgorithm::Sha1),
+        Certificate::fromPem(appleFixture('root.pem'))->fingerprint(HashAlgorithm::Sha1),
+    ];
+    $transaction = appleFixtureToken([
+        'bundleId' => 'com.attacker.app',
+        'environment' => 'Sandbox',
+        'transactionId' => 'atk-tx-1',
+        'originalTransactionId' => 'atk-tx-1',
+        'productId' => 'pro.monthly',
+        'type' => 'Auto-Renewable Subscription',
+        'appAccountToken' => '6f1c1e2e-0000-4000-8000-000000000001',
+        'expiresDate' => Carbon::now()->addMonth()->getTimestampMs(),
+    ], appleFixtureChain());
+    $notification = appleFixtureToken([
+        'notificationUUID' => 'n-attack',
+        'notificationType' => 'SUBSCRIBED',
+        'subtype' => 'INITIAL_BUY',
+        'data' => ['bundleId' => 'com.attacker.app', 'bundleVersion' => '1', 'environment' => 'Sandbox', 'signedTransactionInfo' => $transaction],
+    ], appleFixtureChain());
+
+    config()->set('purchases.providers', [Apple::class]);
+    app()->instance(Apple::class, new Apple(new JwsManager(appleVerifierPinnedTo($pins))));
+
+    // The signature is genuine — only the binding stands between it and a recorded subscription.
+    expect(fn () => Purchases::handle('apple', new Request(['signedPayload' => $notification])))
+        ->toThrow(VerificationException::class, 'Apple notification is for another app.')
+        ->and(Subscription::query()->count())->toBe(0);
+
+    Event::assertNotDispatched(SubscriptionStarted::class);
+});

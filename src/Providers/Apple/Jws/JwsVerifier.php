@@ -21,8 +21,9 @@ use RoundlyConsulting\Purchases\Exceptions\VerificationException;
  * Two independent checks have to pass. First the *trust* decision, which is
  * Apple's and stays here: the signing certificate is taken from the token's own
  * `x5c` header, so it is only worth anything once the chain above it is pinned
- * to Apple's published intermediate and root (by fingerprint) and each link is
- * proven to have signed the one below it. Only then is the leaf's public key
+ * to Apple's published intermediate and root (by fingerprint), each link is
+ * proven to have signed the one below it, and the leaf and intermediate carry
+ * Apple's App Store signing markers. Only then is the leaf's public key
  * used for the *algorithm* step — an ES256 JWS verification, pinned to ES256,
  * over the untouched compact token.
  *
@@ -47,6 +48,19 @@ class JwsVerifier
     ];
 
     protected const CHAIN_LENGTH = 3;
+
+    /**
+     * The marker extension Apple puts on the certificate that signs App Store data
+     * (Mac App Store and App Store receipt signing). Apple's WWDR CA issues leaves for
+     * many other purposes — code signing, push, Wallet — and none of those may sign a
+     * notification. Apple's own ChainVerifier requires it.
+     */
+    protected const LEAF_OID = '1.2.840.113635.100.6.11.1';
+
+    /**
+     * The marker extension on Apple's Worldwide Developer Relations intermediate.
+     */
+    protected const INTERMEDIATE_OID = '1.2.840.113635.100.6.2.1';
 
     /**
      * Clock-skew tolerance used when the host has configured none.
@@ -104,7 +118,24 @@ class JwsVerifier
         // outside its validity window is not acceptable, no matter who signed it.
         $this->assertWithinValidity($chain);
 
+        // Apple's CA signs certificates for many purposes; only an App Store
+        // data-signing leaf under the WWDR intermediate may sign a notification.
+        if (! $this->carriesApplePolicyMarkers($chain)) {
+            return false;
+        }
+
         return $this->verifySignature($token, $chain->leaf());
+    }
+
+    /**
+     * Whether the leaf and the intermediate carry the extensions Apple marks the App
+     * Store signing certificate and the WWDR intermediate with — the certificate-policy
+     * checks of Apple's reference ChainVerifier.
+     */
+    protected function carriesApplePolicyMarkers(Chain $chain): bool
+    {
+        return $chain->leaf()->extension(self::LEAF_OID) !== null
+            && $chain->get(1)->extension(self::INTERMEDIATE_OID) !== null;
     }
 
     /**
