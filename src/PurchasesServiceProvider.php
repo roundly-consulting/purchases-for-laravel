@@ -65,7 +65,7 @@ final class PurchasesServiceProvider extends PackageServiceProvider
         parent::register();
 
         $this->app->scoped(Resolver::class);
-        $this->app->singleton(Purchases::class);
+        $this->app->singleton(PurchasesManager::class);
     }
 
     public function boot(): void

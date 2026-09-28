@@ -7,7 +7,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Money\Money;
-use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
@@ -629,7 +629,7 @@ it('maps a one-time charge to a completed purchase with its price', function ():
         ->and($result->transactionId())->toBe('txn-one_time_charge')
         ->and($result->price()?->minor())->toBe('499');
 
-    $purchase = (new SyncProviderResultAction)->execute($result);
+    $purchase = app(RecordProviderResultAction::class)->execute($result);
 
     expect($purchase)->toBeInstanceOf(Purchase::class)
         ->and($purchase?->status)->toBe(Status::Completed)
@@ -646,7 +646,7 @@ it('records no price for a family-shared transaction', function (): void {
 });
 
 it('reinstates a purchase whose refund apple reversed', function (): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
 
     $sync->execute(appleNotificationFor('ONE_TIME_CHARGE', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest()));
     $sync->execute(appleNotificationFor('REFUND', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest()));
@@ -711,7 +711,7 @@ it('maps an informational notification to no state change', function (string $ty
 })->with(appleInformationalNotifications());
 
 it('keeps an active subscription untouched by an informational notification', function (string $type, ?string $subtype): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(appleNotificationFor('SUBSCRIBED', 'INITIAL_BUY', appleSubscriptionTransaction())->result(appleSignedRequest()));
 
     Event::fake();
@@ -736,7 +736,7 @@ it('records an immediate upgrade as the active plan', function (): void {
 });
 
 it('holds a subscription in billing retry instead of expiring it', function (string $type, ?string $subtype): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(appleNotificationFor('SUBSCRIBED', 'INITIAL_BUY', appleSubscriptionTransaction())->result(appleSignedRequest()));
 
     Event::fake();
@@ -778,7 +778,7 @@ it('applies an offer that upgrades immediately', function (?string $subtype): vo
 
 it('revokes the subscription whose current transaction apple refunded', function (string $type): void {
     Carbon::setTestNow('2026-09-20 12:00:00');
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(appleNotificationFor('SUBSCRIBED', 'INITIAL_BUY', appleSubscriptionTransaction())->result(appleSignedRequest()));
 
     $revokedAt = Carbon::parse('2026-09-21 08:30:00');
@@ -794,7 +794,7 @@ it('revokes the subscription whose current transaction apple refunded', function
 })->with(['REFUND', 'REVOKE']);
 
 it('keeps the subscription when apple refunds an earlier period', function (): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(appleNotificationFor('DID_RENEW', null, appleSubscriptionTransaction())->result(appleSignedRequest()));
 
     $sync->execute(appleNotificationFor('REFUND', null, ['transactionId' => 'txn-last-month'] + appleSubscriptionTransaction())->result(appleSignedRequest()));

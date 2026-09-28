@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Providers\Resolver;
-use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Purchases\PurchasesServiceProvider;
 
 it('merges the packaged config', function (): void {
@@ -17,8 +17,8 @@ it('merges the packaged config', function (): void {
 });
 
 it('binds the manager as a singleton and the resolver as scoped', function (): void {
-    expect(app(Purchases::class))->toBeInstanceOf(Purchases::class)
-        ->and(app(Purchases::class))->toBe(app(Purchases::class))
+    expect(app(PurchasesManager::class))->toBeInstanceOf(PurchasesManager::class)
+        ->and(app(PurchasesManager::class))->toBe(app(PurchasesManager::class))
         ->and(app(Resolver::class))->toBeInstanceOf(Resolver::class);
 });
 

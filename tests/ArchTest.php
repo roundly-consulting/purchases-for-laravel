@@ -19,8 +19,7 @@ use RoundlyConsulting\Purchases\Providers\Google\GoogleMoney;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 use RoundlyConsulting\Purchases\Providers\Stripe\StripeAmount;
 use RoundlyConsulting\Purchases\Providers\Stripe\StripeClient;
-use RoundlyConsulting\Purchases\Purchases;
-use RoundlyConsulting\Purchases\PurchasesServiceProvider;
+use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
@@ -90,11 +89,11 @@ const FINALITY_EXEMPTIONS = [
     //    seven-entry exception block is now one: every leaf is final.
     PurchasesException::class,
 
-    // 3. The manager. `PurchasesFake extends Purchases` ships IN THIS PACKAGE
-    //    (src/Testing/PurchasesFake.php) as the documented test double, so `final` is a
-    //    fatal in our own source. The fleet's `final class ShopManager` precedent does
-    //    not transfer: shops ships no subclass of it.
-    Purchases::class,
+    // 3. The manager. `PurchasesFake extends PurchasesManager` ships IN THIS PACKAGE
+    //    (src/Testing/PurchasesFake.php) as the documented test double, and the facade
+    //    convention requires the fake to be a subtype of the root, so `final` is a fatal
+    //    in our own source.
+    PurchasesManager::class,
 
     // 4. Provider drivers, named as class strings in the `purchases.providers` config.
     //    A host swapping `Apple::class` for its own `extends Apple` is editing a config
@@ -125,6 +124,12 @@ const FINALITY_EXEMPTIONS = [
 ArchPresets::finalByDefault('RoundlyConsulting\Purchases', FINALITY_EXEMPTIONS);
 
 /**
+ * Model traits and model methods reach behaviour through the manager, never an action —
+ * so the facade's fake sees every call. `HasPurchases` delegates to `Purchases::for()`.
+ */
+ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Purchases');
+
+/**
  * ## The exemptions above reach FURTHER than they read. This closes that hole.
  *
  * Pest matches arch exemptions by **string prefix**, not by class identity —
@@ -134,16 +139,17 @@ ArchPresets::finalByDefault('RoundlyConsulting\Purchases', FINALITY_EXEMPTIONS);
  *
  *   `...\Stripe\Stripe`  also silences  `...\Stripe\StripeClient`
  *   `...\Google\Google`  also silences  `...\Google\GoogleClient`
- *   `...\Purchases`      also silences  `...\PurchasesServiceProvider`
  *
- * (and, since the money integration, `...\Stripe\StripeAmount` and `...\Google\GoogleMoney`)
+ * (and, since the money integration, `...\Stripe\StripeAmount` and `...\Google\GoogleMoney`.
+ * The manager's old short name `...\Purchases` also shadowed `...\PurchasesServiceProvider`;
+ * renamed to `PurchasesManager`, it shadows nothing.)
  *
  * This is not theoretical and it is not cosmetic: it was found by biting the preset.
  * `StripeClient` was un-finalled on purpose and `finalByDefault` stayed **GREEN**, because
- * the neighbouring `Stripe::class` exemption was covering for it. Five classes sit in that
+ * the neighbouring `Stripe::class` exemption was covering for it. Four classes sit in that
  * shadow, and two of them (`GoogleClient`, `StripeClient`) are ones this package just
  * deliberately closed — so the exact classes we decided to close were the ones the preset
- * could not have policed. A `final` deleted from any of the three would have gone green.
+ * could not have policed. A `final` deleted from any of them would have gone green.
  *
  * The shared preset cannot be fixed from here (it is testing-for-laravel's, and Pest's
  * prefix semantics are Pest's), so the gap is closed locally and by EXACT match. This does
@@ -173,13 +179,12 @@ it('closes the finality hole Pest\'s prefix-matched exemptions open', function (
 
     // The shadow set is real and known. If this count moves, the reach of an exemption
     // moved with it, and that is a review event — in either direction.
-    expect($shadowed)->toHaveCount(5)
+    expect($shadowed)->toHaveCount(4)
         ->and(array_keys($shadowed))->toEqualCanonicalizing([
             GoogleClient::class,
             GoogleMoney::class,
             StripeAmount::class,
             StripeClient::class,
-            PurchasesServiceProvider::class,
         ]);
 
     // Every one of them must be final, since the preset's word on them is worthless.

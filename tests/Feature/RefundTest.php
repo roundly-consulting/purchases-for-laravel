@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Money\Money;
+use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Actions\RecordRefundAction;
-use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordRefundData;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
@@ -68,7 +68,7 @@ it('dispatches the refunded event for a voluntary refund', function (): void {
         chargeback: false,
     );
 
-    app(SyncProviderResultAction::class)->execute($result);
+    app(RecordProviderResultAction::class)->execute($result);
 
     Event::assertDispatched(PurchaseRefunded::class);
     Event::assertNotDispatched(ChargebackReceived::class);
@@ -85,7 +85,7 @@ it('dispatches the chargeback event for a dispute', function (): void {
         chargeback: true,
     );
 
-    app(SyncProviderResultAction::class)->execute($result);
+    app(RecordProviderResultAction::class)->execute($result);
 
     Event::assertDispatched(ChargebackReceived::class);
     Event::assertNotDispatched(PurchaseRefunded::class);

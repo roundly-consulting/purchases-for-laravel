@@ -6,7 +6,7 @@ namespace RoundlyConsulting\Purchases\Commands;
 
 use Illuminate\Console\Command;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
-use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\PurchasesManager;
 
 /**
  * Actively checks each provider's credentials by making a cheap authenticated
@@ -18,7 +18,7 @@ final class VerifyCommand extends Command
 
     protected $description = 'Verify that each provider\'s credentials genuinely work.';
 
-    public function handle(Purchases $purchases): int
+    public function handle(PurchasesManager $purchases): int
     {
         $only = $this->argument('provider');
 

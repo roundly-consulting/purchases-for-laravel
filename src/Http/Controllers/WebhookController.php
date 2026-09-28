@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use RoundlyConsulting\Purchases\Exceptions\UnknownProviderException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
-use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\PurchasesManager;
 
 /**
  * Opt-in webhook endpoint. Resolves the provider from the URL, verifies and
@@ -17,7 +17,7 @@ use RoundlyConsulting\Purchases\Purchases;
 final class WebhookController
 {
     public function __construct(
-        private readonly Purchases $purchases,
+        private readonly PurchasesManager $purchases,
     ) {}
 
     public function __invoke(Request $request, string $provider): Response

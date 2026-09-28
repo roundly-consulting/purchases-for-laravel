@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use RoundlyConsulting\Purchases\Actions\RecordProviderNotificationAction;
-use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Jobs\ProcessProviderNotification;
@@ -16,7 +16,7 @@ use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Provider;
 use RoundlyConsulting\Purchases\Providers\Resolver;
-use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Testing\FakeResult;
 
@@ -61,14 +61,14 @@ function fakeProvider(GenericResult $result): Provider
  * with whatever we tell it. Resolver reads the config in its constructor, so the key must
  * be set before it is built.
  */
-function managerFor(GenericResult $result): Purchases
+function managerFor(GenericResult $result): PurchasesManager
 {
     $provider = fakeProvider($result);
 
     app()->instance($provider::class, $provider);
     config()->set('purchases.providers', [$provider::class]);
 
-    return new Purchases(new Resolver);
+    return new PurchasesManager(app(), new Resolver);
 }
 
 it('records a raw notification snapshot before reducing it', function (): void {
@@ -119,7 +119,7 @@ it('persists the result when the queued job runs', function (): void {
     $notification = PurchaseNotification::factory()->create();
 
     $job = new ProcessProviderNotification(FakeResult::subscription('stripe', 'sub_q'), $notification->getKey());
-    $job->handle(app(SyncProviderResultAction::class));
+    $job->handle(app(RecordProviderResultAction::class));
 
     expect($notification->refresh()->processed_at)->not->toBeNull();
 });
@@ -150,7 +150,7 @@ function informationalResult(ResultType $type = ResultType::Notification): Gener
 it('records nothing and fires nothing for an informational result', function (ResultType $type): void {
     Event::fake();
 
-    $model = (new SyncProviderResultAction)->execute(informationalResult($type));
+    $model = app(RecordProviderResultAction::class)->execute(informationalResult($type));
 
     expect($model)->toBeNull()
         ->and(Purchase::query()->count())->toBe(0)
@@ -182,7 +182,7 @@ it('returns a transient notification for an informational result when auditing i
 it('marks a queued informational notification processed without recording anything', function (): void {
     $notification = PurchaseNotification::factory()->create();
 
-    (new ProcessProviderNotification(informationalResult(), $notification->getKey()))->handle(app(SyncProviderResultAction::class));
+    (new ProcessProviderNotification(informationalResult(), $notification->getKey()))->handle(app(RecordProviderResultAction::class));
 
     expect($notification->refresh()->processed_at)->not->toBeNull()
         ->and(Subscription::query()->count())->toBe(0);

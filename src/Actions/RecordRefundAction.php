@@ -21,8 +21,10 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
  * token) also revokes that subscription — unless it refunds an earlier period than the
  * one the subscription is in (a transaction id other than its latest). Only a full
  * refund (a Refunded result) flips anything; a partial one is recorded alone.
+ *
+ * @internal building block of `Purchases::handle()` / `sync()` — reach it through the facade.
  */
-final class RecordRefundAction
+final readonly class RecordRefundAction
 {
     public function execute(RecordRefundData $data): PurchaseRefund
     {

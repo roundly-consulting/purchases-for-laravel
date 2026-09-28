@@ -12,8 +12,10 @@ use RoundlyConsulting\Purchases\Support\PurchaseModel;
 /**
  * Idempotently records a provider purchase into the Purchase model, keyed on
  * provider + provider_id, syncing its line items.
+ *
+ * @internal building block of `Purchases::handle()` / `sync()` — reach it through the facade.
  */
-final class RecordPurchaseAction
+final readonly class RecordPurchaseAction
 {
     public function execute(RecordPurchaseData $data): Purchase
     {

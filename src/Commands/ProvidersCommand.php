@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Commands;
 
 use Illuminate\Console\Command;
-use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\PurchasesManager;
 
 final class ProvidersCommand extends Command
 {
@@ -13,7 +13,7 @@ final class ProvidersCommand extends Command
 
     protected $description = 'List the configured purchase providers and their readiness.';
 
-    public function handle(Purchases $purchases): int
+    public function handle(PurchasesManager $purchases): int
     {
         $rows = [];
 

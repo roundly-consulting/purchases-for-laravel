@@ -2,11 +2,17 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
+use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseNotification;
+use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
+use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
 use RoundlyConsulting\Purchases\Tests\Fixtures\SwappedModelsTestCase;
 use RoundlyConsulting\Purchases\Tests\HostTestCase;
 use RoundlyConsulting\Purchases\Tests\TestCase;
@@ -121,4 +127,33 @@ function rsaKeyPair(int $bits = 2048): array
     $key = TestKeys::rsa($bits);
 
     return [$key->privatePem(), $key->publicPem()];
+}
+
+/**
+ * A stored, verified audit notification for a result — what the webhook path writes.
+ */
+function auditedNotification(ProviderResult $result): PurchaseNotification
+{
+    return PurchaseNotification::query()->create([
+        'provider' => $result->provider(),
+        'type' => $result->type()->value,
+        'signature_verified' => true,
+        'payload' => NotificationResultFactory::snapshot($result),
+        'processed_at' => null,
+    ]);
+}
+
+/**
+ * Link a purchase or subscription to its owner through the `owner` morph.
+ *
+ * @template TModel of Purchase|Subscription
+ *
+ * @param  TModel  $owned
+ * @return TModel
+ */
+function ownedBy(Model $owner, Purchase|Subscription $owned): Purchase|Subscription
+{
+    $owned->owner()->associate($owner)->save();
+
+    return $owned;
 }

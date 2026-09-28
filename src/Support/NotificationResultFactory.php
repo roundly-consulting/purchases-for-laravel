@@ -44,6 +44,24 @@ final class NotificationResultFactory
         ];
     }
 
+    /**
+     * An unsaved notification describing a result, for when no audit row does — auditing is
+     * off and the result was queued or informational — so `handle()` still returns a Model.
+     */
+    public static function transient(ProviderResult $result): PurchaseNotification
+    {
+        $notification = PurchaseNotificationModel::new();
+
+        $notification->fill([
+            'provider' => $result->provider(),
+            'type' => $result->type()->value,
+            'signature_verified' => true,
+            'payload' => $result->raw(),
+        ]);
+
+        return $notification;
+    }
+
     public static function fromNotification(PurchaseNotification $notification): ?GenericResult
     {
         $data = $notification->payload->all();

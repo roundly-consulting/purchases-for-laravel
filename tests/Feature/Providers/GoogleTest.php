@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
-use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
@@ -509,7 +509,7 @@ it('maps an informational RTDN to no state change', function (array $notificatio
 ]);
 
 it('keeps an active google subscription untouched by an informational RTDN', function (): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 4, 'purchaseToken' => 'tok-live', 'subscriptionId' => 'pro']])));
 
     $model = $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 9, 'purchaseToken' => 'tok-live', 'subscriptionId' => 'pro']])));
@@ -534,7 +534,7 @@ it('names every documented subscription RTDN type', function (int $value, Notifi
 ]);
 
 it('revokes the subscription google revoked', function (): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 4, 'purchaseToken' => 'tok-rev', 'subscriptionId' => 'pro']])));
 
     $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 12, 'purchaseToken' => 'tok-rev', 'subscriptionId' => 'pro']])));
@@ -543,7 +543,7 @@ it('revokes the subscription google revoked', function (): void {
 });
 
 it('keeps a quantity-based partially voided purchase completed', function (int $refundType, Status $expected): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(new GenericResult(provider: 'google', type: ResultType::Purchase, providerId: 'GPA.9', status: Status::Completed, transactionId: 'GPA.9'));
 
     $sync->execute(googleProvider()->result(googleRtdn(['voidedPurchaseNotification' => [
@@ -562,7 +562,7 @@ it('keys a verified subscription on its purchase token, like its notifications',
             ->push(['subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE', 'latestOrderId' => 'GPA.1-0', 'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED', 'lineItems' => [['productId' => 'pro', 'expiryTime' => '2026-02-01T00:00:00Z']]])
             ->push(['subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE', 'latestOrderId' => 'GPA.1-1', 'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED', 'lineItems' => [['productId' => 'pro', 'expiryTime' => '2026-03-01T00:00:00Z']]]),
     ]);
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
 
     // The order id changes on every renewal ("…-0", "…-1"); the purchase token does not.
     $first = googleProvider()->result(new Request(['purchaseToken' => 'tok-stable']));

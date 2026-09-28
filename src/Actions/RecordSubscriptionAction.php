@@ -12,8 +12,10 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 /**
  * Idempotently records a provider subscription, keyed on provider + provider_id,
  * syncing its items and lifecycle dates.
+ *
+ * @internal building block of `Purchases::handle()` / `sync()` — reach it through the facade.
  */
-final class RecordSubscriptionAction
+final readonly class RecordSubscriptionAction
 {
     public function execute(RecordSubscriptionData $data): Subscription
     {

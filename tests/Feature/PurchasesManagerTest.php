@@ -14,13 +14,13 @@ use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
 use RoundlyConsulting\Purchases\Providers\Provider;
-use RoundlyConsulting\Purchases\Purchases;
+use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 
 it('resolves a provider through the manager', function (): void {
     config()->set('purchases.providers', [Apple::class]);
 
-    $manager = app(Purchases::class);
+    $manager = app(PurchasesManager::class);
 
     expect($manager->provider('apple'))->toBeInstanceOf(Apple::class)
         ->and($manager->has('apple'))->toBeTrue()
@@ -31,13 +31,13 @@ it('resolves a provider through the manager', function (): void {
 it('throws for an unknown provider', function (): void {
     config()->set('purchases.providers', []);
 
-    app(Purchases::class)->provider('nope');
+    app(PurchasesManager::class)->provider('nope');
 })->throws(UnknownProviderException::class);
 
 it('lists providers as a keyed collection', function (): void {
     config()->set('purchases.providers', [Apple::class]);
 
-    expect(app(Purchases::class)->providers()->keys()->all())->toBe(['apple']);
+    expect(app(PurchasesManager::class)->providers()->keys()->all())->toBe(['apple']);
 });
 
 it('resolves the manager through the facade', function (): void {
@@ -51,7 +51,7 @@ it('decodes and persists through handle', function (): void {
 
     config()->set('purchases.providers', [StubResultProvider::class]);
 
-    $model = app(Purchases::class)->handle('stub', new Request);
+    $model = app(PurchasesManager::class)->handle('stub', new Request);
 
     expect($model)->toBeInstanceOf(Subscription::class)
         ->and($model->provider_id)->toBe('stub-1');
@@ -62,7 +62,7 @@ it('decodes and persists through handle', function (): void {
 it('returns a result without persisting through result', function (): void {
     config()->set('purchases.providers', [StubResultProvider::class]);
 
-    $result = app(Purchases::class)->result('stub', new Request);
+    $result = app(PurchasesManager::class)->result('stub', new Request);
 
     expect($result->type())->toBe(ResultType::Subscription)
         ->and(Subscription::query()->count())->toBe(0);

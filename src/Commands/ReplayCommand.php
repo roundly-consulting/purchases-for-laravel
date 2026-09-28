@@ -7,15 +7,16 @@ namespace RoundlyConsulting\Purchases\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
-use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
-use RoundlyConsulting\Purchases\Results\GenericResult;
-use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
+use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 
 /**
  * Re-runs stored audit notifications through the recording pipeline. Useful for
  * recovering from a downstream failure without re-receiving provider webhooks.
+ *
+ * Selects the notifications; each one replays through `Purchases::replay()`.
  */
 final class ReplayCommand extends Command
 {
@@ -25,7 +26,7 @@ final class ReplayCommand extends Command
 
     protected $description = 'Re-run stored provider notifications through the recording pipeline.';
 
-    public function handle(SyncProviderResultAction $sync): int
+    public function handle(PurchasesManager $purchases): int
     {
         $query = PurchaseNotificationModel::query();
 
@@ -42,16 +43,14 @@ final class ReplayCommand extends Command
         $replayed = 0;
 
         foreach ($notifications as $notification) {
-            $result = $this->resultFor($notification);
-
-            if ($result === null) {
-                $this->warn("Skipped notification #{$notification->getKey()}: could not rebuild result.");
+            try {
+                $purchases->replay($notification);
+            } catch (InvalidProviderNotificationException $exception) {
+                $this->warn("Skipped: {$exception->getMessage()}");
 
                 continue;
             }
 
-            $sync->execute($result);
-            $notification->update(['processed_at' => Carbon::now()]);
             $replayed++;
         }
 
@@ -82,10 +81,5 @@ final class ReplayCommand extends Command
         if (is_string($since) && $since !== '') {
             $query->where('created_at', '>=', Carbon::parse($since));
         }
-    }
-
-    private function resultFor(PurchaseNotification $notification): ?GenericResult
-    {
-        return NotificationResultFactory::fromNotification($notification);
     }
 }

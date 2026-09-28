@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
-use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
@@ -300,14 +300,14 @@ it('records nothing for a stripe event it does not map', function (): void {
     $result = (new Stripe)->result(signedWebhook($payload));
 
     expect($result->type())->toBe(ResultType::Unknown)
-        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
         ->and(Subscription::query()->count())->toBe(0)
         ->and(Purchase::query()->count())->toBe(0);
 });
 
 it('keeps a partially refunded purchase completed', function (bool $fullyRefunded, Status $expected): void {
     Event::fake([PurchaseRefunded::class]);
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
 
     $sync->execute((new Stripe)->result(signedWebhook((string) json_encode([
         'id' => 'evt_paid', 'type' => 'payment_intent.succeeded',
@@ -346,12 +346,12 @@ it('does not record a subscription or setup checkout as a one-off purchase', fun
     ]);
 
     expect($result->type())->toBe(ResultType::Notification)
-        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
         ->and(Purchase::query()->count())->toBe(0);
 })->with(['subscription', 'setup']);
 
 it('records a payment checkout and its payment intent as one purchase', function (): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
 
     $session = stripeResultFor('checkout.session.completed', [
         'id' => 'cs_pay', 'mode' => 'payment', 'status' => 'complete', 'payment_status' => 'paid',
@@ -369,7 +369,7 @@ it('leaves subscription invoices and their payments to the subscription', functi
     $result = stripeResultFor($type, $object + ['currency' => 'eur']);
 
     expect($result->type())->toBe(ResultType::Notification)
-        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
         ->and(Purchase::query()->count())->toBe(0);
 })->with([
     'renewal invoice paid (parent)' => ['invoice.paid', ['id' => 'in_1', 'status' => 'paid', 'amount_paid' => 999, 'billing_reason' => 'subscription_cycle', 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]]],
@@ -398,7 +398,7 @@ function stripeDispute(string $status, array $overrides = []): array
 
 it('maps a dispute through its lifecycle without mistaking a won one for a chargeback', function (): void {
     Event::fake([ChargebackReceived::class, PurchaseCompleted::class]);
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
 
     $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_d', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']));
 
@@ -429,7 +429,7 @@ it('maps a dispute through its lifecycle without mistaking a won one for a charg
 });
 
 it('records a lost dispute as the same single chargeback', function (): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response')));
     $sync->execute(stripeResultFor('charge.dispute.closed', stripeDispute('lost')));
 
@@ -438,7 +438,7 @@ it('records a lost dispute as the same single chargeback', function (): void {
 });
 
 it('does not treat an inquiry as a chargeback', function (string $type, string $status): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_d', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']));
 
     $result = stripeResultFor($type, stripeDispute($status));
@@ -453,7 +453,7 @@ it('does not treat an inquiry as a chargeback', function (string $type, string $
 ]);
 
 it('does not link a refund and a dispute of one payment into one row', function (): void {
-    $sync = new SyncProviderResultAction;
+    $sync = app(RecordProviderResultAction::class);
     $sync->execute(stripeResultFor('charge.refunded', ['id' => 'ch_d', 'payment_intent' => 'pi_d', 'amount' => 5000, 'amount_refunded' => 1000, 'refunded' => false, 'currency' => 'eur']));
     $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response', ['amount' => 4000])));
 
@@ -465,7 +465,7 @@ it('audits a won dispute it cannot tie to a payment', function (): void {
     $result = stripeResultFor('charge.dispute.closed', stripeDispute('won', ['payment_intent' => null]));
 
     expect($result->type())->toBe(ResultType::Notification)
-        ->and((new SyncProviderResultAction)->execute($result))->toBeNull()
+        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
         ->and(Purchase::query()->count())->toBe(0);
 });
 
@@ -473,7 +473,7 @@ it('holds an unpaid or paused stripe subscription instead of expiring it', funct
     Event::fake([SubscriptionExpired::class]);
 
     $result = stripeResultFor('customer.subscription.updated', ['id' => 'sub_h', 'status' => $status]);
-    (new SyncProviderResultAction)->execute($result);
+    app(RecordProviderResultAction::class)->execute($result);
 
     // Unpaid: invoices stay open and it can be paid back to active; paused: it resumes.
     expect($result->status())->toBe(Status::OnHold)

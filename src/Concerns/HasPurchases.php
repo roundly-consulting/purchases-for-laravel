@@ -8,12 +8,16 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
 /**
  * Gives an owner model (typically the User) convenient access to its purchases
  * and subscriptions through the package's `owner` morph relationship.
+ *
+ * The helpers delegate to the manager (`Purchases::for($this)`), so they run the same
+ * code as the facade and an injected manager.
  *
  * @phpstan-require-extends Model
  */
@@ -36,11 +40,7 @@ trait HasPurchases
      */
     public function activeSubscription(?string $name = null): ?Subscription
     {
-        return $this->subscriptions()
-            ->when($name !== null, fn ($query) => $query->where('name', $name))
-            ->active()
-            ->latest('id')
-            ->first();
+        return app(PurchasesManager::class)->for($this)->activeSubscription($name);
     }
 
     /**
@@ -48,6 +48,6 @@ trait HasPurchases
      */
     public function subscribedTo(string $name): bool
     {
-        return $this->activeSubscription($name) !== null;
+        return app(PurchasesManager::class)->for($this)->subscribedTo($name);
     }
 }

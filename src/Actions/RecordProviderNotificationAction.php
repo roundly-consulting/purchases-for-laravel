@@ -13,8 +13,10 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  * Persists a verified notification snapshot to the audit log before it is reduced
  * to purchase / subscription / refund state. The snapshot stores both the raw
  * provider payload and the normalized result, so it can be inspected or replayed.
+ *
+ * @internal building block of `Purchases::handle()` / `sync()` — reach it through the facade.
  */
-final class RecordProviderNotificationAction
+final readonly class RecordProviderNotificationAction
 {
     public function execute(ProviderResult $result): ?PurchaseNotification
     {

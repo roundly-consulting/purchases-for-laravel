@@ -79,7 +79,7 @@ it('skips notifications it cannot rebuild', function (): void {
     ]);
 
     $this->artisan('purchases:replay')
-        ->expectsOutputToContain('could not rebuild result')
+        ->expectsOutputToContain('could not be rebuilt into a result')
         ->assertSuccessful();
 
     expect(Purchase::query()->count())->toBe(0);
@@ -95,4 +95,16 @@ it('replays an informational notification without recording anything', function 
     expect(Subscription::query()->count())->toBe(0)
         ->and(Purchase::query()->count())->toBe(0)
         ->and(PurchaseNotification::query()->whereNull('processed_at')->count())->toBe(0);
+});
+
+it('skips a notification whose signature was never verified and replays the rest', function (): void {
+    storeNotification('stripe', fn () => FakeResult::purchase('stripe', 'pi_unverified'))->update(['signature_verified' => false]);
+    storeNotification('stripe', fn () => FakeResult::purchase('stripe', 'pi_verified'));
+
+    $this->artisan('purchases:replay')
+        ->expectsOutputToContain('never signature-verified')
+        ->expectsOutputToContain('Replayed 1 notification(s).')
+        ->assertSuccessful();
+
+    expect(Purchase::query()->pluck('provider_id')->all())->toBe(['pi_verified']);
 });

@@ -10,7 +10,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
-use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 
@@ -39,9 +39,9 @@ final class ProcessProviderNotification implements ShouldQueue
         $this->onQueue($queue);
     }
 
-    public function handle(SyncProviderResultAction $sync): void
+    public function handle(RecordProviderResultAction $record): void
     {
-        $sync->execute($this->result);
+        $record->execute($this->result);
 
         $this->markProcessed();
     }
