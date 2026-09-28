@@ -92,6 +92,18 @@ interface ProviderResult
     public function isChargeback(): bool;
 
     /**
+     * When the provider says this happened — a Stripe event's `created`, an Apple
+     * notification's `signedDate`, a Google notification's `eventTimeMillis`, or the moment
+     * a store API reported the state — or null when unknown.
+     *
+     * Stores deliver at least once and in no particular order, and the audit log can be
+     * replayed, so this is what keeps an older event from overwriting a newer one: a
+     * result older than the last one applied to its row is ignored, and a refunded row
+     * only moves again on a result provably newer than the refund.
+     */
+    public function occurredAt(): ?CarbonInterface;
+
+    /**
      * The raw decoded payload for power users who need provider-specific fields.
      *
      * @return array<string, mixed>

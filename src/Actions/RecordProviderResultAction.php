@@ -29,6 +29,10 @@ use RoundlyConsulting\Purchases\Models\Subscription;
  * Turns a unified provider result into a persisted model and dispatches the
  * matching lifecycle events.
  *
+ * Stores deliver at least once and in no particular order, and the audit log replays: a
+ * result older than what its row last applied changes nothing and fires nothing (see
+ * EventOrder), and a soft-deleted row is kept up to date but fires no lifecycle event.
+ *
  * A Notification or Unknown result is informational — a store event that changes no
  * entitlement (a renewal preference, a price increase, a declined refund, a test) or one
  * this package does not map. It is recorded nowhere, fires nothing, and yields null, so
@@ -63,7 +67,7 @@ final readonly class RecordProviderResultAction
 
         PurchaseRecorded::dispatch($purchase, $result);
 
-        if (! self::statusChanged($purchase)) {
+        if ($purchase->trashed() || ! self::statusChanged($purchase)) {
             return $purchase;
         }
 
@@ -79,6 +83,11 @@ final readonly class RecordProviderResultAction
     private function subscription(ProviderResult $result): Subscription
     {
         $subscription = $this->recordSubscription->execute(RecordSubscriptionData::fromResult($result));
+
+        // A row the host soft-deleted is kept up to date, but announces nothing.
+        if ($subscription->trashed()) {
+            return $subscription;
+        }
 
         $changed = self::statusChanged($subscription);
 
@@ -113,7 +122,7 @@ final readonly class RecordProviderResultAction
 
         // A repeated delivery of the same refund is not a new refund; a larger cumulative
         // amount (another partial refund of the same charge) is.
-        if (! $refund->wasRecentlyCreated && ! $refund->wasChanged(['price', 'chargeback'])) {
+        if ($refund->trashed() || (! $refund->wasRecentlyCreated && ! $refund->wasChanged(['price', 'chargeback']))) {
             return $refund;
         }
 

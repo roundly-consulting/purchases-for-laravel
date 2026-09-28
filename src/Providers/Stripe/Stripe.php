@@ -121,6 +121,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
                 providerId: (string) $event->id,
                 status: Status::Processing,
                 raw: $event->object,
+                occurredAt: $event->created,
             );
         }
 
@@ -145,6 +146,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
                 endsAt: $subscription->currentPeriodEnd,
                 items: [],
                 raw: $event->object,
+                occurredAt: $event->created,
             );
         }
 
@@ -162,6 +164,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
                 providerId: $id,
                 status: Status::Processing,
                 raw: $event->object,
+                occurredAt: $event->created,
             );
         }
 
@@ -185,6 +188,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             endsAt: null,
             items: [],
             raw: $event->object,
+            occurredAt: $event->created,
         );
     }
 
@@ -303,6 +307,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             raw: $event->object,
             refundReason: is_string($reason) ? $reason : null,
             chargeback: $chargeback,
+            occurredAt: $event->created,
         );
     }
 
@@ -330,6 +335,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
                 status: Status::Processing,
                 transactionId: $paymentIntent,
                 raw: $event->object,
+                occurredAt: $event->created,
             );
         }
 
@@ -341,6 +347,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
                 status: Status::Completed,
                 transactionId: $paymentIntent,
                 raw: $event->object,
+                occurredAt: $event->created,
             );
         }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Apple\ValueObjects;
 
+use Illuminate\Support\Carbon;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationSubType;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationType;
 use RoundlyConsulting\Purchases\Support\DataSet;
@@ -38,6 +39,7 @@ final class ServerNotificationDecodedPayload extends BaseValueObject implements 
         public readonly ?array $summary = null,
         public readonly ?array $externalPurchaseToken = null,
         public readonly ?array $appData = null,
+        public readonly ?Carbon $signedDate = null,
     ) {}
 
     /**
@@ -57,6 +59,7 @@ final class ServerNotificationDecodedPayload extends BaseValueObject implements 
             summary: self::object($dataset->value('summary')),
             externalPurchaseToken: self::object($dataset->value('externalPurchaseToken')),
             appData: self::object($dataset->value('appData')),
+            signedDate: $dataset->datetime('signedDate'),
             // Last: it snapshots only the keys read above.
             raw: $dataset->retrieved(),
         );

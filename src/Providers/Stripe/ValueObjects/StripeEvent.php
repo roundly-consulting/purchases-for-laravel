@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects;
 
+use Illuminate\Support\Carbon;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Support\DataSet;
@@ -24,6 +25,7 @@ final class StripeEvent implements FromRaw
         public readonly EventType $type,
         public readonly array $object,
         public readonly array $raw,
+        public readonly ?Carbon $created = null,
     ) {}
 
     /**
@@ -35,12 +37,15 @@ final class StripeEvent implements FromRaw
 
         $type = $dataset->value('type');
         $object = $dataset->value('data.object', []);
+        $created = $dataset->value('created');
 
         return new self(
             id: $dataset->value('id'),
             type: EventType::fromName(is_string($type) ? $type : 'unknown'),
             object: is_array($object) ? $object : [],
             raw: $raw,
+            // When Stripe created the event — what orders redeliveries and replays.
+            created: is_int($created) ? Carbon::createFromTimestamp($created) : null,
         );
     }
 }

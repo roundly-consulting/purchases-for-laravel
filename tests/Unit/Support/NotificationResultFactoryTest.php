@@ -97,3 +97,19 @@ it('treats a price money refuses as an unparseable snapshot', function (array $p
     'no currency' => [['minor' => '1999']],
     'legacy amount shape' => [['amount' => 1999, 'currency' => 'USD']],
 ]);
+
+it('round-trips when the provider says the event happened', function (): void {
+    $original = new GenericResult(
+        provider: 'stripe',
+        type: ResultType::Purchase,
+        providerId: 'pi_when',
+        status: Status::Completed,
+        occurredAt: Carbon::createFromTimestamp(1_700_000_123),
+    );
+
+    $notification = PurchaseNotification::factory()->create(['payload' => NotificationResultFactory::snapshot($original)]);
+
+    expect($notification->payload['occurred_at'])->toBeString()
+        ->and(NotificationResultFactory::fromNotification($notification)?->occurredAt()?->getTimestamp())->toBe(1_700_000_123)
+        ->and(NotificationResultFactory::snapshot(FakeResult::purchase())['occurred_at'])->toBeNull();
+});

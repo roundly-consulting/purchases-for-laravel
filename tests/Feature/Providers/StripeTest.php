@@ -22,6 +22,7 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Invoice;
+use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\StripeEvent;
 
 function configureStripe(): void
 {
@@ -61,6 +62,13 @@ it('decodes a payment_intent.succeeded webhook into an event', function (): void
     expect($event->type)->toBe(EventType::PaymentIntentSucceeded)
         ->and($event->id)->toBe('evt_1')
         ->and($event->object['id'])->toBe('pi_1');
+});
+
+it('carries the event creation time on every result', function (): void {
+    $result = stripeResultFor('payment_intent.succeeded', ['id' => 'pi_when', 'status' => 'succeeded', 'amount' => 100, 'currency' => 'usd', 'invoice' => null], created: 1_700_000_777);
+
+    expect($result->occurredAt()?->getTimestamp())->toBe(1_700_000_777)
+        ->and(StripeEvent::fromRaw(['type' => 'invoice.paid'])->created)->toBeNull();
 });
 
 it('rejects a webhook with an invalid signature', function (): void {
@@ -334,9 +342,14 @@ it('keeps a partially refunded purchase completed', function (bool $fullyRefunde
 /**
  * @param  array<string, mixed>  $object
  */
-function stripeResultFor(string $type, array $object): ProviderResult
+function stripeResultFor(string $type, array $object, ?int $created = null): ProviderResult
 {
-    return (new Stripe)->result(signedWebhook((string) json_encode(['id' => 'evt_'.md5($type.json_encode($object)), 'type' => $type, 'data' => ['object' => $object]])));
+    // Stripe stamps every event with its creation time; successive calls here get
+    // successive seconds, the order they were sent in.
+    static $clock = 1_700_000_000;
+    $created ??= ++$clock;
+
+    return (new Stripe)->result(signedWebhook((string) json_encode(['id' => 'evt_'.md5($type.json_encode($object)), 'type' => $type, 'created' => $created, 'data' => ['object' => $object]])));
 }
 
 it('does not record a subscription or setup checkout as a one-off purchase', function (string $mode): void {

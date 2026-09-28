@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Google;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use RoundlyConsulting\Crypto\Codec\Base64;
 use RoundlyConsulting\Crypto\Codec\Base64Url;
 use RoundlyConsulting\Crypto\Codec\InvalidEncodingException;
@@ -199,6 +200,8 @@ class Google extends BaseProvider implements VerifiesConnectivity
                 endsAt: null,
                 items: [],
                 raw: $purchase->raw,
+                // The Play Developer API reports the state as of now.
+                occurredAt: Carbon::now(),
             );
         }
 
@@ -218,6 +221,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
             endsAt: $purchase->expiryTime(),
             items: [],
             raw: $purchase->raw,
+            occurredAt: Carbon::now(),
         );
     }
 
@@ -243,6 +247,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
                 raw: $notification->raw,
                 refundReason: $voided->refundType !== null ? (string) $voided->refundType : null,
                 chargeback: false,
+                occurredAt: $notification->eventTime,
             );
         }
 
@@ -261,6 +266,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
             productId: $subscriptionId,
             raw: $notification->raw,
             refundReason: $type?->isRefund() === true ? $type->name : null,
+            occurredAt: $notification->eventTime,
         );
     }
 

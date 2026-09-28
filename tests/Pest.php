@@ -3,6 +3,10 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
+use RoundlyConsulting\Crypto\Hash\Hmac;
 use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
@@ -156,4 +160,22 @@ function ownedBy(Model $owner, Purchase|Subscription $owned): Purchase|Subscript
     $owned->owner()->associate($owner)->save();
 
     return $owned;
+}
+
+/**
+ * A Stripe webhook request for an event, signed with the given webhook secret the way
+ * Stripe signs it (`t=<now>,v1=<HMAC-SHA256 of "t.body">`).
+ *
+ * @param  array<string, mixed>  $event
+ */
+function stripeSignedRequest(array $event, string $secret = 'whsec_test'): Request
+{
+    $body = (string) json_encode($event);
+    $timestamp = Carbon::now()->getTimestamp();
+    $signature = (new Hmac(HashAlgorithm::Sha256))->signHex("{$timestamp}.{$body}", $secret);
+
+    $request = Request::create('/purchases/webhooks/stripe', 'POST', content: $body);
+    $request->headers->set('Stripe-Signature', "t={$timestamp},v1={$signature}");
+
+    return $request;
 }

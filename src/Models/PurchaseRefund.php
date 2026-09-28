@@ -29,6 +29,7 @@ use RoundlyConsulting\Purchases\Support\PurchaseModel;
  * @property string|null $price_currency
  * @property CarbonInterface|null $refunded_at
  * @property Collection<array-key, mixed>|null $meta
+ * @property CarbonInterface|null $last_event_at
  * @property CarbonInterface|null $created_at
  * @property CarbonInterface|null $updated_at
  * @property CarbonInterface|null $deleted_at
@@ -51,6 +52,7 @@ class PurchaseRefund extends Model
             'chargeback' => 'bool',
             'refunded_at' => 'datetime',
             'meta' => 'collection',
+            'last_event_at' => 'datetime',
         ];
     }
 

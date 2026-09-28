@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Actions;
 
+use Carbon\CarbonInterface;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordRefundData;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Support\EventOrder;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\Support\PurchaseRefundModel;
 use RoundlyConsulting\Purchases\Support\SubscriptionModel;
@@ -22,49 +24,114 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
  * one the subscription is in (a transaction id other than its latest). Only a full
  * refund (a Refunded result) flips anything; a partial one is recorded alone.
  *
+ * Events are ordered (see EventOrder): a refund event older than the last one applied to
+ * its row changes nothing, and a purchase or subscription is only flipped when the refund
+ * is not older than what that row last applied — so a replayed chargeback cannot undo a
+ * dispute that was since won. The rows involved are locked while that is decided.
+ *
+ * The purchase the refund was linked to is handed back as the refund's `purchase`
+ * relation, so the caller can see whether this call changed its status.
+ *
  * @internal building block of `Purchases::handle()` / `sync()` — reach it through the facade.
  */
 final readonly class RecordRefundAction
 {
     public function execute(RecordRefundData $data): PurchaseRefund
     {
-        $purchase = $this->relatedPurchase($data);
+        /** @var PurchaseRefund */
+        return PurchaseRefundModel::new()->getConnection()->transaction(function () use ($data): PurchaseRefund {
+            $purchase = $this->relatedPurchase($data);
+            $keys = ['provider' => $data->provider, 'provider_id' => $data->providerId];
 
+            /** @var PurchaseRefund|null $refund */
+            $refund = PurchaseRefundModel::query()->withTrashed()->where($keys)->lockForUpdate()->first();
+
+            if ($refund === null) {
+                /** @var PurchaseRefund $refund */
+                $refund = PurchaseRefundModel::query()->withTrashed()->createOrFirst($keys, $this->attributes($data, $purchase, null));
+
+                if (! $refund->wasRecentlyCreated) {
+                    // Another delivery created it first: apply this one as an update.
+                    /** @var PurchaseRefund $refund */
+                    $refund = PurchaseRefundModel::query()->withTrashed()->lockForUpdate()->findOrFail($refund->getKey());
+                }
+            }
+
+            if (! $refund->wasRecentlyCreated) {
+                if (EventOrder::isStale($refund->last_event_at, $data->occurredAt)) {
+                    return $refund;
+                }
+
+                $refund->update($this->attributes($data, $purchase, $refund));
+            }
+
+            // A partial refund (status other than Refunded) is recorded, but the purchase or
+            // subscription it came from stays as it is.
+            if ($data->status === Status::Refunded) {
+                $this->move($purchase, Status::Refunded, $data->occurredAt);
+                $this->move($this->relatedSubscription($data), Status::Refunded, $data->occurredAt);
+            }
+
+            $refund->refresh();
+
+            if ($purchase !== null) {
+                $refund->setRelation('purchase', $purchase);
+            }
+
+            return $refund;
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function attributes(RecordRefundData $data, ?Purchase $purchase, ?PurchaseRefund $refund): array
+    {
         $attributes = [
-            'purchase_id' => $purchase?->getKey(),
             'transaction_id' => $data->transactionId,
             'reason' => $data->reason,
             'chargeback' => $data->chargeback,
             'refunded_at' => $data->refundedAt,
             'meta' => $data->meta,
+            'last_event_at' => EventOrder::latest($refund?->last_event_at, $data->occurredAt),
         ];
+
+        // A later event that cannot find the purchase never unlinks one already found.
+        if ($purchase !== null || $refund === null) {
+            $attributes['purchase_id'] = $purchase?->getKey();
+        }
 
         if ($data->price !== null) {
             $attributes['price'] = $data->price;
         }
 
-        /** @var PurchaseRefund $refund */
-        $refund = PurchaseRefundModel::query()->updateOrCreate(
-            ['provider' => $data->provider, 'provider_id' => $data->providerId],
-            $attributes,
-        );
+        return $attributes;
+    }
 
-        // A partial refund (status other than Refunded) is recorded, but the purchase or
-        // subscription it came from stays as it is.
-        if ($data->status === Status::Refunded) {
-            $purchase?->update(['status' => Status::Refunded]);
-            $this->relatedSubscription($data)?->update(['status' => Status::Refunded]);
+    /**
+     * Move a purchase or subscription to a status, unless the event is older than what the
+     * row already applied (or would un-refund it without being provably newer).
+     */
+    private function move(Purchase|Subscription|null $model, Status $status, ?CarbonInterface $occurredAt): void
+    {
+        if ($model === null || ! EventOrder::permits($model->last_event_at, $model->status, $occurredAt, $status)) {
+            return;
         }
 
-        return $refund->refresh();
+        $model->update([
+            'status' => $status,
+            'last_event_at' => EventOrder::latest($model->last_event_at, $occurredAt),
+        ]);
     }
 
     private function relatedSubscription(RecordRefundData $data): ?Subscription
     {
         /** @var Subscription|null $subscription */
         $subscription = SubscriptionModel::query()
+            ->withTrashed()
             ->where('provider', $data->provider)
             ->where('provider_id', $data->providerId)
+            ->lockForUpdate()
             ->first();
 
         if ($subscription === null) {
@@ -80,9 +147,10 @@ final readonly class RecordRefundAction
 
     private function relatedPurchase(RecordRefundData $data): ?Purchase
     {
-        $query = PurchaseModel::query()->where('provider', $data->provider);
+        $query = PurchaseModel::query()->withTrashed()->where('provider', $data->provider)->lockForUpdate();
 
         if ($data->transactionId !== null) {
+            /** @var Purchase|null $match */
             $match = (clone $query)
                 ->where(function ($builder) use ($data): void {
                     $builder
@@ -96,6 +164,7 @@ final readonly class RecordRefundAction
             }
         }
 
+        /** @var Purchase|null */
         return $query->where('provider_id', $data->providerId)->first();
     }
 }

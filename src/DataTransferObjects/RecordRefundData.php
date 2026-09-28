@@ -24,6 +24,7 @@ final readonly class RecordRefundData
         public ?CarbonInterface $refundedAt = null,
         public array $meta = [],
         public Status $status = Status::Refunded,
+        public ?CarbonInterface $occurredAt = null,
     ) {}
 
     public static function fromResult(ProviderResult $result): self
@@ -38,6 +39,7 @@ final readonly class RecordRefundData
             refundedAt: $result->endsAt() ?? $result->activeFrom(),
             meta: $result->raw(),
             status: $result->status(),
+            occurredAt: $result->occurredAt(),
         );
     }
 }

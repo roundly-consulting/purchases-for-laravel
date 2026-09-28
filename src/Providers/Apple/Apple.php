@@ -142,6 +142,8 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             raw: $payload->toArray(),
             refundReason: $payload->type->isRefund() ? $payload->type->value : null,
             chargeback: false,
+            // When Apple signed the notification — what orders redeliveries and replays.
+            occurredAt: $payload->signedDate,
         );
     }
 

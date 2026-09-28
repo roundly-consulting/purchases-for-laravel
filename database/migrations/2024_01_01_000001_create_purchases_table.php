@@ -26,6 +26,9 @@ return new class extends Migration
             $table->string('status')->default(Status::New->value)->index();
             $table->money('price', nullable: true);
             $table->jsonb('meta')->nullable();
+            // The provider time of the latest event applied to this row: an older event
+            // (a redelivery, a replay, an out-of-order delivery) never overwrites it.
+            $table->timestamp('last_event_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
 

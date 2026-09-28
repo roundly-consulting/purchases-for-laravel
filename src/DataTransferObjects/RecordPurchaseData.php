@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\DataTransferObjects;
 
+use Carbon\CarbonInterface;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\Status;
@@ -22,6 +23,7 @@ final readonly class RecordPurchaseData
         public ?Money $price = null,
         public array $items = [],
         public array $meta = [],
+        public ?CarbonInterface $occurredAt = null,
     ) {}
 
     public static function fromResult(ProviderResult $result): self
@@ -34,6 +36,7 @@ final readonly class RecordPurchaseData
             price: $result->price(),
             items: $result->items(),
             meta: $result->raw(),
+            occurredAt: $result->occurredAt(),
         );
     }
 }

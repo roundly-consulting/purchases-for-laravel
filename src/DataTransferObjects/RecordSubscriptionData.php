@@ -27,6 +27,7 @@ final readonly class RecordSubscriptionData
         public ?CarbonInterface $endsAt = null,
         public array $items = [],
         public array $meta = [],
+        public ?CarbonInterface $occurredAt = null,
     ) {}
 
     public static function fromResult(ProviderResult $result): self
@@ -43,6 +44,7 @@ final readonly class RecordSubscriptionData
             endsAt: $result->endsAt(),
             items: $result->items(),
             meta: $result->raw(),
+            occurredAt: $result->occurredAt(),
         );
     }
 }

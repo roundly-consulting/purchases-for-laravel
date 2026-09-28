@@ -42,6 +42,7 @@ final class NotificationResultFactory
             'ends_at' => $result->endsAt()?->toIso8601String(),
             'refund_reason' => $result->refundReason(),
             'chargeback' => $result->isChargeback(),
+            'occurred_at' => $result->occurredAt()?->toIso8601String(),
             'raw' => $result->raw(),
         ];
     }
@@ -107,6 +108,7 @@ final class NotificationResultFactory
             raw: $raw,
             refundReason: self::string($data['refund_reason'] ?? null),
             chargeback: (bool) ($data['chargeback'] ?? false),
+            occurredAt: self::date($data['occurred_at'] ?? null),
         );
     }
 

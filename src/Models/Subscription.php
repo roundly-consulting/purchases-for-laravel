@@ -33,6 +33,7 @@ use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
  * @property CarbonInterface|null $trial_ends_at
  * @property CarbonInterface|null $ends_at
  * @property Collection<array-key, mixed>|null $meta
+ * @property CarbonInterface|null $last_event_at
  * @property CarbonInterface|null $created_at
  * @property CarbonInterface|null $updated_at
  * @property CarbonInterface|null $deleted_at
@@ -54,6 +55,7 @@ class Subscription extends Model
             'price' => AsMoney::class,
             'status' => Status::class,
             'meta' => 'collection',
+            'last_event_at' => 'datetime',
             'active_from' => 'datetime',
             'trial_ends_at' => 'datetime',
             'ends_at' => 'datetime',

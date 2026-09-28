@@ -192,8 +192,10 @@ $model = Purchases::sync(new GenericResult(   // ?Model — null for an informat
 ```
 
 **Replay one audited notification.** `replay()` rebuilds the result from a stored
-`PurchaseNotification` (the model or its id), records it again — idempotently, so a repeat
-changes nothing and fires nothing — and marks it processed. It replays a verified provider
+`PurchaseNotification` (the model or its id), records it again and marks it processed. Recording
+is ordered (see [Events](#events)), so replaying a notification — or the whole log — never moves
+a purchase or subscription backwards and never fires a lifecycle event for something already
+applied. It replays a verified provider
 notification or a host-origin row written by `sync()` (the host vouched for it); a
 provider-origin row that failed verification, a soft-deleted or transient notification, or a
 snapshot that no longer rebuilds throws `InvalidProviderNotificationException`; an unknown id
@@ -242,7 +244,10 @@ app(HandleProviderResultAction::class)->execute(                      // = Purch
 Every provider maps its native payload onto `RoundlyConsulting\Purchases\Contracts\ProviderResult`,
 so host code is provider-agnostic: `provider()`, `type()`, `providerId()`, `transactionId()`,
 `status()`, `name()`, `productId()`, `price()`, `activeFrom()`, `trialEndsAt()`, `endsAt()`,
-`items()`, `refundReason()`, `isChargeback()`, and `raw()` (the original decoded payload).
+`items()`, `refundReason()`, `isChargeback()`, `occurredAt()` (when the provider says it happened:
+a Stripe event's `created`, an Apple notification's `signedDate`, a Google notification's
+`eventTimeMillis`, or when a store API reported the state; `null` when unknown) and `raw()` (the
+original decoded payload).
 
 `Status` now also exposes the billing-retry states `Status::InGracePeriod`, `Status::OnHold`,
 and `Status::Refunded` (all additive), plus `Status::isActive()` which is true for `Completed`
@@ -254,10 +259,22 @@ and `InGracePeriod`. `ResultType::Refund` covers refunds and chargebacks.
 `PurchaseRecorded`, `PurchaseCompleted`, `PurchaseFailed`, `PurchaseRefunded`,
 `ChargebackReceived`, `SubscriptionStarted`, `SubscriptionRenewed`, `SubscriptionCanceled`,
 `SubscriptionExpired`, and `SubscriptionInGracePeriod` — each carrying the persisted model and
-the originating `ProviderResult`. Every store may deliver a notification more than once, so these
-fire only when something changed (a new row, a status that moved, a renewal that extended
-`ends_at`, a new refunded amount) — a repeated delivery never fulfils an order twice.
-`PurchaseRecorded` fires for every recorded purchase result.
+the originating `ProviderResult`. Every store may deliver a notification more than once and out
+of order, and the audit log can be replayed, so these fire only when something changed (a new
+row, a status that moved, a renewal that extended `ends_at`, a new refunded amount).
+
+Recording is **ordered** by `occurredAt()`. Each purchase, subscription and refund stores the time
+of the latest event applied to it (`last_event_at`): an older event — a redelivery, an
+out-of-order delivery, a replay — changes nothing and fires nothing, and a **refunded** row stays
+refunded unless an event provably newer than the refund reverses it (Apple's `REFUND_REVERSED`,
+a won Stripe dispute). A result that cannot say when it happened (`occurredAt()` null — a
+`GenericResult` you built without one) is applied as before, but never un-refunds anything. So a
+redelivered or replayed payment never re-fulfils a refunded order. The row is locked while this is
+decided, so two deliveries racing each other cannot interleave.
+
+`PurchaseRecorded` fires for every purchase result the pipeline receives — repeats and stale
+ones included — so never fulfil on it; use `PurchaseCompleted`. A row you soft-deleted is still
+kept up to date by later notifications (it stays deleted), but fires no lifecycle event.
 
 Informational notifications change nothing: an Apple renewal-preference or auto-renew change,
 price increase, consumption request, declined refund or TEST, a Google deferral or price-change

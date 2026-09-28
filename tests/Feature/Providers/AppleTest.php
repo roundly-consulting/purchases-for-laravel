@@ -677,12 +677,14 @@ it('records no price for a family-shared transaction', function (): void {
 it('reinstates a purchase whose refund apple reversed', function (): void {
     $sync = app(RecordProviderResultAction::class);
 
-    $sync->execute(appleNotificationFor('ONE_TIME_CHARGE', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest()));
-    $sync->execute(appleNotificationFor('REFUND', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest()));
+    $transaction = ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'];
+    $sync->execute(appleNotificationFor('ONE_TIME_CHARGE', null, $transaction, ['signedDate' => 1_700_000_000_000])->result(appleSignedRequest()));
+    $sync->execute(appleNotificationFor('REFUND', null, $transaction, ['signedDate' => 1_700_100_000_000])->result(appleSignedRequest()));
 
     expect(Purchase::query()->sole()->status)->toBe(Status::Refunded);
 
-    $reversed = appleNotificationFor('REFUND_REVERSED', null, ['originalTransactionId' => 'orig-1', 'transactionId' => 'txn-1'])->result(appleSignedRequest());
+    // Apple signs the reversal after the refund, which is what lets it un-refund.
+    $reversed = appleNotificationFor('REFUND_REVERSED', null, $transaction, ['signedDate' => 1_700_200_000_000])->result(appleSignedRequest());
     $sync->execute($reversed);
 
     expect($reversed->type())->toBe(ResultType::Purchase)
@@ -1001,4 +1003,11 @@ it('refuses another app\'s genuinely signed notification through the real verifi
         ->and(Subscription::query()->count())->toBe(0);
 
     Event::assertNotDispatched(SubscriptionStarted::class);
+});
+
+it('carries the time apple signed the notification', function (): void {
+    $result = appleNotificationFor('ONE_TIME_CHARGE', null, [], ['signedDate' => 1_700_000_123_456])->result(appleSignedRequest());
+
+    expect($result->occurredAt()?->getTimestampMs())->toBe(1_700_000_123_456)
+        ->and(appleNotificationFor('ONE_TIME_CHARGE')->result(appleSignedRequest())->occurredAt())->toBeNull();
 });

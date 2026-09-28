@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Testing;
 
+use Illuminate\Support\Carbon;
 use RoundlyConsulting\Crypto\Codec\Base64Url;
 
 /**
@@ -26,6 +27,7 @@ final class PayloadFactory
         $payload = [
             'notificationUUID' => 'uuid-'.$transactionId,
             'notificationType' => $type,
+            'signedDate' => Carbon::now()->getTimestampMs(),
         ];
 
         if ($subType !== null) {
@@ -119,6 +121,7 @@ final class PayloadFactory
         return [
             'id' => 'evt_'.uniqid(),
             'type' => $type,
+            'created' => Carbon::now()->getTimestamp(),
             'data' => ['object' => $object],
         ];
     }

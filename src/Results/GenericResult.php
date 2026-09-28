@@ -37,6 +37,7 @@ final readonly class GenericResult implements ProviderResult
         private array $raw = [],
         private ?string $refundReason = null,
         private bool $chargeback = false,
+        private ?CarbonInterface $occurredAt = null,
     ) {}
 
     public function provider(): string
@@ -107,6 +108,11 @@ final readonly class GenericResult implements ProviderResult
     public function isChargeback(): bool
     {
         return $this->chargeback;
+    }
+
+    public function occurredAt(): ?CarbonInterface
+    {
+        return $this->occurredAt;
     }
 
     public function raw(): array

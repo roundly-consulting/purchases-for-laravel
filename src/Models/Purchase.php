@@ -28,6 +28,7 @@ use RoundlyConsulting\Purchases\Support\PurchaseRefundModel;
  * @property Money|null $price
  * @property string|null $price_currency
  * @property Collection<array-key, mixed>|null $meta
+ * @property CarbonInterface|null $last_event_at
  * @property CarbonInterface|null $created_at
  * @property CarbonInterface|null $updated_at
  * @property CarbonInterface|null $deleted_at
@@ -49,6 +50,7 @@ class Purchase extends Model
             'price' => AsMoney::class,
             'status' => Status::class,
             'meta' => 'collection',
+            'last_event_at' => 'datetime',
         ];
     }
 
