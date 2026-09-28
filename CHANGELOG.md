@@ -12,6 +12,17 @@ Initial public release.
 
 - One API for Apple App Store, Google Play and Stripe purchases and subscriptions through the
   `Purchases` facade: `result()` verifies and decodes, `handle()` also persists and fires events.
+- `Purchases::sync($result)` persists a `ProviderResult` you already hold (a receipt your app
+  verified, a backfill) exactly like a webhook — audited, recorded, events fired — always
+  synchronously.
+- `Purchases::replay($notification)` re-runs one stored audit notification (model or id) and
+  marks it processed; `purchases:replay` now replays through it. Unverified, deleted or
+  unrebuildable notifications are refused with `InvalidProviderNotificationException`.
+- `Purchases::for($owner)` — one owner's `purchases()`, `subscriptions()`,
+  `activeSubscription()` and `subscribedTo()`, scoped to that owner's morph type and key, no
+  trait needed.
+- The facade root `PurchasesManager` for dependency injection, and the actions behind it
+  (`HandleProviderResultAction`, `SyncProviderResultAction`, `ReplayProviderNotificationAction`).
 - A provider-agnostic `ProviderResult` contract, so host code never branches on the store.
 - Native verification with no third-party SDKs: Apple signed notifications and the App Store
   Server API, Google Play products and subscriptionsv2 with authenticated Pub/Sub pushes, and
@@ -24,8 +35,12 @@ Initial public release.
   changed.
 - Subscription scopes and helpers (`active()`, `expiring()`, `onTrial()`,
   `daysUntilRenewal()`) and the `HasPurchases` owner trait (`subscribedTo()`,
-  `activeSubscription()`).
+  `activeSubscription()`, delegating to `Purchases::for()`).
 - Optional webhook routes and queued webhook processing.
 - The `purchases:install`, `purchases:providers`, `purchases:verify` and `purchases:replay`
   commands.
-- `Purchases::fake()` with assertions, plus `FakeResult` and `PayloadFactory` for tests.
+- `Purchases::fake()` — a `PurchasesManager` subtype, so injected managers get it too — recording
+  `handle()`, `sync()` and `replay()` with `assertHandled()`, `assertSynced()`,
+  `assertReplayed()` (each with an `assertNothing…()` twin), `assertHandledCount()` and
+  `assertPurchaseRecorded()` / `assertSubscriptionStarted()` / `assertRefundRecorded()` over all
+  three, plus `FakeResult` and `PayloadFactory` for tests.

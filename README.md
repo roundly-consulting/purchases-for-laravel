@@ -157,8 +157,79 @@ $result->providerId();  // provider-side id
 $model = Purchases::handle('stripe', $request);     // verify + decode + persist + events
 
 Purchases::provider('google');   // Provider (throws UnknownProviderException if absent)
+Purchases::providers();          // Collection<string, Provider>
 Purchases::has('apple');         // bool
 Purchases::ids();                // ['apple', 'google', 'stripe']
+```
+
+**Persist a result you already hold.** `sync()` records a `ProviderResult` exactly the way a
+webhook is recorded — audited, reduced to a `Purchase` / `Subscription` / `PurchaseRefund`,
+events fired, audit row marked processed — and always synchronously. Use it for a receipt your
+app verified itself, or a `GenericResult` built for a backfill. It re-verifies nothing, so never
+pass it an unverified client payload.
+
+```php
+use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Results\GenericResult;
+
+// A Google Play purchase token your app sent up, checked against the Play Developer API
+// (product() throws VerificationException unless the purchase is in a purchased state).
+$purchase = Purchases::provider('google')->product($productId, $token);
+
+$model = Purchases::sync(new GenericResult(   // ?Model — null for an informational result
+    provider: 'google',
+    type: ResultType::Purchase,
+    providerId: $purchase->orderId ?? $token,  // the key Google's own notifications use
+    status: Status::Completed,
+    transactionId: $purchase->orderId,
+    name: $productId,
+    productId: $productId,
+));
+```
+
+**Replay one audited notification.** `replay()` rebuilds the result from a stored
+`PurchaseNotification` (the model or its id), records it again — idempotently, so a repeat
+changes nothing and fires nothing — and marks it processed. A soft-deleted, transient or
+unverified notification, or a snapshot that no longer rebuilds, throws
+`InvalidProviderNotificationException`; an unknown id throws `ModelNotFoundException`.
+
+```php
+Purchases::replay($notification);   // ?Model
+Purchases::replay(42);
+```
+
+**One owner's purchases.** `for($owner)` scopes to exactly one owner (its morph type and key)
+and needs no trait on the model:
+
+```php
+Purchases::for($user)->subscribedTo('pro');        // bool
+Purchases::for($user)->activeSubscription('pro');  // ?Subscription (latest active)
+Purchases::for($user)->purchases()->latest()->get();   // Builder<Purchase>
+Purchases::for($user)->subscriptions()->count();       // Builder<Subscription>
+```
+
+#### Without the facade
+
+The facade is sugar over `RoundlyConsulting\Purchases\PurchasesManager`. Inject it for the same
+API, or call the action behind a method directly — all three run the same code:
+
+```php
+use RoundlyConsulting\Purchases\Actions\HandleProviderResultAction;
+use RoundlyConsulting\Purchases\Actions\ReplayProviderNotificationAction;
+use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\PurchasesManager;
+
+public function __construct(private PurchasesManager $purchases) {}
+
+$this->purchases->sync($result);
+$this->purchases->for($user)->subscribedTo('pro');
+
+app(SyncProviderResultAction::class)->execute($result);               // = Purchases::sync()
+app(ReplayProviderNotificationAction::class)->execute($notification); // = Purchases::replay()
+app(HandleProviderResultAction::class)->execute(                      // = Purchases::handle()
+    $this->purchases->result('stripe', $request),
+);
 ```
 
 ### The unified result contract
@@ -223,6 +294,10 @@ When `PURCHASES_AUDIT_ENABLED=true` (the default), every verified notification i
 php artisan purchases:replay {id?} --provider=stripe --since=2026-01-01
 ```
 
+The command selects the notifications and replays each through `Purchases::replay()`; one it
+must not or cannot replay (never signature-verified, or a snapshot that no longer rebuilds) is
+reported as skipped and the rest continue.
+
 ### Subscription scopes & helpers
 
 ```php
@@ -257,6 +332,8 @@ $user->subscriptions;                // MorphMany<Subscription>
 $user->activeSubscription('pro');    // ?Subscription
 $user->subscribedTo('pro');          // bool
 ```
+
+The helpers delegate to `Purchases::for($this)`, so they behave exactly like the facade.
 
 ### Models and money
 
@@ -403,14 +480,17 @@ Disabled by default. Set `PURCHASES_ROUTES_ENABLED=true` to register
 ### Exceptions
 
 All package exceptions extend `RoundlyConsulting\Purchases\Exceptions\Exception` with a
-`because()` factory: `VerificationException`, `InvalidProviderNotificationException`, and
-`UnknownProviderException`. Money errors come from money-for-laravel (all extend
+`because()` factory: `VerificationException`, `InvalidProviderNotificationException` (also
+thrown by `replay()` for a notification it refuses), and `UnknownProviderException`. Money errors come from money-for-laravel (all extend
 `RoundlyConsulting\Money\Exceptions\MoneyException`).
 
 ### Testing helpers
 
-`Purchases::fake()` swaps the manager for a `Bus::fake()`-style double that records handled
-notifications and exposes assertions, without performing real verification. `FakeResult` and
+`Purchases::fake()` swaps the manager — for the facade **and** for anything that injects
+`PurchasesManager` (the webhook controller, `purchases:replay`) — with a `PurchasesFake` spy. It
+records every `handle()`, `sync()` and `replay()` and still runs the real recording pipeline, so
+rows are written and your listeners fire. Results queued with `push()` skip signature
+verification; a faked `handle()` also skips the audit log and the queue. `FakeResult` and
 `PayloadFactory` (under `RoundlyConsulting\Purchases\Testing`) build fake results and raw
 provider payloads.
 
@@ -422,11 +502,24 @@ $fake = Purchases::fake();
 $fake->push('stripe', FakeResult::subscription('stripe', 'sub_1'));
 
 Purchases::handle('stripe', $request);
+Purchases::sync(FakeResult::purchase('apple', 'txn_1'));
 
 $fake->assertHandled('stripe');
+$fake->assertSynced('apple');
 $fake->assertSubscriptionStarted('stripe');
-// also: assertPurchaseRecorded(), assertRefundRecorded(), assertHandledCount(), assertNothingHandled()
+$fake->assertPurchaseRecorded('apple');
 ```
+
+| Assertion | Passes when |
+|---|---|
+| `assertHandled($provider)` / `assertHandledCount($n)` / `assertNothingHandled()` | `handle()` saw a result for that provider / exactly `$n` results / none |
+| `assertSynced(?$provider)` / `assertNothingSynced()` | `sync()` received a result (for that provider) / none |
+| `assertReplayed(?$notification)` / `assertNothingReplayed()` | `replay()` replayed anything, or that notification (model or id) / nothing |
+| `assertPurchaseRecorded(?$provider)` | a purchase arrived through `handle()`, `sync()` or `replay()` |
+| `assertSubscriptionStarted(?$provider)` | a subscription result arrived through any of them |
+| `assertRefundRecorded(?$provider)` | a refund or chargeback arrived through any of them |
+
+`handledResults()` and `syncedResults()` return what was seen, for custom assertions.
 
 ## Integrates with
 
