@@ -19,10 +19,10 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
  * Idempotently records a refund / chargeback, links it to the originating
  * purchase when one can be matched, and flips that purchase's status.
  *
- * A refund keyed to a subscription (Apple's original transaction, Google's purchase
- * token) also revokes that subscription — unless it refunds an earlier period than the
- * one the subscription is in (a transaction id other than its latest). Only a full
- * refund (a Refunded result) flips anything; a partial one is recorded alone.
+ * A refund of a subscription's current period (its latest transaction — an Apple
+ * transaction, a Google order) or keyed to the subscription itself (Google's purchase
+ * token) also revokes that subscription — never one that refunds an earlier period. Only
+ * a full refund (a Refunded result) flips anything; a partial one is recorded alone.
  *
  * Events are ordered (see EventOrder): a refund event older than the last one applied to
  * its row changes nothing, and a purchase or subscription is only flipped when the refund
@@ -126,13 +126,20 @@ final readonly class RecordRefundAction
 
     private function relatedSubscription(RecordRefundData $data): ?Subscription
     {
+        $query = SubscriptionModel::query()->withTrashed()->where('provider', $data->provider)->lockForUpdate();
+
+        // The refunded transaction is the subscription's current period.
+        if ($data->transactionId !== null) {
+            /** @var Subscription|null $current */
+            $current = (clone $query)->where('transaction_id', $data->transactionId)->first();
+
+            if ($current !== null) {
+                return $current;
+            }
+        }
+
         /** @var Subscription|null $subscription */
-        $subscription = SubscriptionModel::query()
-            ->withTrashed()
-            ->where('provider', $data->provider)
-            ->where('provider_id', $data->providerId)
-            ->lockForUpdate()
-            ->first();
+        $subscription = $query->where('provider_id', $data->providerId)->first();
 
         if ($subscription === null) {
             return null;

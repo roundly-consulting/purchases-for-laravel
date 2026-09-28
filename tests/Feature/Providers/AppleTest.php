@@ -13,6 +13,7 @@ use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
+use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
 use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
@@ -831,6 +832,28 @@ it('keeps the subscription when apple refunds an earlier period', function (): v
     $sync->execute(appleNotificationFor('REFUND', null, ['transactionId' => 'txn-last-month'] + appleSubscriptionTransaction())->result(appleSignedRequest()));
 
     expect(Subscription::query()->sole()->status)->toBe(Status::Completed);
+});
+
+it('keeps one refund per refunded apple transaction', function (): void {
+    Event::fake([PurchaseRefunded::class]);
+    $sync = app(RecordProviderResultAction::class);
+    $sync->execute(appleNotificationFor('DID_RENEW', null, appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    // Two periods of one subscription refunded, one after the other, for the same amount.
+    $january = $sync->execute(appleNotificationFor('REFUND', null, ['transactionId' => 'txn-jan'] + appleSubscriptionTransaction())->result(appleSignedRequest()));
+    $february = $sync->execute(appleNotificationFor('REFUND', null, ['transactionId' => 'txn-feb'] + appleSubscriptionTransaction())->result(appleSignedRequest()));
+
+    expect(PurchaseRefund::query()->orderBy('id')->pluck('transaction_id')->all())->toBe(['txn-jan', 'txn-feb'])
+        ->and(PurchaseRefund::query()->orderBy('id')->pluck('provider_id')->all())->toBe(['txn-jan', 'txn-feb'])
+        ->and($january?->getKey())->not->toBe($february?->getKey());
+    Event::assertDispatchedTimes(PurchaseRefunded::class, 2);
+});
+
+it('keys an apple refund on the refunded transaction', function (): void {
+    $result = appleNotificationFor('REFUND', null, ['transactionId' => 'txn-9', 'originalTransactionId' => 'orig-9'])->result(appleSignedRequest());
+
+    expect($result->providerId())->toBe('txn-9')
+        ->and($result->transactionId())->toBe('txn-9');
 });
 
 /*

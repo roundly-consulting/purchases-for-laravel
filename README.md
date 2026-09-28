@@ -288,8 +288,11 @@ Apple `REFUND`/`REVOKE`, Google `*_REVOKED` / voided-purchase RTDNs, and Stripe
 `charge.refunded` / `charge.dispute.*` events decode into a first-class `PurchaseRefund` model.
 `handle()` records the refund, links it to the originating purchase, flips that purchase to
 `Status::Refunded`, and dispatches `PurchaseRefunded` (or `ChargebackReceived` for disputes). A
-refunded or revoked Apple subscription period and a revoked Google subscription also flip the
-`Subscription` to `Refunded`, so it stops being active; an Apple refund's `refunded_at` is its
+refund of a subscription's **current** period — the Apple transaction it is in, or its latest
+Google order (a voided-purchase RTDN) — and a revoked Google subscription also flip the
+`Subscription` to `Refunded`, so it stops being active; refunding an earlier period leaves it
+alone. Each refunded Apple transaction is its own `PurchaseRefund` (keyed on its `transactionId`),
+so refunds of two periods are two rows and two events; an Apple refund's `refunded_at` is its
 `revocationDate`. A **partial** refund (a Stripe charge not fully `refunded`, a Google
 quantity-based partial void) is recorded and fires `PurchaseRefunded`, but leaves the purchase
 completed.

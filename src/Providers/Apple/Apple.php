@@ -113,15 +113,14 @@ class Apple extends BaseProvider implements VerifiesConnectivity
         $transaction = $payload->transactionInfo;
         $status = $this->status($payload->type, $payload->subType);
 
-        $providerId = $payload->uuid;
-
-        if ($transaction !== null) {
-            $providerId = $transaction->originalTransactionId
-                ?? $transaction->transactionId
-                ?? $payload->uuid;
-        }
-
         $type = $this->resultType($payload->type, $payload->subType, $transaction);
+
+        // A purchase or subscription is keyed on its original transaction (a subscription
+        // keeps it across renewals); a refund on the transaction it refunds, so refunds of
+        // two periods of one subscription are two refunds, not one overwriting the other.
+        $providerId = $type === ResultType::Refund
+            ? ($transaction?->transactionId ?? $transaction?->originalTransactionId ?? $payload->uuid)
+            : ($transaction?->originalTransactionId ?? $transaction?->transactionId ?? $payload->uuid);
 
         return new GenericResult(
             provider: $this->id(),

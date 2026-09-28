@@ -13,6 +13,7 @@ use RoundlyConsulting\Purchases\Events\ChargebackReceived;
 use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
+use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 
 it('records a refund and flips the related purchase status', function (): void {
@@ -97,3 +98,20 @@ it('scopes refunds to chargebacks', function (): void {
 
     expect(PurchaseRefund::chargebacks()->count())->toBe(1);
 });
+
+it('revokes a subscription only when its current period is refunded', function (string $order, Status $expected): void {
+    Subscription::factory()->create([
+        'provider' => 'google',
+        'provider_id' => 'token-sub',
+        'transaction_id' => 'GPA.1..1',
+        'status' => Status::Completed,
+    ]);
+
+    // A Google voided-purchase notification is keyed on the voided order.
+    app(RecordRefundAction::class)->execute(new RecordRefundData(provider: 'google', providerId: $order, transactionId: $order));
+
+    expect(Subscription::query()->sole()->status)->toBe($expected);
+})->with([
+    'the latest order' => ['GPA.1..1', Status::Refunded],
+    'an earlier renewal order' => ['GPA.1..0', Status::Completed],
+]);
