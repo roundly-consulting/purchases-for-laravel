@@ -46,10 +46,10 @@ function configureAppleApi(bool $sandbox = true): void
 {
     config()->set('purchases.settings.apple', [
         'sandbox' => $sandbox,
+        'bundle_id' => 'com.example.app',
         'api' => [
             'key_id' => 'KEY123',
             'issuer_id' => 'issuer-1',
-            'bundle_id' => 'com.example.app',
             'private_key' => ecKey(),
             'url' => [
                 'live' => 'https://api.storekit.itunes.apple.com',
@@ -107,6 +107,7 @@ it('looks up a transaction and decodes the signed payload', function (): void {
     ]);
 
     $jws = fakeJws([
+        'bundleId' => 'com.example.app',
         'environment' => 'Sandbox',
         'transactionId' => 'txn-1',
         'productId' => 'pro.monthly',
@@ -120,6 +121,26 @@ it('looks up a transaction and decodes the signed payload', function (): void {
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.storekit-sandbox.itunes.apple.com'));
 });
 
+it('refuses a looked-up transaction of another app or environment', function (array $transaction, string $message): void {
+    configureAppleApi();
+    Http::fake(['*/inApps/v1/transactions/*' => Http::response(['signedTransactionInfo' => 'signed.jws'])]);
+
+    expect(fn () => (new AppStoreServerApi(fakeJws($transaction + ['transactionId' => 'txn-x'])))->transaction('txn-x'))
+        ->toThrow(VerificationException::class, $message);
+})->with([
+    'another app' => [['bundleId' => 'com.other.app', 'environment' => 'Sandbox'], 'Apple transaction is for another app.'],
+    'another environment' => [['bundleId' => 'com.example.app', 'environment' => 'Production'], 'Apple transaction is for another environment.'],
+]);
+
+it('escapes the transaction id into the request path', function (): void {
+    configureAppleApi();
+    Http::fake(['*' => Http::response(['signedTransactionInfo' => 'signed.jws'])]);
+
+    (new AppStoreServerApi(fakeJws(['bundleId' => 'com.example.app', 'environment' => 'Sandbox'])))->transaction('../../v1/notifications/test');
+
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/inApps/v1/transactions/..%2F..%2Fv1%2Fnotifications%2Ftest'));
+});
+
 it('targets the live url outside sandbox', function (): void {
     configureAppleApi(sandbox: false);
 
@@ -127,7 +148,7 @@ it('targets the live url outside sandbox', function (): void {
         '*/inApps/v1/transactions/*' => Http::response(['signedTransactionInfo' => 'signed.jws']),
     ]);
 
-    (new AppStoreServerApi(fakeJws(['environment' => 'Production', 'transactionId' => 'txn-2'])))->transaction('txn-2');
+    (new AppStoreServerApi(fakeJws(['bundleId' => 'com.example.app', 'environment' => 'Production', 'transactionId' => 'txn-2'])))->transaction('txn-2');
 
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.storekit.itunes.apple.com')
         && ! str_contains($request->url(), 'sandbox'));
@@ -152,17 +173,17 @@ it('throws when the api credentials are missing', function (): void {
 it('falls back to default urls when not configured', function (): void {
     config()->set('purchases.settings.apple', [
         'sandbox' => true,
+        'bundle_id' => 'com.example.app',
         'api' => [
             'key_id' => 'KEY123',
             'issuer_id' => 'issuer-1',
-            'bundle_id' => 'com.example.app',
             'private_key' => ecKey(),
         ],
     ]);
 
     Http::fake(['*/inApps/v1/transactions/*' => Http::response(['signedTransactionInfo' => 'signed.jws'])]);
 
-    (new AppStoreServerApi(fakeJws(['environment' => 'Sandbox', 'transactionId' => 'txn-3'])))->transaction('txn-3');
+    (new AppStoreServerApi(fakeJws(['bundleId' => 'com.example.app', 'environment' => 'Sandbox', 'transactionId' => 'txn-3'])))->transaction('txn-3');
 
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.storekit-sandbox.itunes.apple.com'));
 });

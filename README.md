@@ -102,7 +102,7 @@ return [
     ],
 
     'settings' => [
-        'apple' => [ /* sandbox, verifyReceipt urls, password, api { … } */ ],
+        'apple' => [ /* bundle_id, app_apple_id, sandbox, verifyReceipt urls, password, certificate_clock_skew, api { … } */ ],
         'google' => [ /* package_name, service_account { … }, base_url, acknowledge */ ],
         'stripe' => [ /* secret, webhook_secret, api_version, base_url, tolerance */ ],
     ],
@@ -113,11 +113,13 @@ return [
 
 | Variable | Backs |
 |---|---|
-| `PURCHASES_APPLE_SANDBOX` | Apple sandbox toggle |
+| `PURCHASES_APPLE_BUNDLE_ID` | **Required for Apple.** Your app's bundle id. Every App Store notification (and every transaction the App Store Server API returns) must name it, or it is rejected; it also signs App Store Server API requests |
+| `PURCHASES_APPLE_APP_APPLE_ID` | Your app's Apple ID (App Store Connect → App Information). **Required in production**: a production notification must carry it |
+| `PURCHASES_APPLE_SANDBOX` | `true` to accept Sandbox notifications and call Apple's sandbox hosts. **Default `false` — production** |
 | `PURCHASES_APPLE_LIVE_URL` / `PURCHASES_APPLE_SANDBOX_URL` | `verifyReceipt` base URLs |
 | `PURCHASES_APPLE_PASSWORD` | Apple shared secret (legacy receipt validation) |
 | `PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW` | Clock-skew tolerance in **seconds** (0–3600, default `60`) for Apple's certificate validity check |
-| `PURCHASES_APPLE_KEY_ID` / `PURCHASES_APPLE_ISSUER_ID` / `PURCHASES_APPLE_BUNDLE_ID` / `PURCHASES_APPLE_PRIVATE_KEY` | App Store Server API credentials |
+| `PURCHASES_APPLE_KEY_ID` / `PURCHASES_APPLE_ISSUER_ID` / `PURCHASES_APPLE_PRIVATE_KEY` | App Store Server API credentials |
 | `PURCHASES_GOOGLE_PACKAGE_NAME` | Android package name |
 | `PURCHASES_GOOGLE_CLIENT_EMAIL` / `PURCHASES_GOOGLE_PRIVATE_KEY` | Google service-account credentials |
 | `PURCHASES_GOOGLE_TOKEN_URI` | Google OAuth2 token endpoint |
@@ -400,6 +402,21 @@ $transaction->productId;
 
 `Apple::callback()` still calls Apple's deprecated `verifyReceipt` endpoint for legacy receipts.
 
+**Your app only.** Apple signs every app's notifications with the same certificate chain, so a
+genuine signature proves only that Apple sent a notification — not that it concerns your app.
+`notification()` (and so `result()`, `handle()` and the webhook route) therefore also requires the
+notification — and every transaction and renewal it carries — to name your
+`PURCHASES_APPLE_BUNDLE_ID` and your environment (`PURCHASES_APPLE_SANDBOX`), and, in
+production, your `PURCHASES_APPLE_APP_APPLE_ID`. Anything else throws `VerificationException`
+(`400` on the route); with no bundle id configured every notification is refused. A transaction
+looked up through `AppStoreServerApi::transaction()` is bound the same way.
+
+```dotenv
+PURCHASES_APPLE_BUNDLE_ID=com.example.app
+PURCHASES_APPLE_APP_APPLE_ID=1234567890
+PURCHASES_APPLE_SANDBOX=false   # the default; true on a host that receives Sandbox notifications
+```
+
 ### Google Play
 
 Verifies one-time products and **subscriptionsv2** purchases against the Play Developer API,
@@ -543,7 +560,10 @@ hand-rolls no algorithm of its own:
 
 The split is deliberate: **crypto owns algorithms, purchases owns trust**. Apple's pinned
 fingerprints are what stop a forged App Store notification, so they stay here, next to the
-notification handling they protect. Purchases calls no `openssl_*` function of its own.
+notification handling they protect. They prove only that *Apple* signed it, though — Apple signs
+every app's notifications with that chain — so purchases also binds each notification to your
+app (bundle id, environment and, in production, Apple ID; see [Apple](#apple)). Purchases calls
+no `openssl_*` function of its own.
 
 #### Apple certificate validity (and the clock-skew leeway)
 

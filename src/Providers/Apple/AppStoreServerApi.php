@@ -50,11 +50,12 @@ final class AppStoreServerApi
     }
 
     /**
-     * Look up a single transaction by id and decode its signed JWS payload.
+     * Look up a single transaction by id and decode its signed JWS payload — verified, and
+     * refused unless it belongs to the configured app and environment.
      */
     public function transaction(string $transactionId): TransactionInfo
     {
-        $response = $this->client()->get("/inApps/v1/transactions/{$transactionId}");
+        $response = $this->client()->get('/inApps/v1/transactions/'.rawurlencode($transactionId));
 
         $signed = $response->json('signedTransactionInfo');
 
@@ -64,7 +65,11 @@ final class AppStoreServerApi
 
         $this->jws->verify($signed);
 
-        return TransactionInfo::fromRaw($this->jws->parse($signed)->claims);
+        $transaction = TransactionInfo::fromRaw($this->jws->parse($signed)->claims);
+
+        AppIdentity::fromConfig()->assertTransaction($transaction);
+
+        return $transaction;
     }
 
     private function client(): PendingRequest
@@ -81,7 +86,7 @@ final class AppStoreServerApi
 
         $keyId = $api['key_id'] ?? null;
         $issuerId = $api['issuer_id'] ?? null;
-        $bundleId = $api['bundle_id'] ?? null;
+        $bundleId = $this->config['bundle_id'] ?? null;
         $privateKey = $api['private_key'] ?? null;
 
         if (! is_string($keyId) || ! is_string($issuerId) || ! is_string($bundleId) || ! is_string($privateKey)
@@ -99,7 +104,7 @@ final class AppStoreServerApi
         /** @var array<string, mixed> $urls */
         $urls = $api['url'] ?? [];
 
-        $sandbox = Config::for($this->config)->boolean('sandbox', true);
+        $sandbox = Config::for($this->config)->boolean('sandbox');
         $url = $sandbox ? ($urls['sandbox'] ?? null) : ($urls['live'] ?? null);
 
         if (! is_string($url) || $url === '') {

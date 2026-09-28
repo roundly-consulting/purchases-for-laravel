@@ -54,6 +54,12 @@ class Apple extends BaseProvider implements VerifiesConnectivity
         $this->config = $config;
     }
 
+    /**
+     * Verify a signed App Store Server notification — Apple's signature, then that it is
+     * for the configured app (bundle id, environment and, in production, Apple ID).
+     *
+     * @throws VerificationException
+     */
     public function notification(Request $request): ServerNotificationDecodedPayload
     {
         $signedPayload = (string) $request->input('signedPayload');
@@ -70,7 +76,13 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             data_set($claims, 'data.transactionInfo', $this->jws->parse($claims['data']['signedTransactionInfo'])->claims);
         }
 
-        return ServerNotificationDecodedPayload::fromRaw($claims);
+        $payload = ServerNotificationDecodedPayload::fromRaw($claims);
+
+        // A genuine Apple signature says nothing about WHOSE app this is: Apple signs every
+        // app's notifications with the same chain. Only this host's app is accepted.
+        AppIdentity::fromConfig()->assertNotification($payload);
+
+        return $payload;
     }
 
     /**
@@ -255,7 +267,7 @@ class Apple extends BaseProvider implements VerifiesConnectivity
 
     protected function getBaseUrl(): string
     {
-        return Config::for($this->config)->boolean('sandbox', true) ? $this->config['url']['sandbox'] : $this->config['url']['live'];
+        return Config::for($this->config)->boolean('sandbox') ? $this->config['url']['sandbox'] : $this->config['url']['live'];
     }
 
     protected function client(): PendingRequest

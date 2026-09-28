@@ -39,6 +39,7 @@ final class PayloadFactory
                 'bundleVersion' => '1.0',
                 'environment' => 'Sandbox',
                 'transactionInfo' => [
+                    'bundleId' => 'com.example.app',
                     'environment' => 'Sandbox',
                     'transactionId' => $transactionId,
                     'originalTransactionId' => $transactionId,

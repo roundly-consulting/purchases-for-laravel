@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Commands;
 
 use Illuminate\Console\Command;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\PurchasesManager;
 
 final class ProvidersCommand extends Command
@@ -35,8 +36,10 @@ final class ProvidersCommand extends Command
     private function isConfigured(string $id): bool
     {
         return match ($id) {
-            'apple' => filled(config('purchases.settings.apple.password'))
-                || filled(config('purchases.settings.apple.api.private_key')),
+            // Notifications are only accepted for the configured app — and, in
+            // production, its Apple ID — so without those Apple can take no traffic.
+            'apple' => filled(config('purchases.settings.apple.bundle_id'))
+                && (Config::boolean('purchases.settings.apple.sandbox') || filled(config('purchases.settings.apple.app_apple_id'))),
             'google' => filled(config('purchases.settings.google.package_name'))
                 && filled(config('purchases.settings.google.service_account.client_email')),
             'stripe' => filled(config('purchases.settings.stripe.secret'))

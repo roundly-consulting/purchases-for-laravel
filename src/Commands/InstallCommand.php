@@ -21,10 +21,13 @@ final class InstallCommand extends Command
      */
     private const ENV_KEYS = [
         'apple' => [
+            '# Apple: the app notifications are accepted for (the Apple ID is required in production)',
+            'PURCHASES_APPLE_BUNDLE_ID=',
+            'PURCHASES_APPLE_APP_APPLE_ID=',
+            'PURCHASES_APPLE_SANDBOX=false',
             '# Apple App Store Server API credentials',
             'PURCHASES_APPLE_KEY_ID=',
             'PURCHASES_APPLE_ISSUER_ID=',
-            'PURCHASES_APPLE_BUNDLE_ID=',
             'PURCHASES_APPLE_PRIVATE_KEY=',
             'PURCHASES_APPLE_PASSWORD=',
         ],

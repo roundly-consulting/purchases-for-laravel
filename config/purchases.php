@@ -73,7 +73,21 @@ return [
 
     'settings' => [
         'apple' => [
-            'sandbox' => filter_var(env('PURCHASES_APPLE_SANDBOX', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
+            /*
+             | The App Store app this host serves. Apple signs every app's notifications
+             | with the same certificate chain, so a notification — and a transaction the
+             | App Store Server API returns — is accepted only when it names this bundle
+             | id and the environment below; in production its appAppleId must also equal
+             | app_apple_id. The bundle id also signs App Store Server API requests.
+             */
+            'bundle_id' => env('PURCHASES_APPLE_BUNDLE_ID'),
+            'app_apple_id' => env('PURCHASES_APPLE_APP_APPLE_ID'),
+
+            /*
+             | Production unless switched on: the App Store environment notifications must
+             | come from, and which verifyReceipt / App Store Server API host is called.
+             */
+            'sandbox' => filter_var(env('PURCHASES_APPLE_SANDBOX', false), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false,
             'url' => [
                 'live' => env('PURCHASES_APPLE_LIVE_URL', 'https://buy.itunes.apple.com'),
                 'sandbox' => env('PURCHASES_APPLE_SANDBOX_URL', 'https://sandbox.itunes.apple.com'),
@@ -99,7 +113,6 @@ return [
             'api' => [
                 'key_id' => env('PURCHASES_APPLE_KEY_ID'),
                 'issuer_id' => env('PURCHASES_APPLE_ISSUER_ID'),
-                'bundle_id' => env('PURCHASES_APPLE_BUNDLE_ID'),
                 'private_key' => env('PURCHASES_APPLE_PRIVATE_KEY'),
                 'url' => [
                     'live' => env('PURCHASES_APPLE_API_LIVE_URL', 'https://api.storekit.itunes.apple.com'),

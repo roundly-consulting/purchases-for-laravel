@@ -12,7 +12,9 @@ use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
+use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Facades\Purchases;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
@@ -61,7 +63,19 @@ function fakeJwsReturning(array $claims): JwsManager
     return fakeJwsMapping(['token' => $claims]);
 }
 
+/*
+ | Every notification in this file is for the suite's app: com.example.app, in production,
+ | Apple ID 1. A test about another environment switches the host's config explicitly.
+ */
+beforeEach(function (): void {
+    config()->set('purchases.settings.apple.bundle_id', 'com.example.app');
+    config()->set('purchases.settings.apple.app_apple_id', '1');
+    config()->set('purchases.settings.apple.sandbox', false);
+});
+
 it('decodes a verified server notification into a payload', function (): void {
+    config()->set('purchases.settings.apple.sandbox', true);
+
     $claims = [
         'notificationUUID' => 'n-1',
         'notificationType' => 'SUBSCRIBED',
@@ -106,6 +120,7 @@ it('decodes nested signed renewal and transaction info', function (): void {
             'autoRenewStatus' => 1,
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-1',
             'productId' => 'prod-1',
@@ -183,6 +198,7 @@ it('maps a renewal notification into a unified subscription result', function ()
             ],
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-9',
             'originalTransactionId' => 'orig-9',
@@ -212,7 +228,7 @@ it('maps a notification without transaction info into a notification result', fu
             'appAppleId' => '1',
             'bundleId' => 'com.example.app',
             'bundleVersion' => '1.0',
-            'environment' => 'Sandbox',
+            'environment' => 'Production',
         ],
     ]);
 
@@ -257,6 +273,7 @@ it('maps a refund notification into a refund result', function (): void {
             ],
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-r',
             'originalTransactionId' => 'orig-r',
@@ -287,6 +304,7 @@ it('maps a grace-period renewal failure into a grace-period result', function ()
             ],
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-g',
             'originalTransactionId' => 'orig-g',
@@ -315,6 +333,7 @@ it('maps a renewal failure without grace period into a failed result', function 
             ],
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-f',
             'originalTransactionId' => 'orig-f',
@@ -349,6 +368,7 @@ function applePricedResult(array $transaction): ?Money
             ],
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-p',
             'originalTransactionId' => 'orig-p',
@@ -409,6 +429,7 @@ it('parses a notification that carries no subtype', function (string $type, ?str
             ],
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-ns',
             'originalTransactionId' => 'orig-ns',
@@ -431,6 +452,8 @@ it('parses a notification that carries no subtype', function (string $type, ?str
 ]);
 
 it('reads the subtype from the key apple sends', function (): void {
+    config()->set('purchases.settings.apple.sandbox', true);
+
     $claims = ['notificationUUID' => 'n-st', 'notificationType' => 'DID_FAIL_TO_RENEW', 'subtype' => 'GRACE_PERIOD', 'data' => [
         'bundleId' => 'com.example.app',
         'bundleVersion' => '1.0',
@@ -443,18 +466,20 @@ it('reads the subtype from the key apple sends', function (): void {
 });
 
 it('reads the int64 app apple id and tolerates its absence in the sandbox', function (array $data, ?string $expected): void {
+    config()->set('purchases.settings.apple.app_apple_id', '1234567890');
+    config()->set('purchases.settings.apple.sandbox', $data['environment'] === 'Sandbox');
+
     $claims = ['notificationUUID' => 'n-app', 'notificationType' => 'DID_RENEW', 'data' => $data + [
         'bundleId' => 'com.example.app',
         'bundleVersion' => '1.0',
-        'environment' => 'Production',
     ]];
 
     $payload = (new Apple(fakeJwsReturning($claims)))->notification(new Request(['signedPayload' => 'token']));
 
     expect($payload->appMetadata->appAppleId)->toBe($expected);
 })->with([
-    'production: an int64' => [['appAppleId' => 1234567890], '1234567890'],
-    'sandbox: absent' => [[], null],
+    'production: an int64' => [['appAppleId' => 1234567890, 'environment' => 'Production'], '1234567890'],
+    'sandbox: absent' => [['environment' => 'Sandbox'], null],
 ]);
 
 /**
@@ -477,6 +502,7 @@ function appleRefundPrice(string $type, array $transaction): ?Money
             ],
         ],
         'transaction.jws' => [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-rp',
             'originalTransactionId' => 'orig-rp',
@@ -547,7 +573,7 @@ function appleNotificationFor(string $type, ?string $subtype = null, ?array $tra
 
     if ($transaction !== null) {
         $claims['data'] = [
-            'appAppleId' => 1234567890,
+            'appAppleId' => 1,
             'bundleId' => 'com.example.app',
             'bundleVersion' => '1.0',
             'environment' => 'Production',
@@ -558,6 +584,7 @@ function appleNotificationFor(string $type, ?string $subtype = null, ?array $tra
     return new Apple(fakeJwsMapping([
         'token' => $claims,
         'transaction.jws' => ($transaction ?? []) + [
+            'bundleId' => 'com.example.app',
             'environment' => 'Production',
             'transactionId' => 'txn-'.strtolower($type),
             'originalTransactionId' => 'orig-'.strtolower($type),
@@ -614,8 +641,8 @@ it('parses the notifications apple sends without a data block', function (string
         ->and($result->type())->toBe(ResultType::Notification)
         ->and($result->providerId())->toBe('n-'.strtolower($type));
 })->with([
-    'renewal extension summary' => ['RENEWAL_EXTENSION', 'SUMMARY', ['summary' => ['requestIdentifier' => 'r-1', 'succeededCount' => 10, 'failedCount' => 0]], 'summary'],
-    'external purchase token' => ['EXTERNAL_PURCHASE_TOKEN', 'CREATED', ['externalPurchaseToken' => ['externalPurchaseId' => 'x-1', 'tokenCreationDate' => 1700000000000]], 'externalPurchaseToken'],
+    'renewal extension summary' => ['RENEWAL_EXTENSION', 'SUMMARY', ['summary' => ['requestIdentifier' => 'r-1', 'succeededCount' => 10, 'failedCount' => 0, 'bundleId' => 'com.example.app', 'environment' => 'Production', 'appAppleId' => 1]], 'summary'],
+    'external purchase token' => ['EXTERNAL_PURCHASE_TOKEN', 'CREATED', ['externalPurchaseToken' => ['externalPurchaseId' => 'x-1', 'tokenCreationDate' => 1700000000000, 'bundleId' => 'com.example.app', 'appAppleId' => 1]], 'externalPurchaseToken'],
     'rescinded consent' => ['RESCIND_CONSENT', null, ['appData' => ['appAppleId' => 1, 'bundleId' => 'com.example.app', 'environment' => 'Production']], 'appData'],
 ]);
 
@@ -801,3 +828,140 @@ it('keeps the subscription when apple refunds an earlier period', function (): v
 
     expect(Subscription::query()->sole()->status)->toBe(Status::Completed);
 });
+
+/*
+ | App binding. Apple signs EVERY app's notifications with the same chain, so a genuine
+ | signature proves nothing about whose app a notification concerns. The review's exploit:
+ | an attacker's own free sandbox purchase, carrying a victim's appAccountToken, posted to a
+ | production host — recorded as the victim's active subscription.
+ */
+
+/**
+ * A verified-signature Apple notification for the given app block and transaction.
+ *
+ * @param  array<string, mixed>  $data
+ * @param  array<string, mixed>  $transaction
+ * @param  array<string, mixed>|null  $renewal
+ */
+function appleBoundNotification(array $data = [], array $transaction = [], ?array $renewal = null): Apple
+{
+    $claims = [
+        'notificationUUID' => 'n-bind',
+        'notificationType' => 'SUBSCRIBED',
+        'subtype' => 'INITIAL_BUY',
+        'data' => $data + [
+            'appAppleId' => 1,
+            'bundleId' => 'com.example.app',
+            'bundleVersion' => '1.0',
+            'environment' => 'Production',
+            'signedTransactionInfo' => 'transaction.jws',
+        ],
+    ];
+
+    $map = [
+        'token' => $claims,
+        'transaction.jws' => $transaction + [
+            'bundleId' => 'com.example.app',
+            'environment' => 'Production',
+            'transactionId' => 'txn-bind',
+            'originalTransactionId' => 'orig-bind',
+            'productId' => 'pro.monthly',
+            'type' => 'Auto-Renewable Subscription',
+            'appAccountToken' => '6f1c1e2e-0000-4000-8000-000000000001',
+            'expiresDate' => Carbon::now()->addMonth()->getTimestampMs(),
+        ],
+    ];
+
+    if ($renewal !== null) {
+        $map['token']['data']['signedRenewalInfo'] = 'renewal.jws';
+        $map['renewal.jws'] = $renewal;
+    }
+
+    return new Apple(fakeJwsMapping($map));
+}
+
+it('refuses a genuine notification for another app, recording nothing', function (): void {
+    Event::fake();
+
+    // The attacker's app, the attacker's sandbox — a real Apple signature all the same.
+    config()->set('purchases.providers', [Apple::class]);
+    app()->instance(Apple::class, appleBoundNotification(
+        ['bundleId' => 'com.attacker.app', 'environment' => 'Sandbox', 'appAppleId' => null],
+        ['bundleId' => 'com.attacker.app', 'environment' => 'Sandbox'],
+    ));
+
+    expect(fn () => Purchases::handle('apple', appleSignedRequest()))
+        ->toThrow(VerificationException::class, 'Apple notification is for another app.')
+        ->and(Subscription::query()->count())->toBe(0);
+
+    Event::assertNotDispatched(SubscriptionStarted::class);
+});
+
+it('refuses a notification that does not match the configured app', function (array $data, array $transaction, string $message): void {
+    expect(fn () => appleBoundNotification($data, $transaction)->result(appleSignedRequest()))
+        ->toThrow(VerificationException::class, $message);
+})->with([
+    'another bundle id' => [['bundleId' => 'com.other.app'], [], 'Apple notification is for another app.'],
+    'the sandbox on a production host' => [['environment' => 'Sandbox', 'appAppleId' => null], ['environment' => 'Sandbox'], 'Apple notification is for another environment.'],
+    'another apple id in production' => [['appAppleId' => 999], [], 'Apple notification is for another app id.'],
+    'no apple id in production' => [['appAppleId' => null], [], 'Apple notification is for another app id.'],
+    'a transaction of another app' => [[], ['bundleId' => 'com.other.app'], 'Apple transaction is for another app.'],
+    'a transaction of another environment' => [[], ['environment' => 'Sandbox'], 'Apple transaction is for another environment.'],
+]);
+
+it('refuses renewal info from another environment', function (): void {
+    appleBoundNotification(renewal: ['environment' => 'Sandbox', 'originalTransactionId' => 'orig-bind'])
+        ->notification(appleSignedRequest());
+})->throws(VerificationException::class, 'Apple renewal info is for another environment.');
+
+it('accepts a notification for the configured app in either environment', function (bool $sandbox, string $environment, ?int $appAppleId): void {
+    config()->set('purchases.settings.apple.sandbox', $sandbox);
+
+    $result = appleBoundNotification(
+        ['environment' => $environment, 'appAppleId' => $appAppleId],
+        ['environment' => $environment],
+        ['environment' => $environment, 'originalTransactionId' => 'orig-bind'],
+    )->result(appleSignedRequest());
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->providerId())->toBe('orig-bind');
+})->with([
+    'production' => [false, 'Production', 1],
+    // Apple sends no appAppleId in the sandbox, so none is required there.
+    'sandbox' => [true, 'Sandbox', null],
+]);
+
+it('refuses every notification while no bundle id is configured', function (): void {
+    config()->set('purchases.settings.apple.bundle_id', null);
+
+    appleBoundNotification()->notification(appleSignedRequest());
+})->throws(VerificationException::class, 'Apple bundle id is not configured');
+
+it('refuses production notifications while no apple id is configured', function (): void {
+    config()->set('purchases.settings.apple.app_apple_id', null);
+
+    appleBoundNotification()->notification(appleSignedRequest());
+})->throws(VerificationException::class, 'Apple app id is not configured');
+
+it('binds the notifications that carry their app outside a data block', function (array $extra, bool $accepted): void {
+    $apple = appleNotificationFor('RENEWAL_EXTENSION', 'SUMMARY', null, $extra);
+
+    try {
+        $apple->notification(appleSignedRequest());
+        $refused = false;
+    } catch (VerificationException) {
+        $refused = true;
+    }
+
+    expect($refused)->toBe(! $accepted);
+})->with([
+    'our summary' => [['summary' => ['bundleId' => 'com.example.app', 'environment' => 'Production', 'appAppleId' => 1]], true],
+    'another app summary' => [['summary' => ['bundleId' => 'com.other.app', 'environment' => 'Production', 'appAppleId' => 1]], false],
+    'a summary from the sandbox' => [['summary' => ['bundleId' => 'com.example.app', 'environment' => 'Sandbox', 'appAppleId' => 1]], false],
+    'our app data' => [['appData' => ['bundleId' => 'com.example.app', 'environment' => 'Production', 'appAppleId' => 1]], true],
+    'another app data' => [['appData' => ['bundleId' => 'com.other.app', 'environment' => 'Production', 'appAppleId' => 1]], false],
+    // An external purchase token carries no environment field — its bundle and app id still bind.
+    'our external purchase token' => [['externalPurchaseToken' => ['bundleId' => 'com.example.app', 'appAppleId' => 1]], true],
+    'another external purchase token' => [['externalPurchaseToken' => ['bundleId' => 'com.other.app', 'appAppleId' => 1]], false],
+    'no app block at all' => [[], false],
+]);

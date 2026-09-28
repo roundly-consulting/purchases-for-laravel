@@ -47,7 +47,7 @@ final class PurchasesServiceProvider extends PackageServiceProvider
                 'Notification model' => class_basename(PurchaseNotificationModel::class()),
                 'Providers' => self::providerCount(),
                 'Apple credentials' => self::presence(self::appleConfigured()),
-                'Apple environment' => Config::boolean('purchases.settings.apple.sandbox', true) ? 'SANDBOX' : 'LIVE',
+                'Apple environment' => Config::boolean('purchases.settings.apple.sandbox') ? 'SANDBOX' : 'LIVE',
                 'Apple clock skew' => self::seconds('purchases.settings.apple.certificate_clock_skew', 60),
                 'Google credentials' => self::presence(self::googleConfigured()),
                 'Google acknowledgement' => Config::boolean('purchases.settings.google.acknowledge', true) ? 'ON' : 'OFF',
