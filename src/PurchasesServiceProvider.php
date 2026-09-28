@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Purchases;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Commands\InstallCommand;
 use RoundlyConsulting\Purchases\Commands\ProvidersCommand;
 use RoundlyConsulting\Purchases\Commands\ReplayCommand;
@@ -46,15 +47,15 @@ final class PurchasesServiceProvider extends PackageServiceProvider
                 'Notification model' => class_basename(PurchaseNotificationModel::class()),
                 'Providers' => self::providerCount(),
                 'Apple credentials' => self::presence(self::appleConfigured()),
-                'Apple environment' => config('purchases.settings.apple.sandbox') === true ? 'SANDBOX' : 'LIVE',
+                'Apple environment' => Config::boolean('purchases.settings.apple.sandbox', true) ? 'SANDBOX' : 'LIVE',
                 'Apple clock skew' => self::seconds('purchases.settings.apple.certificate_clock_skew', 60),
                 'Google credentials' => self::presence(self::googleConfigured()),
-                'Google acknowledgement' => config('purchases.settings.google.acknowledge') === true ? 'ON' : 'OFF',
+                'Google acknowledgement' => Config::boolean('purchases.settings.google.acknowledge', true) ? 'ON' : 'OFF',
                 'Stripe API key' => self::presence(filled(config('purchases.settings.stripe.secret'))),
                 'Stripe webhook secret' => self::presence(filled(config('purchases.settings.stripe.webhook_secret'))),
                 'Stripe tolerance' => self::seconds('purchases.settings.stripe.tolerance', 300),
                 'Provider endpoints' => self::endpoints(),
-                'Audit log' => config('purchases.audit.enabled') === true ? 'ON' : 'OFF',
+                'Audit log' => Config::boolean('purchases.audit.enabled', true) ? 'ON' : 'OFF',
                 'Queue processing' => self::queue(),
                 'Webhook routes' => self::routes(),
             ]);
@@ -142,7 +143,7 @@ final class PurchasesServiceProvider extends PackageServiceProvider
      */
     private static function queue(): string
     {
-        if (config('purchases.queue.enabled') !== true) {
+        if (! Config::boolean('purchases.queue.enabled')) {
             return 'OFF';
         }
 
@@ -159,7 +160,7 @@ final class PurchasesServiceProvider extends PackageServiceProvider
      */
     private static function routes(): string
     {
-        if (config('purchases.routes.enabled') !== true) {
+        if (! Config::boolean('purchases.routes.enabled')) {
             return 'OFF';
         }
 

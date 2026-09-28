@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Purchases\Providers\Apple;
 
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Auth\AppStoreJwtFactory;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
@@ -98,7 +99,7 @@ final class AppStoreServerApi
         /** @var array<string, mixed> $urls */
         $urls = $api['url'] ?? [];
 
-        $sandbox = (bool) ($this->config['sandbox'] ?? true);
+        $sandbox = Config::for($this->config)->boolean('sandbox', true);
         $url = $sandbox ? ($urls['sandbox'] ?? null) : ($urls['live'] ?? null);
 
         if (! is_string($url) || $url === '') {

@@ -11,6 +11,11 @@ use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 
+/*
+ | Every on/off switch below is read from the environment as a string, so each is
+ | coerced: 1/true/on/yes are on, 0/false/off/no are off, and anything else keeps
+ | the documented default (for push authentication that is ON — fail-closed).
+ */
 return [
     'models' => [
         'purchase' => Purchase::class,
@@ -42,7 +47,7 @@ return [
      | model state, giving an auditable log you can inspect or replay.
      */
     'audit' => [
-        'enabled' => env('PURCHASES_AUDIT_ENABLED', true),
+        'enabled' => filter_var(env('PURCHASES_AUDIT_ENABLED', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
     ],
 
     /*
@@ -51,7 +56,7 @@ return [
      | happens on the configured queue connection.
      */
     'queue' => [
-        'enabled' => env('PURCHASES_QUEUE_ENABLED', false),
+        'enabled' => filter_var(env('PURCHASES_QUEUE_ENABLED', false), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false,
         'connection' => env('PURCHASES_QUEUE_CONNECTION'),
         'queue' => env('PURCHASES_QUEUE_NAME'),
     ],
@@ -61,16 +66,14 @@ return [
      | registers POST {prefix}/webhooks/{provider} routes that verify and persist.
      */
     'routes' => [
-        // Cast so a `0`/`1`-style env still reads as a strict boolean — the route
-        // gate is a strict `!== false` check.
-        'enabled' => (bool) env('PURCHASES_ROUTES_ENABLED', false),
+        'enabled' => filter_var(env('PURCHASES_ROUTES_ENABLED', false), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false,
         'prefix' => env('PURCHASES_ROUTES_PREFIX', 'purchases'),
         'middleware' => ['api'],
     ],
 
     'settings' => [
         'apple' => [
-            'sandbox' => env('PURCHASES_APPLE_SANDBOX', true),
+            'sandbox' => filter_var(env('PURCHASES_APPLE_SANDBOX', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
             'url' => [
                 'live' => env('PURCHASES_APPLE_LIVE_URL', 'https://buy.itunes.apple.com'),
                 'sandbox' => env('PURCHASES_APPLE_SANDBOX_URL', 'https://sandbox.itunes.apple.com'),
@@ -113,7 +116,7 @@ return [
                 'token_uri' => env('PURCHASES_GOOGLE_TOKEN_URI', 'https://oauth2.googleapis.com/token'),
             ],
             'base_url' => env('PURCHASES_GOOGLE_BASE_URL', 'https://androidpublisher.googleapis.com'),
-            'acknowledge' => env('PURCHASES_GOOGLE_ACKNOWLEDGE', true),
+            'acknowledge' => filter_var(env('PURCHASES_GOOGLE_ACKNOWLEDGE', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
 
             /*
              | Real-time Developer Notifications arrive as Cloud Pub/Sub pushes, which
@@ -133,7 +136,7 @@ return [
              | Purchases::handle().
              */
             'push' => [
-                'authenticate' => (bool) env('PURCHASES_GOOGLE_PUSH_AUTHENTICATE', true),
+                'authenticate' => filter_var(env('PURCHASES_GOOGLE_PUSH_AUTHENTICATE', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
                 'audience' => env('PURCHASES_GOOGLE_PUSH_AUDIENCE'),
                 'service_account_email' => env('PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT'),
                 'token' => env('PURCHASES_GOOGLE_PUSH_TOKEN'),

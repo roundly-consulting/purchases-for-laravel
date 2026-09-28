@@ -64,7 +64,9 @@ final class PushAuthenticator
      */
     public function authenticate(Request $request, array $config): void
     {
-        if (($config['authenticate'] ?? true) === false) {
+        // Fail-closed: only a value that genuinely reads as off (false/0/off/no) disables
+        // it; anything unparseable keeps authentication on.
+        if ((filter_var($config['authenticate'] ?? true, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true) === false) {
             return;
         }
 

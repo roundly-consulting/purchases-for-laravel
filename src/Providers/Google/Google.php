@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use RoundlyConsulting\Crypto\Codec\Base64;
 use RoundlyConsulting\Crypto\Codec\Base64Url;
 use RoundlyConsulting\Crypto\Codec\InvalidEncodingException;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
 use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
@@ -300,7 +301,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
     private function shouldAcknowledge(): bool
     {
-        return (bool) ($this->config['acknowledge'] ?? true);
+        return Config::for($this->config)->boolean('acknowledge', true);
     }
 
     private function packageName(): string

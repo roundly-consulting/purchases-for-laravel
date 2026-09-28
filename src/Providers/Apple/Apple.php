@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use RoundingMode;
 use RoundlyConsulting\Money\Exceptions\MoneyException;
 use RoundlyConsulting\Money\Money;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
 use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
@@ -254,7 +255,7 @@ class Apple extends BaseProvider implements VerifiesConnectivity
 
     protected function getBaseUrl(): string
     {
-        return $this->config['sandbox'] ? $this->config['url']['sandbox'] : $this->config['url']['live'];
+        return Config::for($this->config)->boolean('sandbox', true) ? $this->config['url']['sandbox'] : $this->config['url']['live'];
     }
 
     protected function client(): PendingRequest

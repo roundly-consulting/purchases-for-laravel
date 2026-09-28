@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Actions;
 
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
@@ -25,7 +26,7 @@ final readonly class RecordProviderNotificationAction
      */
     public function execute(ProviderResult $result, NotificationOrigin $origin = NotificationOrigin::Provider): ?PurchaseNotification
     {
-        if (config('purchases.audit.enabled', true) !== true) {
+        if (! Config::boolean('purchases.audit.enabled', true)) {
             return null;
         }
 

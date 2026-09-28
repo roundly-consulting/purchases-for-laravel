@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Purchases\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Jobs\ProcessProviderNotification;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
@@ -30,7 +31,7 @@ final readonly class HandleProviderResultAction
     {
         $notification = $this->audit->execute($result);
 
-        if (config('purchases.queue.enabled', false) === true) {
+        if (Config::boolean('purchases.queue.enabled')) {
             ProcessProviderNotification::dispatch($result, $notification?->getKey());
 
             return $notification ?? NotificationResultFactory::transient($result);
