@@ -14,10 +14,12 @@ Initial public release.
   `Purchases` facade: `result()` verifies and decodes, `handle()` also persists and fires events.
 - `Purchases::sync($result)` persists a `ProviderResult` you already hold (a receipt your app
   verified, a backfill) exactly like a webhook — audited, recorded, events fired — always
-  synchronously.
+  synchronously. Its audit row is truthful: `signature_verified = false` with origin `host`
+  (`NotificationOrigin`, read with `PurchaseNotification::origin()`).
 - `Purchases::replay($notification)` re-runs one stored audit notification (model or id) and
-  marks it processed; `purchases:replay` now replays through it. Unverified, deleted or
-  unrebuildable notifications are refused with `InvalidProviderNotificationException`.
+  marks it processed; `purchases:replay` now replays through it. Host-synced rows replay;
+  provider notifications that failed verification, deleted and unrebuildable ones are refused
+  with `InvalidProviderNotificationException`.
 - `Purchases::for($owner)` — one owner's `purchases()`, `subscriptions()`,
   `activeSubscription()` and `subscribedTo()`, scoped to that owner's morph type and key, no
   trait needed.

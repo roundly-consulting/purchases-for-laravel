@@ -166,7 +166,8 @@ Purchases::ids();                // ['apple', 'google', 'stripe']
 webhook is recorded — audited, reduced to a `Purchase` / `Subscription` / `PurchaseRefund`,
 events fired, audit row marked processed — and always synchronously. Use it for a receipt your
 app verified itself, or a `GenericResult` built for a backfill. It re-verifies nothing, so never
-pass it an unverified client payload.
+pass it an unverified client payload. The audit row says so truthfully: `signature_verified` is
+`false` and `$notification->origin()` is `NotificationOrigin::Host` — you are vouching for it.
 
 ```php
 use RoundlyConsulting\Purchases\Enum\ResultType;
@@ -190,9 +191,11 @@ $model = Purchases::sync(new GenericResult(   // ?Model — null for an informat
 
 **Replay one audited notification.** `replay()` rebuilds the result from a stored
 `PurchaseNotification` (the model or its id), records it again — idempotently, so a repeat
-changes nothing and fires nothing — and marks it processed. A soft-deleted, transient or
-unverified notification, or a snapshot that no longer rebuilds, throws
-`InvalidProviderNotificationException`; an unknown id throws `ModelNotFoundException`.
+changes nothing and fires nothing — and marks it processed. It replays a verified provider
+notification or a host-origin row written by `sync()` (the host vouched for it); a
+provider-origin row that failed verification, a soft-deleted or transient notification, or a
+snapshot that no longer rebuilds throws `InvalidProviderNotificationException`; an unknown id
+throws `ModelNotFoundException`.
 
 ```php
 Purchases::replay($notification);   // ?Model
@@ -287,7 +290,10 @@ the result on the configured connection/queue. The synchronous path is the defau
 
 When `PURCHASES_AUDIT_ENABLED=true` (the default), every verified notification is stored in
 `purchase_notifications` (provider, type, signature-verified flag, payload snapshot,
-`processed_at`) before it is reduced to model state.
+`processed_at`) before it is reduced to model state. So is every result passed to
+`Purchases::sync()` — with `signature_verified = false` and an `origin` of `host` in the snapshot,
+because the package never verified it (`$notification->origin()`, or query
+`where('payload->origin', 'host')`).
 
 ```bash
 # Re-run stored notifications through the recording pipeline.
@@ -295,8 +301,8 @@ php artisan purchases:replay {id?} --provider=stripe --since=2026-01-01
 ```
 
 The command selects the notifications and replays each through `Purchases::replay()`; one it
-must not or cannot replay (never signature-verified, or a snapshot that no longer rebuilds) is
-reported as skipped and the rest continue.
+must not or cannot replay (a provider notification that failed verification, or a snapshot that
+no longer rebuilds) is reported as skipped and the rest continue. Host-synced rows replay.
 
 ### Subscription scopes & helpers
 
