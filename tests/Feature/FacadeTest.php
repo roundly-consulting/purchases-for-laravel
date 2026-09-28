@@ -6,9 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
+use RoundlyConsulting\Purchases\Events\PurchaseRecorded;
 use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
 use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
 use RoundlyConsulting\Purchases\Facades\Purchases;
@@ -44,6 +46,41 @@ it('syncs a result the host already holds, audited like a webhook', function ():
         ->and($audit->processed_at)->not->toBeNull();
 
     Event::assertDispatched(PurchaseCompleted::class);
+});
+
+it('audits a synced result truthfully: host-supplied, never signature-verified', function (): void {
+    Purchases::sync(FakeResult::purchase('google', 'GPA.host'));
+
+    $audit = PurchaseNotification::query()->sole();
+
+    expect($audit->signature_verified)->toBeFalse()
+        ->and($audit->origin())->toBe(NotificationOrigin::Host)
+        ->and($audit->payload->get('origin'))->toBe('host')
+        ->and(PurchaseNotification::query()->where('payload->origin', 'host')->count())->toBe(1);
+});
+
+it('replays a host-synced row, because the host vouched for it', function (): void {
+    Purchases::sync(FakeResult::purchase('google', 'GPA.vouched'));
+
+    $audit = PurchaseNotification::query()->sole();
+
+    Event::fake([PurchaseRecorded::class]);
+
+    expect(Purchases::replay($audit))->toBeInstanceOf(Purchase::class)
+        ->and(Purchase::query()->sole()->provider_id)->toBe('GPA.vouched');
+
+    Event::assertDispatchedTimes(PurchaseRecorded::class, 1);
+});
+
+it('still refuses a provider-pushed row that failed verification', function (): void {
+    $notification = auditedNotification(FakeResult::purchase('apple', 'txn_forged'));
+    $notification->update(['signature_verified' => false]);
+
+    expect($notification->origin())->toBe(NotificationOrigin::Provider)
+        ->and(fn () => Purchases::replay($notification))
+        ->toThrow(InvalidProviderNotificationException::class, 'never signature-verified');
+
+    expect(Purchase::query()->count())->toBe(0);
 });
 
 it('syncs an informational result to null, audited but recording nothing', function (): void {

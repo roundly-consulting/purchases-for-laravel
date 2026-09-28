@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Purchases\Actions;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
@@ -21,8 +22,11 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  * new audit row is written. Returns the persisted model, or null for an informational
  * notification.
  *
- * Only a stored, signature-verified notification replays: a transient, soft-deleted or
- * unverified one is refused, as is a snapshot that no longer rebuilds.
+ * Only a stored notification replays, and only one somebody vouched for: a provider
+ * notification the package verified, or a host-origin row written by `Purchases::sync()`
+ * (unverified by the package — the host vouched for it when it synced it). A provider-origin
+ * row that failed verification is refused, as are transient and soft-deleted rows and a
+ * snapshot that no longer rebuilds.
  */
 final readonly class ReplayProviderNotificationAction
 {
@@ -46,7 +50,7 @@ final readonly class ReplayProviderNotificationAction
             throw InvalidProviderNotificationException::because("{$label} is not stored; only an audited notification can be replayed.");
         }
 
-        if (! $notification->signature_verified) {
+        if (! $notification->signature_verified && $notification->origin() !== NotificationOrigin::Host) {
             throw InvalidProviderNotificationException::because("{$label} was never signature-verified; refusing to replay it.");
         }
 

@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Purchases\Actions;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 
 /**
  * Persists a result you already hold — a receipt verified on the device side, a
@@ -15,7 +16,8 @@ use RoundlyConsulting\Purchases\Contracts\ProviderResult;
  * refund state with its lifecycle events, and the audit row is marked processed.
  *
  * Always synchronous: `purchases.queue.enabled` governs `handle()` only. It trusts its
- * input — nothing is re-verified here, so never feed it an unverified client payload.
+ * input — nothing is re-verified here, so never feed it an unverified client payload. The
+ * audit row says so truthfully: `signature_verified = false`, origin `host`.
  * Returns the persisted Purchase, Subscription or PurchaseRefund, or null for an
  * informational result (which records nothing but is still audited).
  */
@@ -28,7 +30,7 @@ final readonly class SyncProviderResultAction
 
     public function execute(ProviderResult $result): ?Model
     {
-        $notification = $this->audit->execute($result);
+        $notification = $this->audit->execute($result, NotificationOrigin::Host);
 
         $model = $this->record->execute($result);
 

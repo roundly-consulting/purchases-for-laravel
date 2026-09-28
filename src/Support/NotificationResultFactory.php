@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use RoundlyConsulting\Money\Exceptions\MoneyException;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
@@ -22,11 +23,12 @@ final class NotificationResultFactory
     /**
      * @return array<string, mixed>
      */
-    public static function snapshot(ProviderResult $result): array
+    public static function snapshot(ProviderResult $result, NotificationOrigin $origin = NotificationOrigin::Provider): array
     {
         $price = $result->price();
 
         return [
+            'origin' => $origin->value,
             'provider' => $result->provider(),
             'type' => $result->type()->value,
             'provider_id' => $result->providerId(),

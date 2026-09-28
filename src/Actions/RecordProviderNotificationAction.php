@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Actions;
 
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
@@ -18,7 +19,11 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  */
 final readonly class RecordProviderNotificationAction
 {
-    public function execute(ProviderResult $result): ?PurchaseNotification
+    /**
+     * A Provider-origin result was verified by the package; a Host-origin one was not, and is
+     * recorded as `signature_verified = false` rather than claiming a check that never ran.
+     */
+    public function execute(ProviderResult $result, NotificationOrigin $origin = NotificationOrigin::Provider): ?PurchaseNotification
     {
         if (config('purchases.audit.enabled', true) !== true) {
             return null;
@@ -28,8 +33,8 @@ final readonly class RecordProviderNotificationAction
         $notification = PurchaseNotificationModel::query()->create([
             'provider' => $result->provider(),
             'type' => $result->type()->value,
-            'signature_verified' => true,
-            'payload' => NotificationResultFactory::snapshot($result),
+            'signature_verified' => $origin === NotificationOrigin::Provider,
+            'payload' => NotificationResultFactory::snapshot($result, $origin),
             'processed_at' => null,
         ]);
 
