@@ -470,19 +470,29 @@ authenticating with a service account via a native OAuth2 JWT-bearer grant. Real
 Notifications (delivered through Pub/Sub) decode into a typed `DeveloperNotification`.
 
 ```php
+use RoundlyConsulting\Purchases\Facades\Purchases;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 
 $google = app(Google::class);
 $google->product('coins.100', $purchaseToken);   // ProductPurchase
 $google->subscription($purchaseToken);           // SubscriptionPurchase (acknowledged by default)
 $google->notification($request);                 // DeveloperNotification (RTDN)
+
+// A token your app sent up ({purchaseToken, productId?}), verified and mapped — then recorded.
+Purchases::sync($google->callbackResult($request));
 ```
 
-Auto-acknowledgement is on by default; set `PURCHASES_GOOGLE_ACKNOWLEDGE=false` to opt out.
+Auto-acknowledgement is on by default; set `PURCHASES_GOOGLE_ACKNOWLEDGE=false` to opt out. A
+subscription is acknowledged through the Play Developer API's `purchases.subscriptions.acknowledge`
+with its product id (subscriptionsv2 has no acknowledge method). Product ids and tokens are
+percent-encoded into every API path, so a crafted one cannot reach another endpoint.
 
 **Authenticating RTDN pushes.** A Pub/Sub push is a plain HTTPS POST that anyone could forge, so
-`notification()` (and therefore the webhook route) authenticates every push first and is
-**fail-closed** — with nothing configured, every push is rejected (`400` on the route):
+`notification()` and `result()` — and therefore `handle()` and the webhook route — authenticate
+**every** request as a push first, whatever its body, and are **fail-closed**: with nothing
+configured, every push is rejected (`400` on the route). A client's purchase token is not a push:
+verify it from your own authenticated route with `product()`, `subscription()` or
+`callbackResult()` and record it with `Purchases::sync()` — never post it to the webhook route.
 
 1. In Google Cloud, edit the push subscription → *Enable authentication*, pick a service account
    and set the audience (e.g. your endpoint URL).

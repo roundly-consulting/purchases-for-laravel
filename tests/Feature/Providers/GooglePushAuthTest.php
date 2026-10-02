@@ -14,6 +14,7 @@ use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Crypto\Signature\Rs;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\PushAuthenticator;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\DeveloperNotification;
@@ -222,6 +223,41 @@ it('answers 400 to an unauthenticated push on the webhook route', function (): v
     $this->postJson('/purchases/webhooks/google', $body)->assertStatus(400);
     $this->postJson('/purchases/webhooks/google', $body, ['Authorization' => 'Bearer '.pushOidcToken()])->assertNoContent();
 });
+
+it('refuses a callback-shaped post to the webhook route without touching the play api', function (): void {
+    config()->set('purchases.routes', ['enabled' => true, 'prefix' => 'purchases', 'middleware' => []]);
+    config()->set('purchases.providers', [Google::class]);
+    configurePush([]);
+    // Fully able to call the Play Developer API — which is exactly what must not happen.
+    config()->set('purchases.settings.google.service_account', [
+        'client_email' => 'svc@example.iam.gserviceaccount.com',
+        'private_key' => TestKeys::rsa()->privatePem(),
+        'token_uri' => 'https://oauth2.googleapis.com/token',
+    ]);
+    Http::fake([
+        'oauth2.googleapis.com/*' => Http::response(['access_token' => 'tok', 'expires_in' => 3600]),
+        '*' => Http::response(['purchaseState' => 0, 'acknowledgementState' => 0, 'orderId' => 'GPA.forged', 'productId' => 'coins']),
+    ]);
+
+    require __DIR__.'/../../../routes/purchases.php';
+
+    $this->postJson('/purchases/webhooks/google', [
+        'purchaseToken' => 'tok',
+        'productId' => '../../../../../../androidpublisher/v3/applications/other/edits',
+    ])->assertStatus(400);
+
+    Http::assertNothingSent();
+    expect(Purchase::query()->count())->toBe(0);
+});
+
+it('authenticates every request result() is given as a push', function (): void {
+    // The callback shape (a purchase token, no Pub/Sub envelope) is no way around it.
+    (new Google)->result(Request::create('/purchases/webhooks/google', 'POST', ['purchaseToken' => 'tok', 'productId' => 'coins.100']));
+})->throws(VerificationException::class, 'no OIDC bearer token');
+
+it('takes a pub/sub push with no message data for what it is', function (): void {
+    (new Google)->result(Request::create('/purchases/webhooks/google', 'POST', ['purchaseToken' => 'tok'], server: ['HTTP_AUTHORIZATION' => 'Bearer '.pushOidcToken()]));
+})->throws(VerificationException::class, 'Missing Google Pub/Sub message data.');
 
 it('refuses a key set google could not have published', function (array $keys, string $message): void {
     configurePush(['audience' => PUSH_AUDIENCE, 'service_account_email' => PUSH_SERVICE_ACCOUNT, 'jwks_url' => 'https://keys.test/odd']);

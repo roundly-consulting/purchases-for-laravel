@@ -185,7 +185,7 @@ it('maps a subscription to a unified result', function (): void {
         ]),
     ]);
 
-    $result = googleProvider()->result(new Request(['purchaseToken' => 'sub-token']));
+    $result = googleProvider()->callbackResult(new Request(['purchaseToken' => 'sub-token']));
 
     expect($result->type())->toBe(ResultType::Subscription)
         ->and($result->status())->toBe(Status::Completed)
@@ -207,7 +207,7 @@ it('maps a product to a unified purchase result', function (): void {
         ]),
     ]);
 
-    $result = googleProvider()->result(new Request(['purchaseToken' => 'tok', 'productId' => 'coins.100']));
+    $result = googleProvider()->callbackResult(new Request(['purchaseToken' => 'tok', 'productId' => 'coins.100']));
 
     // The one-time products resource carries no price.
     expect($result->type())->toBe(ResultType::Purchase)
@@ -581,9 +581,9 @@ it('keys a verified subscription on its purchase token, like its notifications',
     $sync = app(RecordProviderResultAction::class);
 
     // The order id changes on every renewal ("…-0", "…-1"); the purchase token does not.
-    $first = googleProvider()->result(new Request(['purchaseToken' => 'tok-stable']));
+    $first = googleProvider()->callbackResult(new Request(['purchaseToken' => 'tok-stable']));
     $sync->execute($first);
-    $sync->execute(googleProvider()->result(new Request(['purchaseToken' => 'tok-stable'])));
+    $sync->execute(googleProvider()->callbackResult(new Request(['purchaseToken' => 'tok-stable'])));
     $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => 'tok-stable', 'subscriptionId' => 'pro']])));
 
     expect($first->providerId())->toBe('tok-stable')
@@ -592,4 +592,37 @@ it('keys a verified subscription on its purchase token, like its notifications',
         ->and(Subscription::query()->sole()->transaction_id)->toBe('GPA.1-1')
         // The RTDN carries no order id or expiry: it must not wipe the verified ones.
         ->and(Subscription::query()->sole()->ends_at?->toIso8601String())->toBe('2026-03-01T00:00:00+00:00');
+});
+
+it('escapes every path segment it sends to the play developer api', function (): void {
+    Http::fake([
+        '*' => Http::response([
+            'purchaseState' => 0,
+            'acknowledgementState' => 0,
+            'orderId' => 'GPA.esc',
+            'productId' => 'coins',
+        ]),
+    ]);
+
+    googleProvider()->product('../../../../other/edits', 'to/k?en#x');
+
+    Http::assertSent(fn ($request): bool => $request->method() === 'GET'
+        && $request->url() === 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.example.app/purchases/products/..%2F..%2F..%2F..%2Fother%2Fedits/tokens/to%2Fk%3Fen%23x');
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST'
+        && $request->url() === 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.example.app/purchases/products/..%2F..%2F..%2F..%2Fother%2Fedits/tokens/to%2Fk%3Fen%23x:acknowledge');
+});
+
+it('escapes the token of a subscription lookup and its acknowledgement', function (): void {
+    Http::fake([
+        '*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_PENDING',
+            'lineItems' => [['productId' => 'pro/x', 'expiryTime' => '2026-02-01T00:00:00Z']],
+        ]),
+    ]);
+
+    googleProvider()->subscription('a/../b');
+
+    Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/purchases/subscriptionsv2/tokens/a%2F..%2Fb'));
+    Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/purchases/subscriptions/pro%2Fx/tokens/a%2F..%2Fb:acknowledge'));
 });

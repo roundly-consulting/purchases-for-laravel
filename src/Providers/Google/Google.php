@@ -52,9 +52,9 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function product(string $productId, string $token): ProductPurchase
     {
-        $response = $this->client()->request()->get(
-            "/androidpublisher/v3/applications/{$this->packageName()}/purchases/products/{$productId}/tokens/{$token}",
-        );
+        $path = $this->path('purchases', 'products', $productId, 'tokens', $token);
+
+        $response = $this->client()->request()->get($path);
 
         $purchase = ProductPurchase::fromRaw($response->json());
 
@@ -63,9 +63,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
         }
 
         if ($this->shouldAcknowledge() && ! $purchase->isAcknowledged()) {
-            $this->client()->request()->post(
-                "/androidpublisher/v3/applications/{$this->packageName()}/purchases/products/{$productId}/tokens/{$token}:acknowledge",
-            );
+            $this->client()->request()->post("{$path}:acknowledge");
         }
 
         return $purchase;
@@ -76,9 +74,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function subscription(string $token): SubscriptionPurchase
     {
-        $response = $this->client()->request()->get(
-            "/androidpublisher/v3/applications/{$this->packageName()}/purchases/subscriptionsv2/tokens/{$token}",
-        );
+        $response = $this->client()->request()->get($this->path('purchases', 'subscriptionsv2', 'tokens', $token));
 
         $purchase = SubscriptionPurchase::fromRaw($response->json());
 
@@ -103,9 +99,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function acknowledgeSubscription(string $token, string $subscriptionId): void
     {
-        $this->client()->request()->post(
-            "/androidpublisher/v3/applications/{$this->packageName()}/purchases/subscriptions/{$subscriptionId}/tokens/{$token}:acknowledge",
-        );
+        $this->client()->request()->post($this->path('purchases', 'subscriptions', $subscriptionId, 'tokens', $token).':acknowledge');
     }
 
     /**
@@ -159,8 +153,9 @@ class Google extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
-     * Verify a purchase token. Pass productId for one-time products; subscriptions
-     * are looked up directly from the token.
+     * Verify a purchase token your app sent up. Pass productId for one-time products;
+     * subscriptions are looked up directly from the token. Nothing about the request is
+     * authenticated — call it from your own (authenticated) route, never the webhook.
      */
     public function callback(Request $request): ProductPurchase|SubscriptionPurchase
     {
@@ -178,12 +173,24 @@ class Google extends BaseProvider implements VerifiesConnectivity
         return $this->subscription($token);
     }
 
+    /**
+     * A Real-time Developer Notification, delivered as a Cloud Pub/Sub push — the only
+     * request Google itself sends, so the only one `result()` (and therefore `handle()` and
+     * the webhook route) accepts. Every request is authenticated as a push first, whatever
+     * it carries: a client's purchase token goes through callbackResult() instead.
+     */
     public function result(Request $request): ProviderResult
     {
-        if (is_string($request->input('message.data'))) {
-            return $this->notificationResult($request);
-        }
+        return $this->notificationResult($request);
+    }
 
+    /**
+     * Verify a purchase token your app sent up (see callback()) and map it into a result —
+     * record it with `Purchases::sync()`. Call it from your own authenticated route: the
+     * package's webhook route only takes authenticated Pub/Sub pushes.
+     */
+    public function callbackResult(Request $request): ProviderResult
+    {
         $purchase = $this->callback($request);
         $token = (string) $request->input('purchaseToken');
 
@@ -311,6 +318,16 @@ class Google extends BaseProvider implements VerifiesConnectivity
     private function shouldAcknowledge(): bool
     {
         return Config::for($this->config)->boolean('acknowledge', true);
+    }
+
+    /**
+     * A Play Developer API path under this app. Every segment is percent-encoded: a token or
+     * product id comes from a client, and unescaped it could walk the path (`../`) to another
+     * endpoint, or cut it short with `?` or `#`.
+     */
+    private function path(string ...$segments): string
+    {
+        return '/androidpublisher/v3/applications/'.implode('/', array_map(rawurlencode(...), [$this->packageName(), ...$segments]));
     }
 
     private function packageName(): string
