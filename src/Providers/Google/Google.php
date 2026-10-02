@@ -87,22 +87,25 @@ class Google extends BaseProvider implements VerifiesConnectivity
         }
 
         if ($this->shouldAcknowledge() && ! $purchase->isAcknowledged()) {
-            $this->acknowledgeSubscription($token);
+            $this->acknowledgeSubscription(
+                $token,
+                $purchase->productId() ?? throw VerificationException::because('Google subscription names no product to acknowledge.'),
+            );
         }
 
         return $purchase;
     }
 
     /**
-     * Acknowledge a subscription purchase by token.
+     * Acknowledge a subscription purchase. subscriptionsv2 has no acknowledge method: the
+     * Play Developer API acknowledges through `purchases.subscriptions.acknowledge`, which
+     * takes the subscription (product) id — a subscriptionsv2 line item's `productId`.
      */
-    public function acknowledgeSubscription(string $token, ?string $subscriptionId = null): void
+    public function acknowledgeSubscription(string $token, string $subscriptionId): void
     {
-        $path = $subscriptionId !== null
-            ? "/androidpublisher/v3/applications/{$this->packageName()}/purchases/subscriptions/{$subscriptionId}/tokens/{$token}:acknowledge"
-            : "/androidpublisher/v3/applications/{$this->packageName()}/purchases/subscriptionsv2/tokens/{$token}:acknowledge";
-
-        $this->client()->request()->post($path);
+        $this->client()->request()->post(
+            "/androidpublisher/v3/applications/{$this->packageName()}/purchases/subscriptions/{$subscriptionId}/tokens/{$token}:acknowledge",
+        );
     }
 
     /**

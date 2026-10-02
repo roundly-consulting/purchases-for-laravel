@@ -323,8 +323,24 @@ it('acknowledges a pending subscription with a mixed line-item set', function ()
     expect($purchase->isAcknowledged())->toBeFalse()
         ->and($purchase->expiryTime())->not->toBeNull();
 
-    Http::assertSent(fn ($request) => str_contains($request->url(), 'subscriptionsv2/tokens/sub-token:acknowledge'));
+    // subscriptionsv2 has no acknowledge method: the Play Developer API acknowledges a
+    // subscription through purchases.subscriptions, by its subscription (product) id.
+    Http::assertSent(fn ($request) => $request->method() === 'POST'
+        && $request->url() === 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.example.app/purchases/subscriptions/pro.monthly/tokens/sub-token:acknowledge');
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'subscriptionsv2/tokens/sub-token:acknowledge'));
 });
+
+it('refuses to acknowledge a subscription it cannot name', function (): void {
+    Http::fake([
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_PENDING',
+            'lineItems' => [['expiryTime' => '2026-02-01T00:00:00Z']],
+        ]),
+    ]);
+
+    googleProvider()->subscription('sub-token');
+})->throws(VerificationException::class, 'Google subscription names no product to acknowledge.');
 
 it('acknowledges a subscription by explicit subscription id', function (): void {
     Http::fake(['*acknowledge' => Http::response([], 200)]);
