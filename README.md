@@ -128,7 +128,7 @@ return [
 | `PURCHASES_GOOGLE_PUSH_TOKEN` | Optional shared secret expected as `?token=` on the push endpoint URL |
 | `PURCHASES_GOOGLE_PUSH_AUTHENTICATE` | Authenticate Pub/Sub pushes (default `true`, fail-closed); `false` only behind an upstream authenticator |
 | `PURCHASES_GOOGLE_PUSH_JWKS_URL` / `PURCHASES_GOOGLE_PUSH_JWKS_CACHE_TTL` | Google's signing keys (default `https://www.googleapis.com/oauth2/v3/certs`, cached `3600` s) |
-| `PURCHASES_STRIPE_SECRET` | Stripe secret/restricted key |
+| `PURCHASES_STRIPE_SECRET` | Stripe secret/restricted key for REST reads — including the invoice check behind every `payment_intent.*` event on current API versions (see [Stripe](#stripe)) |
 | `PURCHASES_STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `PURCHASES_STRIPE_API_VERSION` | Pinned Stripe API version |
 | `PURCHASES_STRIPE_TOLERANCE` | Webhook timestamp tolerance (seconds) |
@@ -483,9 +483,17 @@ configurable timestamp tolerance) and reads REST objects with the pinned API ver
 
 One-off payments (`payment_intent.*`, a payment-mode `checkout.session.completed` — keyed on its
 PaymentIntent so both describe one purchase — and one-off invoices) are recorded as purchases.
-Subscription billing is not: a subscription- or setup-mode Checkout, a subscription invoice and the
-PaymentIntent behind it are audited only, and the subscription's own `customer.subscription.*`
-events keep its state.
+Subscription billing is not: a subscription- or setup-mode Checkout and a subscription invoice are
+audited only, and the subscription's own `customer.subscription.*` events keep its state. A
+PaymentIntent that pays **any** invoice is audited only too — a renewal belongs to its
+subscription, and a one-off invoice is already recorded once, from `invoice.paid`.
+
+Since API version 2025-03-31 (the pinned `2026-05-27.dahlia` included) a PaymentIntent no longer
+says which invoice it pays, so for a `payment_intent.*` event without an `invoice` field the
+package asks Stripe's Invoice Payments API (`GET /v1/invoice_payments`). That needs
+`PURCHASES_STRIPE_SECRET`: without it such an event is refused (`VerificationException`, `400` on
+the route, so Stripe retries) rather than guessed at — a guess would record every renewal as a new
+one-off purchase.
 
 A dispute is a chargeback only while the funds are gone: an inquiry (`warning_*`) and
 `charge.dispute.updated` change nothing, a dispute closed as **won** reinstates the purchase

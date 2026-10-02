@@ -46,7 +46,11 @@ function signedWebhook(string $payload): Request
     return $request;
 }
 
-beforeEach(fn () => configureStripe());
+beforeEach(function (): void {
+    configureStripe();
+    // A PaymentIntent on a current API version names no invoice, so Stripe is asked.
+    stripeInvoicePayments(null);
+});
 
 afterEach(fn () => Carbon::setTestNow());
 
@@ -513,3 +517,60 @@ it('reads an invoice\'s subscription from its parent on current api versions', f
     expect(Invoice::fromRaw(['id' => 'in_1', 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_9']]])->subscription)->toBe('sub_9')
         ->and(Invoice::fromRaw(['id' => 'in_2', 'subscription' => 'sub_legacy'])->subscription)->toBe('sub_legacy');
 });
+
+it('leaves a renewal payment to its subscription on current api versions', function (): void {
+    Event::fake([PurchaseCompleted::class]);
+    stripeInvoicePayments('in_renewal');
+    $sync = app(RecordProviderResultAction::class);
+
+    // Since 2025-03-31 a PaymentIntent no longer names its invoice (no `invoice` key at all).
+    foreach (['pi_r1', 'pi_r2'] as $id) {
+        $result = stripeResultFor('payment_intent.succeeded', ['id' => $id, 'object' => 'payment_intent', 'status' => 'succeeded', 'amount' => 999, 'currency' => 'eur']);
+
+        expect($result->type())->toBe(ResultType::Notification)
+            ->and($sync->execute($result))->toBeNull();
+    }
+
+    expect(Purchase::query()->count())->toBe(0);
+    Event::assertNotDispatched(PurchaseCompleted::class);
+    Http::assertSent(fn ($request): bool => str_starts_with($request->url(), 'https://api.stripe.com/v1/invoice_payments')
+        && $request['payment']['type'] === 'payment_intent'
+        && $request['payment']['payment_intent'] === 'pi_r1'
+        && $request->hasHeader('Stripe-Version', '2026-05-27.dahlia'));
+});
+
+it('records a one-off invoice once, not again through its payment', function (): void {
+    Event::fake([PurchaseCompleted::class]);
+    stripeInvoicePayments('in_once');
+    $sync = app(RecordProviderResultAction::class);
+
+    $sync->execute(stripeResultFor('invoice.paid', ['id' => 'in_once', 'status' => 'paid', 'amount_paid' => 4500, 'billing_reason' => 'manual', 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_once', 'status' => 'succeeded', 'amount' => 4500, 'currency' => 'eur']));
+
+    expect(Purchase::query()->sole()->provider_id)->toBe('in_once');
+    Event::assertDispatchedTimes(PurchaseCompleted::class, 1);
+});
+
+it('records a payment that pays no invoice as a purchase', function (): void {
+    stripeInvoicePayments(null);
+
+    $result = stripeResultFor('payment_intent.payment_failed', ['id' => 'pi_alone', 'status' => 'requires_payment_method', 'amount' => 700, 'currency' => 'eur']);
+
+    expect($result->type())->toBe(ResultType::Purchase)
+        ->and($result->status())->toBe(Status::Failed);
+});
+
+it('reads the invoice from a legacy payment intent without asking stripe', function (): void {
+    Http::fake();
+
+    $result = stripeResultFor('payment_intent.succeeded', ['id' => 'pi_legacy', 'status' => 'succeeded', 'amount' => 700, 'currency' => 'eur', 'invoice' => null]);
+
+    expect($result->type())->toBe(ResultType::Purchase);
+    Http::assertNothingSent();
+});
+
+it('refuses to guess about a current payment intent without a secret key', function (): void {
+    config()->set('purchases.settings.stripe.secret', null);
+
+    stripeResultFor('payment_intent.succeeded', ['id' => 'pi_nokey', 'status' => 'succeeded', 'amount' => 700, 'currency' => 'eur']);
+})->throws(VerificationException::class, 'Stripe secret key is not configured.');

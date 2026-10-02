@@ -82,6 +82,7 @@ it('falls through to the real provider when nothing is queued', function (): voi
     ]);
 
     $fake = Purchases::fake();
+    stripeInvoicePayments(null);
 
     $payload = (string) json_encode([
         'id' => 'evt_real',

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
 use RoundlyConsulting\Crypto\Hash\Hmac;
 use RoundlyConsulting\Crypto\Jose\Jws;
@@ -178,4 +179,27 @@ function stripeSignedRequest(array $event, string $secret = 'whsec_test'): Reque
     $request->headers->set('Stripe-Signature', "t={$timestamp},v1={$signature}");
 
     return $request;
+}
+
+/**
+ * Answer Stripe's Invoice Payments lookup — which invoice a PaymentIntent pays, if any —
+ * for the rest of the test. Call it again to change the answer: the stub is registered
+ * once per test and reads the latest one.
+ */
+function stripeInvoicePayments(?string $invoice): void
+{
+    if (! app()->bound('tests.stripe.invoice')) {
+        Http::fake(['api.stripe.com/v1/invoice_payments*' => function (): mixed {
+            $invoice = app('tests.stripe.invoice')['invoice'];
+
+            return Http::response([
+                'object' => 'list',
+                'data' => is_string($invoice) ? [['id' => 'inpay_1', 'object' => 'invoice_payment', 'invoice' => $invoice, 'payment' => ['type' => 'payment_intent']]] : [],
+                'has_more' => false,
+            ]);
+        }]);
+    }
+
+    // Wrapped: the container treats a bare null instance as unbound.
+    app()->instance('tests.stripe.invoice', ['invoice' => $invoice]);
 }

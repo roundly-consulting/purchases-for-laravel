@@ -42,6 +42,7 @@ function stripeWebhookHeaders(string $payload): array
 
 it('records a purchase from a valid signed webhook', function (): void {
     Event::fake();
+    stripeInvoicePayments(null);
 
     $payload = (string) json_encode([
         'id' => 'evt_1',
