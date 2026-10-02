@@ -119,8 +119,8 @@ class Apple extends BaseProvider implements VerifiesConnectivity
         // keeps it across renewals); a refund on the transaction it refunds, so refunds of
         // two periods of one subscription are two refunds, not one overwriting the other.
         $providerId = $type === ResultType::Refund
-            ? ($transaction?->transactionId ?? $transaction?->originalTransactionId ?? $payload->uuid)
-            : ($transaction?->originalTransactionId ?? $transaction?->transactionId ?? $payload->uuid);
+            ? ($transaction->transactionId ?? $transaction->originalTransactionId ?? $payload->uuid)
+            : ($transaction->originalTransactionId ?? $transaction->transactionId ?? $payload->uuid);
 
         return new GenericResult(
             provider: $this->id(),
