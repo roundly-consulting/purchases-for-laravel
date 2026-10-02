@@ -30,14 +30,19 @@ enum SubscriptionState: string
         };
     }
 
+    /**
+     * Whether the subscription is over for good. CANCELED is not: it means auto-renew is
+     * off, and the customer keeps access until the expiry (see SubscriptionPurchase).
+     */
     public function isTerminal(): bool
     {
-        return match ($this) {
-            self::Canceled, self::Expired => true,
-            default => false,
-        };
+        return $this === self::Expired;
     }
 
+    /**
+     * The state on its own. A CANCELED subscription with paid time left is still active —
+     * SubscriptionPurchase::status(), which knows the expiry, reads it as Completed.
+     */
     public function status(): Status
     {
         return match ($this) {

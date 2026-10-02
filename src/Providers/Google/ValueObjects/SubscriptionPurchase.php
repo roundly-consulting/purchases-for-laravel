@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Purchases\Providers\Google\ValueObjects;
 use Illuminate\Support\Carbon;
 use RoundlyConsulting\Money\Exceptions\MoneyException;
 use RoundlyConsulting\Money\Money;
+use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\FromRaw;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\AcknowledgementState;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
@@ -55,6 +56,33 @@ final class SubscriptionPurchase implements FromRaw
             lineItems: $dataset->arrayOf('lineItems', SubscriptionLineItem::class),
             raw: $raw,
         );
+    }
+
+    /**
+     * Whether the customer is still entitled to the subscription now: active, in its grace
+     * period, or canceled with paid time left — SUBSCRIPTION_STATE_CANCELED means auto-renew
+     * is off, and access lasts until the expiry.
+     */
+    public function isEntitled(): bool
+    {
+        return match ($this->subscriptionState) {
+            SubscriptionState::Active, SubscriptionState::InGracePeriod => true,
+            SubscriptionState::Canceled => $this->expiryTime()?->isFuture() ?? false,
+            default => false,
+        };
+    }
+
+    /**
+     * The normalized status: the state's own, except that a canceled subscription with paid
+     * time left stays Completed until it expires (its `endsAt` ends it).
+     */
+    public function status(): Status
+    {
+        if ($this->subscriptionState === SubscriptionState::Canceled && $this->isEntitled()) {
+            return Status::Completed;
+        }
+
+        return $this->subscriptionState?->status() ?? Status::Processing;
     }
 
     public function isAcknowledged(): bool

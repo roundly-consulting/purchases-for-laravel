@@ -482,6 +482,10 @@ $google->notification($request);                 // DeveloperNotification (RTDN)
 Purchases::sync($google->callbackResult($request));
 ```
 
+A **canceled** Google subscription — `SUBSCRIPTION_CANCELED`, auto-renew turned off — keeps access
+until its expiry: it stays `Completed`, its `ends_at` ends it, and `subscription()` still verifies
+it (a restore works). Only an expired one is refused.
+
 Auto-acknowledgement is on by default; set `PURCHASES_GOOGLE_ACKNOWLEDGE=false` to opt out. A
 subscription is acknowledged through the Play Developer API's `purchases.subscriptions.acknowledge`
 with its product id (subscriptionsv2 has no acknowledge method). Product ids and tokens are

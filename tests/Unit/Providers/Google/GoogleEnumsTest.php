@@ -34,7 +34,7 @@ it('maps subscription state to status and helpers', function (SubscriptionState 
     [SubscriptionState::Pending, Status::Pending, false, false],
     [SubscriptionState::Paused, Status::Processing, false, false],
     [SubscriptionState::OnHold, Status::OnHold, false, false],
-    [SubscriptionState::Canceled, Status::Canceled, false, true],
+    [SubscriptionState::Canceled, Status::Canceled, false, false],
     [SubscriptionState::Expired, Status::Failed, false, true],
     [SubscriptionState::Unspecified, Status::Processing, false, false],
 ]);
@@ -47,7 +47,7 @@ it('maps developer notification types to status', function (NotificationType $ty
     [NotificationType::InGracePeriod, Status::InGracePeriod],
     [NotificationType::OnHold, Status::OnHold],
     [NotificationType::Paused, Status::OnHold],
-    [NotificationType::Canceled, Status::Canceled],
+    [NotificationType::Canceled, Status::Completed],
     [NotificationType::Revoked, Status::Refunded],
     [NotificationType::Expired, Status::Failed],
     [NotificationType::Deferred, Status::Processing],

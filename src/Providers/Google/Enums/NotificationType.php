@@ -34,14 +34,18 @@ enum NotificationType: int
 
     /**
      * Map a developer notification type onto the package's normalized status.
+     *
+     * SUBSCRIPTION_CANCELED means the customer turned auto-renew off: the period they paid
+     * for still runs, so it stays Completed and its expiry ends it. A canceled PENDING
+     * purchase was never paid for.
      */
     public function status(): Status
     {
         return match ($this) {
-            self::Recovered, self::Renewed, self::Purchased, self::Restarted => Status::Completed,
+            self::Recovered, self::Renewed, self::Purchased, self::Restarted, self::Canceled => Status::Completed,
             self::InGracePeriod => Status::InGracePeriod,
             self::OnHold, self::Paused => Status::OnHold,
-            self::Canceled, self::PendingPurchaseCanceled => Status::Canceled,
+            self::PendingPurchaseCanceled => Status::Canceled,
             self::Revoked => Status::Refunded,
             self::Expired => Status::Failed,
             self::Deferred,

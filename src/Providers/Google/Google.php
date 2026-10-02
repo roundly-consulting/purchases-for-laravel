@@ -20,6 +20,7 @@ use RoundlyConsulting\Purchases\Providers\BaseProvider;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\PushAuthenticator;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\NotificationType;
+use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\DeveloperNotification;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\ProductPurchase;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
@@ -78,8 +79,12 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
         $purchase = SubscriptionPurchase::fromRaw($response->json());
 
-        if ($purchase->subscriptionState?->isTerminal() ?? true) {
-            throw VerificationException::because('Google subscription is canceled or expired.');
+        // A canceled subscription with paid time left is still the customer's: only one that
+        // has run out (or that Google reports no state for) is refused.
+        if ($purchase->subscriptionState === null
+            || $purchase->subscriptionState->isTerminal()
+            || ($purchase->subscriptionState === SubscriptionState::Canceled && ! $purchase->isEntitled())) {
+            throw VerificationException::because('Google subscription has expired.');
         }
 
         if ($this->shouldAcknowledge() && ! $purchase->isAcknowledged()) {
@@ -221,7 +226,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
             // The purchase token is the subscription's stable identity (and what its RTDNs
             // carry); the order id changes with every renewal, so it is the transaction.
             providerId: $token,
-            status: $purchase->subscriptionState?->status() ?? Status::Processing,
+            status: $purchase->status(),
             transactionId: $purchase->latestOrderId,
             name: $purchase->productId(),
             productId: $purchase->productId(),

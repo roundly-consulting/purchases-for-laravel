@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
@@ -625,4 +626,47 @@ it('escapes the token of a subscription lookup and its acknowledgement', functio
 
     Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/purchases/subscriptionsv2/tokens/a%2F..%2Fb'));
     Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/purchases/subscriptions/pro%2Fx/tokens/a%2F..%2Fb:acknowledge'));
+});
+
+/**
+ * A subscriptionsv2 resource in the given state, paid up to the given expiry.
+ *
+ * @return array<string, mixed>
+ */
+function googleSubscriptionV2(string $state, string $expiry, string $order = 'GPA.C-0'): array
+{
+    return [
+        'subscriptionState' => $state,
+        'latestOrderId' => $order,
+        'startTime' => '2026-01-01T00:00:00Z',
+        'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED',
+        'lineItems' => [['productId' => 'pro', 'expiryTime' => $expiry]],
+    ];
+}
+
+it('keeps a canceled google subscription active until it expires', function (): void {
+    // SUBSCRIPTION_STATE_CANCELED is "auto-renew off": still paid for, until expiryTime.
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_CANCELED', Carbon::now()->addDays(25)->toIso8601String()))]);
+
+    $purchase = googleProvider()->subscription('tok-canceled');
+    $result = googleProvider()->callbackResult(new Request(['purchaseToken' => 'tok-canceled']));
+    app(RecordProviderResultAction::class)->execute($result);
+
+    expect($purchase->isEntitled())->toBeTrue()
+        ->and($purchase->status())->toBe(Status::Completed)
+        ->and($result->status())->toBe(Status::Completed)
+        ->and(Subscription::query()->sole()->isActive())->toBeTrue()
+        ->and(Subscription::query()->active()->count())->toBe(1);
+});
+
+it('treats a canceled google subscription past its expiry as over', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_CANCELED', Carbon::now()->subDay()->toIso8601String()))]);
+
+    googleProvider()->subscription('tok-over');
+})->throws(VerificationException::class, 'Google subscription has expired.');
+
+it('reads a cancellation rtdn as auto-renew turned off, not lost access', function (): void {
+    expect(NotificationType::Canceled->status())->toBe(Status::Completed)
+        ->and(SubscriptionState::Canceled->isTerminal())->toBeFalse()
+        ->and(SubscriptionState::Expired->isTerminal())->toBeTrue();
 });
