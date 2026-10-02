@@ -83,6 +83,9 @@ return [
         \RoundlyConsulting\Purchases\Providers\Stripe\Stripe::class,
     ],
 
+    // Key type of the `owner` morph column: bigint (default), uuid or ulid — set it before migrating.
+    'key_type' => env('PURCHASES_KEY_TYPE', 'bigint'),
+
     // Log every verified raw payload to purchase_notifications before reducing it.
     'audit' => [
         'enabled' => env('PURCHASES_AUDIT_ENABLED', true),
@@ -117,12 +120,14 @@ return [
 | `PURCHASES_APPLE_APP_APPLE_ID` | Your app's Apple ID (App Store Connect → App Information). **Required in production**: a production notification must carry it |
 | `PURCHASES_APPLE_SANDBOX` | `true` to accept Sandbox notifications and call Apple's sandbox hosts. **Default `false` — production** |
 | `PURCHASES_APPLE_LIVE_URL` / `PURCHASES_APPLE_SANDBOX_URL` | `verifyReceipt` base URLs |
+| `PURCHASES_APPLE_API_LIVE_URL` / `PURCHASES_APPLE_API_SANDBOX_URL` | App Store Server API base URLs (default `https://api.storekit.itunes.apple.com` / `https://api.storekit-sandbox.itunes.apple.com`); `PURCHASES_APPLE_SANDBOX` picks one |
 | `PURCHASES_APPLE_PASSWORD` | Apple shared secret (legacy receipt validation) |
 | `PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW` | Clock-skew tolerance in **seconds** (0–3600, default `60`) for Apple's certificate validity check |
 | `PURCHASES_APPLE_KEY_ID` / `PURCHASES_APPLE_ISSUER_ID` / `PURCHASES_APPLE_PRIVATE_KEY` | App Store Server API credentials |
 | `PURCHASES_GOOGLE_PACKAGE_NAME` | Android package name |
 | `PURCHASES_GOOGLE_CLIENT_EMAIL` / `PURCHASES_GOOGLE_PRIVATE_KEY` | Google service-account credentials |
 | `PURCHASES_GOOGLE_TOKEN_URI` | Google OAuth2 token endpoint |
+| `PURCHASES_GOOGLE_BASE_URL` | Play Developer API base URL (default `https://androidpublisher.googleapis.com`) |
 | `PURCHASES_GOOGLE_ACKNOWLEDGE` | Auto-acknowledge purchases (default `true`) |
 | `PURCHASES_GOOGLE_PUSH_AUDIENCE` / `PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT` | Pub/Sub push OIDC authentication: the push subscription's audience and service account |
 | `PURCHASES_GOOGLE_PUSH_TOKEN` | Optional shared secret expected as `?token=` on the push endpoint URL |
@@ -132,6 +137,8 @@ return [
 | `PURCHASES_STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `PURCHASES_STRIPE_API_VERSION` | Pinned Stripe API version |
 | `PURCHASES_STRIPE_TOLERANCE` | Webhook timestamp tolerance (seconds) |
+| `PURCHASES_STRIPE_BASE_URL` | Stripe REST base URL (default `https://api.stripe.com/v1`) |
+| `PURCHASES_KEY_TYPE` | Key type of the `owner` morph column: `bigint` (default), `uuid` or `ulid` — must match your owner models; read when the migrations run |
 | `PURCHASES_ROUTES_ENABLED` / `PURCHASES_ROUTES_PREFIX` | Bundled webhook routes |
 | `PURCHASES_AUDIT_ENABLED` | Log verified payloads to `purchase_notifications` (default `true`) |
 | `PURCHASES_QUEUE_ENABLED` | Persist verified notifications on a queue (default `false`) |
@@ -322,6 +329,13 @@ so refunds of two periods are two rows and two events; an Apple refund's `refund
 `revocationDate`. A **partial** refund (a Stripe charge not fully `refunded`, a Google
 quantity-based partial void) is recorded and fires `PurchaseRefunded`, but leaves the purchase
 completed.
+
+**A Stripe refund's price is a running total.** All refunds of one Stripe charge share one
+`PurchaseRefund` (keyed on its PaymentIntent), and its `price` is the charge's cumulative
+`amount_refunded`. Each further partial refund fires `PurchaseRefunded` again with the **new
+total**, not the amount of that refund — so never add up `$event->refund->price` across events;
+read it as "refunded so far". (An Apple refund row is one refunded transaction, a Google one one
+voided order.)
 
 ```php
 $purchase->refunds;                 // HasMany<PurchaseRefund>
