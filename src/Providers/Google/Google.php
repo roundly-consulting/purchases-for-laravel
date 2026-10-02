@@ -77,7 +77,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function subscription(string $token): SubscriptionPurchase
     {
-        $purchase = $this->subscriptionState($token);
+        $purchase = $this->readSubscription($token);
 
         // A canceled subscription with paid time left is still the customer's: only one that
         // has run out (or that Google reports no state for) is refused.
@@ -101,7 +101,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
      * Read a subscription's current state from subscriptionsv2 — verifying, refusing and
      * acknowledging nothing.
      */
-    private function subscriptionState(string $token): SubscriptionPurchase
+    private function readSubscription(string $token): SubscriptionPurchase
     {
         $response = $this->client()->request()->get($this->path('purchases', 'subscriptionsv2', 'tokens', $token));
 
@@ -260,7 +260,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
             endsAt: $purchase->expiryTime(),
             items: [],
             raw: $notification === null ? $purchase->raw : $notification + ['subscriptionPurchase' => $purchase->raw],
-            // The Play Developer API reports the state as of now.
+            // An RTDN orders by its event time; a callback by when the API reported the state.
             occurredAt: $eventTime ?? Carbon::now(),
         );
     }
@@ -302,7 +302,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
         // `ends_at` forward instead of leaving the subscription to lapse.
         if ($resultType === ResultType::Subscription && is_string($token) && $token !== '') {
             try {
-                return $this->subscriptionResult($token, $this->subscriptionState($token), $notification->raw, $notification->eventTime);
+                return $this->subscriptionResult($token, $this->readSubscription($token), $notification->raw, $notification->eventTime);
             } catch (RequestException $e) {
                 // 410 Gone: expired too long ago for Google to keep — the RTDN is all there is.
                 if ($e->response->status() !== 410) {
