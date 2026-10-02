@@ -100,3 +100,9 @@ it('skips google push authentication only for a switch that reads as off', funct
 
     expect(true)->toBeTrue(); // reached: nothing was demanded of the request
 });
+
+it('defaults apple to production when the sandbox switch is unset', function (): void {
+    // A production host that never sets PURCHASES_APPLE_SANDBOX must not call Apple's
+    // sandbox hosts, nor accept Sandbox notifications.
+    expect(data_get(purchasesConfigWithEnv('PURCHASES_AUDIT_ENABLED', 'true'), 'settings.apple.sandbox'))->toBeFalse();
+});
