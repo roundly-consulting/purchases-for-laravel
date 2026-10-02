@@ -138,8 +138,10 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
                 providerId: $subscription->id ?? (string) $event->id,
                 status: $subscription->status?->status() ?? Status::Processing,
                 transactionId: $subscription->id,
+                // Stripe names no plan: the product only names a subscription when it is first
+                // recorded, so a name the host gives it later is never overwritten.
                 name: null,
-                productId: null,
+                productId: $subscription->productId,
                 price: null,
                 activeFrom: $subscription->currentPeriodStart,
                 trialEndsAt: $subscription->trialEnd,

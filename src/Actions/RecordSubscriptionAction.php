@@ -63,14 +63,15 @@ final readonly class RecordSubscriptionAction
     private function attributes(RecordSubscriptionData $data, ?Subscription $subscription): array
     {
         // A notification that does not know a value (a Google RTDN carries no order id or
-        // expiry) leaves the stored one alone instead of wiping it.
+        // expiry, Stripe names no plan) leaves the stored one alone instead of wiping it —
+        // so a name the host gave a Stripe subscription sticks.
         $attributes = array_filter([
             'transaction_id' => $data->transactionId,
+            'name' => $subscription === null ? $data->name ?? $data->productId ?? $data->providerId : $data->name,
             'active_from' => $data->activeFrom,
             'trial_ends_at' => $data->trialEndsAt,
             'ends_at' => $data->endsAt,
         ], static fn (mixed $value): bool => $value !== null) + [
-            'name' => $data->name,
             'status' => $data->status,
             'meta' => $data->meta,
             'last_event_at' => EventOrder::latest($subscription?->last_event_at, $data->occurredAt),

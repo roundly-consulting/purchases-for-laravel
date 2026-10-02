@@ -23,6 +23,7 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Invoice;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\StripeEvent;
+use RoundlyConsulting\Purchases\Tests\Fixtures\User;
 
 function configureStripe(): void
 {
@@ -622,4 +623,52 @@ it('fires nothing for a won dispute redelivered after the purchase was reinstate
     $sync->execute($won);
 
     Event::assertNothingDispatched();
+});
+
+/**
+ * @return array<string, mixed>
+ */
+function stripeSubscriptionObject(string $status = 'active', string $product = 'prod_pro'): array
+{
+    return [
+        'id' => 'sub_9',
+        'object' => 'subscription',
+        'status' => $status,
+        'items' => ['object' => 'list', 'data' => [[
+            'id' => 'si_9',
+            'current_period_start' => Carbon::now()->subDay()->getTimestamp(),
+            'current_period_end' => Carbon::now()->addMonth()->getTimestamp(),
+            'price' => ['id' => 'price_9', 'product' => $product],
+        ]]],
+    ];
+}
+
+it('names a new stripe subscription after its product', function (): void {
+    $result = stripeResultFor('customer.subscription.created', stripeSubscriptionObject());
+    app(RecordProviderResultAction::class)->execute($result);
+
+    expect($result->productId())->toBe('prod_pro')
+        ->and($result->name())->toBeNull()
+        ->and(Subscription::query()->sole()->name)->toBe('prod_pro');
+});
+
+it('keeps the name the host gave a stripe subscription', function (): void {
+    $sync = app(RecordProviderResultAction::class);
+    $sync->execute(stripeResultFor('customer.subscription.created', stripeSubscriptionObject()));
+
+    $user = User::query()->create(['name' => 'Ada']);
+    $subscription = ownedBy($user, Subscription::query()->sole());
+    $subscription->update(['name' => 'pro']);
+
+    $sync->execute(stripeResultFor('customer.subscription.updated', stripeSubscriptionObject(product: 'prod_other')));
+
+    expect(Subscription::query()->sole()->name)->toBe('pro')
+        ->and($user->subscribedTo('pro'))->toBeTrue();
+});
+
+it('reads the product of an expanded stripe price', function (): void {
+    $object = stripeSubscriptionObject();
+    $object['items']['data'][0]['price']['product'] = ['id' => 'prod_expanded', 'object' => 'product'];
+
+    expect(stripeResultFor('customer.subscription.updated', $object)->productId())->toBe('prod_expanded');
 });

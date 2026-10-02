@@ -12,7 +12,8 @@ use RoundlyConsulting\Purchases\Support\DataSet;
 /**
  * Since API version 2025-03-31 the billing period lives on each subscription item
  * (`items.data[].current_period_start/end`), not on the subscription; both shapes are
- * read — the item periods as the earliest start and the latest end.
+ * read — the item periods as the earliest start and the latest end. `productId` is the
+ * first item's price's product.
  */
 final class Subscription implements FromRaw
 {
@@ -28,6 +29,7 @@ final class Subscription implements FromRaw
         public readonly ?Carbon $trialEnd,
         public readonly ?Carbon $canceledAt,
         public readonly array $raw,
+        public readonly ?string $productId = null,
     ) {}
 
     /**
@@ -46,7 +48,22 @@ final class Subscription implements FromRaw
             trialEnd: self::epoch($dataset->value('trial_end')),
             canceledAt: self::epoch($dataset->value('canceled_at')),
             raw: $raw,
+            productId: self::product($dataset),
         );
+    }
+
+    /**
+     * The product of the first item's price — its id, or the id of an expanded product.
+     */
+    private static function product(DataSet $dataset): ?string
+    {
+        $product = $dataset->value('items.data.0.price.product');
+
+        if (is_array($product)) {
+            $product = $product['id'] ?? null;
+        }
+
+        return is_string($product) && $product !== '' ? $product : null;
     }
 
     private static function itemPeriod(DataSet $dataset, string $key, bool $earliest): ?Carbon

@@ -216,6 +216,32 @@ Purchases::for($user)->purchases()->latest()->get();   // Builder<Purchase>
 Purchases::for($user)->subscriptions()->count();       // Builder<Subscription>
 ```
 
+**Owners are yours to set.** A store notification never says which of *your* users it belongs to,
+so every row recorded by a webhook, `handle()`, `sync()` or `replay()` starts with **no owner** —
+`for($user)` and `HasPurchases` see it only once you associate it. Do it where you can tell
+whose it is, for example in a listener, from the account token you passed to the store (Apple's
+`appAccountToken`, Google's `obfuscatedExternalAccountId`, the Stripe customer):
+
+```php
+use App\Models\User;
+use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
+
+Event::listen(function (SubscriptionStarted $event): void {
+    $token = $event->result->raw()['data']['transactionInfo']['appAccountToken'] ?? null;   // Apple
+
+    if ($user = User::query()->where('app_account_token', $token)->first()) {
+        $event->subscription->owner()->associate($user)->save();
+    }
+});
+```
+
+**Plan names.** `subscribedTo($name)` and `activeSubscription($name)` match `Subscription::$name`.
+Apple and Google name a subscription after its product id (`com.example.pro`) on every
+notification, so an upgrade renames it. Stripe names no plan: a new Stripe subscription is named
+after its price's product (`prod_…`) and never renamed, so a name you give it — `pro`, say — sticks
+through every later event.
+
 #### Without the facade
 
 The facade is sugar over `RoundlyConsulting\Purchases\PurchasesManager`. Inject it for the same
