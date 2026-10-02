@@ -336,10 +336,11 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
 
     /**
      * A dispute is a chargeback only while the funds are actually gone: an inquiry
-     * (`warning_*` status) never withdraws them, an update changes nothing, and a dispute
-     * closed as won returns them — the purchase is reinstated (a Completed purchase keyed
-     * on its PaymentIntent). A lost one stays the chargeback it was. Null means "record it
-     * as a chargeback".
+     * (`warning_*` status) never withdraws them, and an update changes nothing. A dispute
+     * closed as won returns them: it stays the one chargeback row it was (keyed on the
+     * dispute), now reversed — a Completed chargeback, which reinstates the purchase the
+     * funds were taken from, if one was recorded, and never creates one. A lost one stays
+     * the chargeback it was. Null means "record it as a chargeback".
      */
     private function disputeResult(StripeEvent $event, DataSet $object, string $id, ?string $paymentIntent): ?GenericResult
     {
@@ -350,7 +351,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             || str_starts_with($status, 'warning_')
             || ($event->type === EventType::ChargeDisputeClosed && ! in_array($status, ['won', 'lost'], true));
 
-        if ($informational || ($status === 'won' && $paymentIntent === null)) {
+        if ($informational) {
             return new GenericResult(
                 provider: $this->id(),
                 type: ResultType::Notification,
@@ -363,13 +364,18 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         }
 
         if ($status === 'won') {
+            $reason = $object->value('reason');
+
             return new GenericResult(
                 provider: $this->id(),
-                type: ResultType::Purchase,
-                providerId: (string) $paymentIntent,
+                type: ResultType::Refund,
+                providerId: $id,
                 status: Status::Completed,
                 transactionId: $paymentIntent,
+                price: StripeMoney::fromDataSet($object, 'amount', 'currency'),
                 raw: $event->object,
+                refundReason: is_string($reason) ? $reason : null,
+                chargeback: true,
                 occurredAt: $event->created,
             );
         }

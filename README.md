@@ -496,9 +496,11 @@ the route, so Stripe retries) rather than guessed at — a guess would record ev
 one-off purchase.
 
 A dispute is a chargeback only while the funds are gone: an inquiry (`warning_*`) and
-`charge.dispute.updated` change nothing, a dispute closed as **won** reinstates the purchase
-(`PurchaseCompleted`), and a **lost** one stays the single chargeback recorded at
-`charge.dispute.created` (keyed on the dispute id).
+`charge.dispute.updated` change nothing, and a **lost** dispute stays the single chargeback
+recorded at `charge.dispute.created` (keyed on the dispute id). A dispute closed as **won** updates
+that same row and reinstates the refunded purchase it was linked to (`PurchaseCompleted`) — its
+own payment data is kept, and only a purchase the package recorded is reinstated: a won dispute of
+a payment that never became a `Purchase` (a subscription renewal's) creates none and fires nothing.
 
 ```php
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;

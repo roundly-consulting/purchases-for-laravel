@@ -22,7 +22,9 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
  * A refund of a subscription's current period (its latest transaction — an Apple
  * transaction, a Google order) or keyed to the subscription itself (Google's purchase
  * token) also revokes that subscription — never one that refunds an earlier period. Only
- * a full refund (a Refunded result) flips anything; a partial one is recorded alone.
+ * a full refund (a Refunded result) flips anything; a partial one is recorded alone. A
+ * reversed chargeback (a Completed chargeback — a dispute won) reinstates the refunded
+ * purchase it was linked to, and never creates one.
  *
  * Events are ordered (see EventOrder): a refund event older than the last one applied to
  * its row changes nothing, and a purchase or subscription is only flipped when the refund
@@ -70,6 +72,10 @@ final readonly class RecordRefundAction
             if ($data->status === Status::Refunded) {
                 $this->move($purchase, Status::Refunded, $data->occurredAt);
                 $this->move($this->relatedSubscription($data), Status::Refunded, $data->occurredAt);
+            } elseif ($data->chargeback && $data->status === Status::Completed && $purchase?->status === Status::Refunded) {
+                // A chargeback reversed (a dispute won) returns the funds: the purchase they
+                // were taken from is reinstated — only one that exists, never a new one.
+                $this->move($purchase, Status::Completed, $data->occurredAt);
             }
 
             $refund->refresh();

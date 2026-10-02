@@ -436,7 +436,9 @@ it('maps a dispute through its lifecycle without mistaking a won one for a charg
     $won = stripeResultFor('charge.dispute.closed', stripeDispute('won'));
     $sync->execute($won);
 
-    expect($won->type())->toBe(ResultType::Purchase)
+    expect($won->type())->toBe(ResultType::Refund)
+        ->and($won->isChargeback())->toBeTrue()
+        ->and($won->providerId())->toBe('dp_1')
         ->and($won->status())->toBe(Status::Completed)
         ->and(Purchase::query()->sole()->status)->toBe(Status::Completed)
         ->and(Purchase::query()->sole()->price?->minor())->toBe('5000')
@@ -478,12 +480,16 @@ it('does not link a refund and a dispute of one payment into one row', function 
         ->and(PurchaseRefund::query()->where('chargeback', false)->sole()->price?->minor())->toBe('1000');
 });
 
-it('audits a won dispute it cannot tie to a payment', function (): void {
-    $result = stripeResultFor('charge.dispute.closed', stripeDispute('won', ['payment_intent' => null]));
+it('keeps a won dispute it cannot tie to a payment on the dispute alone', function (): void {
+    Event::fake([ChargebackReceived::class, PurchaseCompleted::class]);
 
-    expect($result->type())->toBe(ResultType::Notification)
-        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
-        ->and(Purchase::query()->count())->toBe(0);
+    $result = stripeResultFor('charge.dispute.closed', stripeDispute('won', ['payment_intent' => null]));
+    app(RecordProviderResultAction::class)->execute($result);
+
+    expect($result->type())->toBe(ResultType::Refund)
+        ->and(Purchase::query()->count())->toBe(0)
+        ->and(PurchaseRefund::query()->sole()->provider_id)->toBe('dp_1');
+    Event::assertNothingDispatched();
 });
 
 it('holds an unpaid or paused stripe subscription instead of expiring it', function (string $status): void {
@@ -574,3 +580,46 @@ it('refuses to guess about a current payment intent without a secret key', funct
 
     stripeResultFor('payment_intent.succeeded', ['id' => 'pi_nokey', 'status' => 'succeeded', 'amount' => 700, 'currency' => 'eur']);
 })->throws(VerificationException::class, 'Stripe secret key is not configured.');
+
+it('never invents a purchase for a won dispute of a payment it did not record', function (): void {
+    Event::fake([ChargebackReceived::class, PurchaseCompleted::class]);
+    stripeInvoicePayments('in_sub');
+    $sync = app(RecordProviderResultAction::class);
+
+    // A subscription renewal's payment: audited, never a Purchase.
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_sub', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response', ['payment_intent' => 'pi_sub'])));
+    $sync->execute(stripeResultFor('charge.dispute.closed', stripeDispute('won', ['payment_intent' => 'pi_sub'])));
+
+    expect(Purchase::query()->count())->toBe(0)
+        ->and(PurchaseRefund::query()->sole()->provider_id)->toBe('dp_1');
+    Event::assertDispatchedTimes(ChargebackReceived::class, 1);
+    Event::assertNotDispatched(PurchaseCompleted::class);
+});
+
+it('reinstates a won dispute\'s purchase without replacing its payment data', function (): void {
+    $sync = app(RecordProviderResultAction::class);
+
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_d', 'object' => 'payment_intent', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response')));
+    $sync->execute(stripeResultFor('charge.dispute.closed', stripeDispute('won')));
+
+    $purchase = Purchase::query()->sole();
+
+    expect($purchase->status)->toBe(Status::Completed)
+        ->and($purchase->meta['object'] ?? null)->toBe('payment_intent')
+        ->and(PurchaseRefund::query()->sole()->meta['status'] ?? null)->toBe('won');
+});
+
+it('fires nothing for a won dispute redelivered after the purchase was reinstated', function (): void {
+    $sync = app(RecordProviderResultAction::class);
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_d', 'status' => 'succeeded', 'amount' => 5000, 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response')));
+    $won = stripeResultFor('charge.dispute.closed', stripeDispute('won'));
+    $sync->execute($won);
+
+    Event::fake([ChargebackReceived::class, PurchaseCompleted::class, PurchaseRefunded::class]);
+    $sync->execute($won);
+
+    Event::assertNothingDispatched();
+});

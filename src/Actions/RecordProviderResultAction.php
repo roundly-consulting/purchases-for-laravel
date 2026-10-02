@@ -120,9 +120,25 @@ final readonly class RecordProviderResultAction
     {
         $refund = $this->recordRefund->execute(RecordRefundData::fromResult($result));
 
+        if ($refund->trashed()) {
+            return $refund;
+        }
+
+        // A reversed chargeback (a dispute won) is no new chargeback: it announces only the
+        // purchase it reinstated, if it reinstated one.
+        if ($result->isChargeback() && $result->status() === Status::Completed) {
+            $purchase = $refund->relationLoaded('purchase') ? $refund->getRelation('purchase') : null;
+
+            if ($purchase instanceof Purchase && ! $purchase->trashed() && $purchase->wasChanged('status')) {
+                PurchaseCompleted::dispatch($purchase, $result);
+            }
+
+            return $refund;
+        }
+
         // A repeated delivery of the same refund is not a new refund; a larger cumulative
         // amount (another partial refund of the same charge) is.
-        if ($refund->trashed() || (! $refund->wasRecentlyCreated && ! $refund->wasChanged(['price', 'chargeback']))) {
+        if (! $refund->wasRecentlyCreated && ! $refund->wasChanged(['price', 'chargeback'])) {
             return $refund;
         }
 
