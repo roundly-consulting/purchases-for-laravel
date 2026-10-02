@@ -2,14 +2,18 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Events\SubscriptionCanceled;
+use RoundlyConsulting\Purchases\Events\SubscriptionRenewed;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\Subscription;
@@ -419,6 +423,7 @@ it('maps a voided purchase RTDN into a refund result', function (): void {
 });
 
 it('maps a grace-period subscription RTDN into a grace-period result', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_IN_GRACE_PERIOD', Carbon::now()->addDays(3)->toIso8601String()))]);
     $payload = base64_encode((string) json_encode([
         'version' => '1.0',
         'packageName' => 'com.example.app',
@@ -438,6 +443,7 @@ it('maps a grace-period subscription RTDN into a grace-period result', function 
 });
 
 it('maps an account-hold subscription RTDN into an on-hold result', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_ON_HOLD', Carbon::now()->subDay()->toIso8601String()))]);
     $payload = base64_encode((string) json_encode([
         'version' => '1.0',
         'packageName' => 'com.example.app',
@@ -501,11 +507,11 @@ it('reports failed google connectivity gracefully', function (): void {
  */
 function googleRtdn(array $notification): Request
 {
-    return new Request(['message' => ['data' => base64_encode((string) json_encode([
+    return new Request(['message' => ['data' => base64_encode((string) json_encode($notification + [
         'version' => '1.0',
         'packageName' => 'com.example.app',
         'eventTimeMillis' => '1700000000000',
-    ] + $notification))]]);
+    ]))]]);
 }
 
 it('maps an informational RTDN to no state change', function (array $notification): void {
@@ -526,6 +532,7 @@ it('maps an informational RTDN to no state change', function (array $notificatio
 ]);
 
 it('keeps an active google subscription untouched by an informational RTDN', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_ACTIVE', Carbon::now()->addMonth()->toIso8601String()))]);
     $sync = app(RecordProviderResultAction::class);
     $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 4, 'purchaseToken' => 'tok-live', 'subscriptionId' => 'pro']])));
 
@@ -551,6 +558,7 @@ it('names every documented subscription RTDN type', function (int $value, Notifi
 ]);
 
 it('revokes the subscription google revoked', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_ACTIVE', Carbon::now()->addMonth()->toIso8601String()))]);
     $sync = app(RecordProviderResultAction::class);
     $sync->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 4, 'purchaseToken' => 'tok-rev', 'subscriptionId' => 'pro']])));
 
@@ -577,6 +585,7 @@ it('keys a verified subscription on its purchase token, like its notifications',
     Http::fake([
         '*/purchases/subscriptionsv2/*' => Http::sequence()
             ->push(['subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE', 'latestOrderId' => 'GPA.1-0', 'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED', 'lineItems' => [['productId' => 'pro', 'expiryTime' => '2026-02-01T00:00:00Z']]])
+            ->push(['subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE', 'latestOrderId' => 'GPA.1-1', 'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED', 'lineItems' => [['productId' => 'pro', 'expiryTime' => '2026-03-01T00:00:00Z']]])
             ->push(['subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE', 'latestOrderId' => 'GPA.1-1', 'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED', 'lineItems' => [['productId' => 'pro', 'expiryTime' => '2026-03-01T00:00:00Z']]]),
     ]);
     $sync = app(RecordProviderResultAction::class);
@@ -591,7 +600,7 @@ it('keys a verified subscription on its purchase token, like its notifications',
         ->and($first->transactionId())->toBe('GPA.1-0')
         ->and(Subscription::query()->count())->toBe(1)
         ->and(Subscription::query()->sole()->transaction_id)->toBe('GPA.1-1')
-        // The RTDN carries no order id or expiry: it must not wipe the verified ones.
+        // The RTDN keys on the same token, and reads the same state as the verified one.
         ->and(Subscription::query()->sole()->ends_at?->toIso8601String())->toBe('2026-03-01T00:00:00+00:00');
 });
 
@@ -670,3 +679,61 @@ it('reads a cancellation rtdn as auto-renew turned off, not lost access', functi
         ->and(SubscriptionState::Canceled->isTerminal())->toBeFalse()
         ->and(SubscriptionState::Expired->isTerminal())->toBeTrue();
 });
+
+it('extends a renewed google subscription from its subscriptionsv2 state', function (): void {
+    Carbon::setTestNow('2026-09-01 12:00:00');
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::sequence()
+        ->push(googleSubscriptionV2('SUBSCRIPTION_STATE_ACTIVE', '2026-10-01T12:00:00Z', 'GPA.R-0'))
+        ->push(googleSubscriptionV2('SUBSCRIPTION_STATE_ACTIVE', '2026-11-01T12:00:00Z', 'GPA.R-1')),
+    ]);
+    $sync = app(RecordProviderResultAction::class);
+    $sync->execute(googleProvider()->callbackResult(new Request(['purchaseToken' => 'tok-renew'])));
+
+    // Day 31: the RTDN says only "renewed" — the new period comes from subscriptionsv2.
+    Carbon::setTestNow('2026-10-02 12:00:00');
+    Event::fake([SubscriptionRenewed::class]);
+    $result = googleProvider()->result(googleRtdn([
+        'eventTimeMillis' => (string) Carbon::now()->getTimestampMs(),
+        'subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => 'tok-renew', 'subscriptionId' => 'pro'],
+    ]));
+    $sync->execute($result);
+
+    $subscription = Subscription::query()->sole();
+
+    expect($result->endsAt()?->toIso8601String())->toBe('2026-11-01T12:00:00+00:00')
+        ->and($result->raw()['subscriptionPurchase']['latestOrderId'] ?? null)->toBe('GPA.R-1')
+        ->and($subscription->ends_at?->toIso8601String())->toBe('2026-11-01T12:00:00+00:00')
+        ->and($subscription->transaction_id)->toBe('GPA.R-1')
+        ->and($subscription->isActive())->toBeTrue();
+    Event::assertDispatchedTimes(SubscriptionRenewed::class, 1);
+    Http::assertSent(fn ($request): bool => $request->method() === 'GET' && str_ends_with($request->url(), '/purchases/subscriptionsv2/tokens/tok-renew'));
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), ':acknowledge'));
+    Carbon::setTestNow();
+});
+
+it('keeps a subscription active through a cancellation rtdn until it expires', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_CANCELED', Carbon::now()->addDays(25)->toIso8601String()))]);
+    Event::fake([SubscriptionCanceled::class]);
+
+    app(RecordProviderResultAction::class)->execute(googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 3, 'purchaseToken' => 'tok-c', 'subscriptionId' => 'pro']])));
+
+    expect(Subscription::query()->sole()->status)->toBe(Status::Completed)
+        ->and(Subscription::query()->active()->count())->toBe(1);
+    Event::assertNotDispatched(SubscriptionCanceled::class);
+});
+
+it('falls back to the rtdn alone for a subscription google no longer keeps', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(['error' => ['code' => 410]], 410)]);
+
+    $result = googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 13, 'purchaseToken' => 'tok-gone', 'subscriptionId' => 'pro']]));
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->status())->toBe(Status::Failed)
+        ->and($result->endsAt())->toBeNull();
+});
+
+it('fails an rtdn whose subscription state cannot be read, so pub/sub redelivers it', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response('unavailable', 503)]);
+
+    googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => 'tok-503', 'subscriptionId' => 'pro']]));
+})->throws(RequestException::class);

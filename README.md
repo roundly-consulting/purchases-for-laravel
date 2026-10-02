@@ -482,6 +482,15 @@ $google->notification($request);                 // DeveloperNotification (RTDN)
 Purchases::sync($google->callbackResult($request));
 ```
 
+An RTDN only says *that* a subscription changed — no expiry, order or price. So every
+state-changing subscription RTDN (purchased, renewed, recovered, restarted, canceled, grace period,
+on hold, paused, expired, …) is recorded from the subscription's current **subscriptionsv2** state,
+read with the service account, as Google recommends: a renewal moves `ends_at` forward and fires
+`SubscriptionRenewed`. That read is GET-only — the RTDN path never acknowledges, since it cannot
+tell which of your users the purchase is for. If the read fails, the push fails too and Pub/Sub
+redelivers it; a subscription Google no longer keeps (`410 Gone`) is recorded from the RTDN alone.
+The service-account credentials are therefore needed for RTDNs as well.
+
 A **canceled** Google subscription — `SUBSCRIPTION_CANCELED`, auto-renew turned off — keeps access
 until its expiry: it stays `Completed`, its `ends_at` ends it, and `subscription()` still verifies
 it (a restore works). Only an expired one is refused.

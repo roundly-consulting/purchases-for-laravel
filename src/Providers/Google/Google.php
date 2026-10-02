@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Google;
 
+use Carbon\CarbonInterface;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use RoundlyConsulting\Crypto\Codec\Base64;
@@ -75,9 +77,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function subscription(string $token): SubscriptionPurchase
     {
-        $response = $this->client()->request()->get($this->path('purchases', 'subscriptionsv2', 'tokens', $token));
-
-        $purchase = SubscriptionPurchase::fromRaw($response->json());
+        $purchase = $this->subscriptionState($token);
 
         // A canceled subscription with paid time left is still the customer's: only one that
         // has run out (or that Google reports no state for) is refused.
@@ -95,6 +95,17 @@ class Google extends BaseProvider implements VerifiesConnectivity
         }
 
         return $purchase;
+    }
+
+    /**
+     * Read a subscription's current state from subscriptionsv2 — verifying, refusing and
+     * acknowledging nothing.
+     */
+    private function subscriptionState(string $token): SubscriptionPurchase
+    {
+        $response = $this->client()->request()->get($this->path('purchases', 'subscriptionsv2', 'tokens', $token));
+
+        return SubscriptionPurchase::fromRaw($response->json());
     }
 
     /**
@@ -220,6 +231,19 @@ class Google extends BaseProvider implements VerifiesConnectivity
             );
         }
 
+        return $this->subscriptionResult($token, $purchase);
+    }
+
+    /**
+     * A subscription as subscriptionsv2 reports it now. For an RTDN, the raw payload keeps
+     * the notification, with the subscription read for it under `subscriptionPurchase`, and
+     * the result is ordered by the RTDN's own event time — the clock its refund and void
+     * notifications run on, so a revocation after it still applies.
+     *
+     * @param  array<string, mixed>|null  $notification
+     */
+    private function subscriptionResult(string $token, SubscriptionPurchase $purchase, ?array $notification = null, ?CarbonInterface $eventTime = null): GenericResult
+    {
         return new GenericResult(
             provider: $this->id(),
             type: ResultType::Subscription,
@@ -235,8 +259,9 @@ class Google extends BaseProvider implements VerifiesConnectivity
             trialEndsAt: null,
             endsAt: $purchase->expiryTime(),
             items: [],
-            raw: $purchase->raw,
-            occurredAt: Carbon::now(),
+            raw: $notification === null ? $purchase->raw : $notification + ['subscriptionPurchase' => $purchase->raw],
+            // The Play Developer API reports the state as of now.
+            occurredAt: $eventTime ?? Carbon::now(),
         );
     }
 
@@ -270,10 +295,25 @@ class Google extends BaseProvider implements VerifiesConnectivity
         $type = $subscription?->notificationType;
         $token = $subscription?->purchaseToken;
         $subscriptionId = $subscription?->subscriptionId;
+        $resultType = $this->notificationResultType($type);
+
+        // An RTDN says only THAT a subscription changed — no expiry, no order, no price. Its
+        // state is read from subscriptionsv2, as Google recommends, so a renewal moves
+        // `ends_at` forward instead of leaving the subscription to lapse.
+        if ($resultType === ResultType::Subscription && is_string($token) && $token !== '') {
+            try {
+                return $this->subscriptionResult($token, $this->subscriptionState($token), $notification->raw, $notification->eventTime);
+            } catch (RequestException $e) {
+                // 410 Gone: expired too long ago for Google to keep — the RTDN is all there is.
+                if ($e->response->status() !== 410) {
+                    throw $e;
+                }
+            }
+        }
 
         return new GenericResult(
             provider: $this->id(),
-            type: $this->notificationResultType($type),
+            type: $resultType,
             providerId: $token ?? '',
             status: $type?->status() ?? Status::Processing,
             transactionId: null,
