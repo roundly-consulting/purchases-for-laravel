@@ -131,7 +131,10 @@ final class PurchasesServiceProvider extends PackageServiceProvider
         $overridden = 0;
 
         foreach ($defaults as $key => $default) {
-            if (config($key) !== $default) {
+            $value = config($key);
+
+            // Not set (absent, null or blank) reads as the packaged default, so it is no override.
+            if (! PurchasesConfig::blank($value) && $value !== $default) {
                 $overridden++;
             }
         }

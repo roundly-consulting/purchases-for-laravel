@@ -398,7 +398,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
     {
         $secret = $this->config['webhook_secret'] ?? null;
 
-        if (! is_string($secret) || $secret === '') {
+        if (! is_string($secret) || PurchasesConfig::blank($secret)) {
             throw VerificationException::because('Stripe webhook secret is not configured.');
         }
 
@@ -413,7 +413,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
 
         $secret = $this->config['secret'] ?? null;
 
-        if (! is_string($secret) || $secret === '') {
+        if (! is_string($secret) || PurchasesConfig::blank($secret)) {
             throw VerificationException::because('Stripe secret key is not configured.');
         }
 

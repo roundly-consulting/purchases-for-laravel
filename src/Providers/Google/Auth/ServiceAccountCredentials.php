@@ -27,7 +27,8 @@ final readonly class ServiceAccountCredentials
         $clientEmail = $config['client_email'] ?? null;
         $privateKey = $config['private_key'] ?? null;
 
-        if (! is_string($clientEmail) || $clientEmail === '' || ! is_string($privateKey) || $privateKey === '') {
+        if (! is_string($clientEmail) || PurchasesConfig::blank($clientEmail)
+            || ! is_string($privateKey) || PurchasesConfig::blank($privateKey)) {
             throw VerificationException::because('Google service-account credentials are not configured.');
         }
 

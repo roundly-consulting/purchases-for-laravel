@@ -38,7 +38,7 @@ final readonly class AppIdentity
     {
         $bundleId = config('purchases.settings.apple.bundle_id');
 
-        if (! is_string($bundleId) || $bundleId === '') {
+        if (! is_string($bundleId) || PurchasesConfig::blank($bundleId)) {
             throw VerificationException::because('Apple bundle id is not configured: set purchases.settings.apple.bundle_id (PURCHASES_APPLE_BUNDLE_ID). App Store data is only accepted for your own app.');
         }
 

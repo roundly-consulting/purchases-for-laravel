@@ -14,6 +14,7 @@ use RoundlyConsulting\Crypto\X509\Certificate;
 use RoundlyConsulting\Crypto\X509\Chain;
 use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 
 /**
  * Verifies an Apple App Store Server JWS payload.
@@ -168,7 +169,8 @@ class JwsVerifier
      * The configured clock-skew tolerance, in seconds, applied to both ends of
      * every certificate's validity window.
      *
-     * The value is validated rather than coerced: a negative or absurdly large
+     * Not set — absent, null or blank (a host's `KEY=`) — means the default. Any
+     * other value is validated rather than coerced: a negative or absurdly large
      * skew would quietly weaken (or disable) the expiry check, so it fails loudly
      * instead of falling back to the default.
      *
@@ -176,7 +178,11 @@ class JwsVerifier
      */
     protected function clockSkewLeeway(): int
     {
-        $value = config('purchases.settings.apple.certificate_clock_skew', self::DEFAULT_CLOCK_SKEW);
+        $value = config('purchases.settings.apple.certificate_clock_skew');
+
+        if (PurchasesConfig::blank($value)) {
+            return self::DEFAULT_CLOCK_SKEW;
+        }
 
         // env() hands back strings, so a value from the environment arrives as one.
         if (is_string($value) && preg_match('/^-?\d+$/', $value) === 1) {

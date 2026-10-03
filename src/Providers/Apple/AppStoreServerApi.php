@@ -91,7 +91,8 @@ final class AppStoreServerApi
         $privateKey = $api['private_key'] ?? null;
 
         if (! is_string($keyId) || ! is_string($issuerId) || ! is_string($bundleId) || ! is_string($privateKey)
-            || $keyId === '' || $issuerId === '' || $bundleId === '' || $privateKey === '') {
+            || PurchasesConfig::blank($keyId) || PurchasesConfig::blank($issuerId)
+            || PurchasesConfig::blank($bundleId) || PurchasesConfig::blank($privateKey)) {
             throw VerificationException::because('App Store Server API credentials are not configured.');
         }
 

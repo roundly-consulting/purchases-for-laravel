@@ -200,3 +200,14 @@ it('reads a leeway supplied as an environment string', function (): void {
 
     verifyAtSkew();
 })->throwsNoExceptions();
+
+it('reads a blank leeway as not set, so the 60-second default applies', function (?string $blank): void {
+    // A host's `PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW=` line arrives as an empty string.
+    config()->set('purchases.settings.apple.certificate_clock_skew', $blank);
+
+    CarbonImmutable::setTestNow(fixtureCertificate('leaf.pem')->notAfter()->addSeconds(59));
+    verifyAtSkew();
+
+    CarbonImmutable::setTestNow(fixtureCertificate('leaf.pem')->notAfter()->addSeconds(61));
+    expect(fn () => verifyAtSkew())->toThrow(VerificationException::class);
+})->with(['absent' => null, 'empty' => '', 'whitespace' => '  ']);

@@ -14,10 +14,10 @@ use RoundlyConsulting\Purchases\Providers\Provider;
  * `purchases.settings.<provider>` section once, so these helpers validate a value they are
  * HANDED and name its full key on failure.
  *
- * An absent (null) value takes its default; a present value of the wrong shape — `'five'` for
- * the Stripe tolerance, an array for a URL, a blank queue name — throws
- * {@see InvalidConfigurationException}. A typo is never cast to 0 (which would switch the
- * Stripe replay window off) or swapped for the default.
+ * A value that is not set — absent, null or blank (`''` or whitespace, a host's `KEY=`) — takes
+ * its default; a present value of the wrong shape — `'five'` for the Stripe tolerance, an array
+ * for a URL or a queue name — throws {@see InvalidConfigurationException}. A typo is never cast
+ * to 0 (which would switch the Stripe replay window off) or swapped for the default.
  *
  * @internal
  */
@@ -28,26 +28,26 @@ final class PurchasesConfig
         return self::validator($key, $value)->integer($key, $default, $min, $max);
     }
 
-    /** `$default` when absent; anything but a non-blank string throws. */
+    /** `$default` when not set (absent, null or blank); a non-string throws. */
     public static function string(mixed $value, string $key, string $default): string
     {
-        return $value === null ? $default : self::validator($key, $value)->requireString($key);
+        return self::blank($value) ? $default : self::validator($key, $value)->requireString($key);
     }
 
-    /** Null when absent; anything but a non-blank string throws. */
+    /** Null when not set (absent, null or blank); a non-string throws. */
     public static function optionalString(mixed $value, string $key): ?string
     {
-        return $value === null ? null : self::validator($key, $value)->requireString($key);
+        return self::blank($value) ? null : self::validator($key, $value)->requireString($key);
     }
 
     /**
-     * An optional credential: null when absent or empty (an unset `KEY=` env line), a string
-     * otherwise. Any other type throws — it must never read as "not configured" and quietly
-     * skip the check it feeds.
+     * An optional credential: null when not set (absent, null or blank — an unset `KEY=` env
+     * line), a string otherwise. Any other type throws — it must never read as "not
+     * configured" and quietly skip the check it feeds.
      */
     public static function credential(mixed $value, string $key): ?string
     {
-        if ($value === null || $value === '') {
+        if (self::blank($value)) {
             return null;
         }
 
@@ -59,14 +59,14 @@ final class PurchasesConfig
     }
 
     /**
-     * A list of non-blank strings: `$default` when absent.
+     * A list of non-blank strings: `$default` when not set (absent, null or blank).
      *
      * @param  list<string>  $default
      * @return list<string>
      */
     public static function strings(mixed $value, string $key, array $default): array
     {
-        if ($value === null) {
+        if (self::blank($value)) {
             return $default;
         }
 
@@ -101,6 +101,12 @@ final class PurchasesConfig
 
         /** @var list<class-string<Provider>> $providers */
         return $providers;
+    }
+
+    /** Not set: absent, null or a blank string (`''` or whitespace — a host's `KEY=`). */
+    public static function blank(mixed $value): bool
+    {
+        return $value === null || (is_string($value) && trim($value) === '');
     }
 
     private static function validator(string $key, mixed $value): ConfigValidator

@@ -381,7 +381,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
     {
         $packageName = $this->config['package_name'] ?? null;
 
-        if (! is_string($packageName) || $packageName === '') {
+        if (! is_string($packageName) || PurchasesConfig::blank($packageName)) {
             throw VerificationException::because('Google package name is not configured.');
         }
 

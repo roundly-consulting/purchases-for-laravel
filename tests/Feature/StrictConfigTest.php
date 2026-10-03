@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
@@ -21,7 +22,8 @@ use RoundlyConsulting\Purchases\Testing\FakeResult;
 /*
  | Owner rule: a typo in a host's config fails loudly and never falls back silently. A junk
  | Stripe tolerance used to cast to 0 — which switches the webhook replay window OFF — and junk
- | URLs, TTLs and queue names quietly became their defaults.
+ | URLs, TTLs and queue names quietly became their defaults. A blank value (`''` or whitespace —
+ | a host's `KEY=`) is not junk: it is not set, so the default applies.
  */
 
 function invokePrivate(object $object, string $method, mixed ...$arguments): mixed
@@ -38,10 +40,23 @@ it('refuses a junk stripe tolerance instead of disabling the replay window (stri
 })->with([
     'word' => 'five',
     'decimal' => '300.5',
-    'empty' => '',
     'zero' => 0,
     'negative' => '-1',
 ]);
+
+it('keeps the 300-second stripe replay window when the tolerance is blank (strict config)', function (string $blank): void {
+    config()->set('purchases.settings.stripe.webhook_secret', 'whsec_test');
+    config()->set('purchases.settings.stripe.tolerance', $blank);
+
+    $signedAt = Carbon::now();
+    $request = stripeSignedRequest(['id' => 'evt_1', 'type' => 'charge.succeeded']);
+
+    Carbon::setTestNow($signedAt->copy()->addSeconds(299));
+    expect(fn () => app(Stripe::class)->event($request))->not->toThrow(VerificationException::class);
+
+    Carbon::setTestNow($signedAt->copy()->addSeconds(301));
+    expect(fn () => app(Stripe::class)->event($request))->toThrow(VerificationException::class, 'outside the tolerance zone');
+})->with(['empty' => '', 'whitespace' => '  ']);
 
 it('reads a canonical integer-string stripe tolerance (strict config)', function (): void {
     config()->set('purchases.settings.stripe.webhook_secret', 'whsec_test');
@@ -52,7 +67,7 @@ it('reads a canonical integer-string stripe tolerance (strict config)', function
     expect(fn () => app(Stripe::class)->event($request))->toThrow(VerificationException::class);
 });
 
-it('refuses a blank or wrong-typed provider endpoint instead of using the default (strict config)', function (string $key, mixed $value, Closure $read): void {
+it('refuses a wrong-typed provider endpoint instead of using the default (strict config)', function (string $key, mixed $value, Closure $read): void {
     config()->set('purchases.settings.apple.sandbox', false);
     config()->set($key, $value);
 
@@ -62,7 +77,7 @@ it('refuses a blank or wrong-typed provider endpoint instead of using the defaul
         config()->set('purchases.settings.stripe.secret', 'sk_test');
         invokePrivate(app(Stripe::class), 'client');
     }],
-    'stripe api version' => ['purchases.settings.stripe.api_version', '', function (): void {
+    'stripe api version' => ['purchases.settings.stripe.api_version', 5, function (): void {
         config()->set('purchases.settings.stripe.secret', 'sk_test');
         invokePrivate(app(Stripe::class), 'client');
     }],
@@ -70,17 +85,17 @@ it('refuses a blank or wrong-typed provider endpoint instead of using the defaul
         config()->set('purchases.settings.google.service_account', ['client_email' => 'a@b.c', 'private_key' => 'k']);
         invokePrivate(app(Google::class), 'client');
     }],
-    'apple live url' => ['purchases.settings.apple.url.live', '', fn () => invokePrivate(app(Apple::class), 'getBaseUrl')],
+    'apple live url' => ['purchases.settings.apple.url.live', true, fn () => invokePrivate(app(Apple::class), 'getBaseUrl')],
     'apple api live url' => ['purchases.settings.apple.api.url.live', ['x'], fn () => invokePrivate(app(AppStoreServerApi::class), 'baseUrl')],
 ]);
 
-it('uses the packaged endpoints only when the keys are absent (strict config)', function (): void {
+it('uses the packaged endpoints when the keys are not set (strict config)', function (?string $unset): void {
     config()->set('purchases.settings.stripe.secret', 'sk_test');
-    config()->set('purchases.settings.stripe.base_url', null);
-    config()->set('purchases.settings.stripe.api_version', null);
+    config()->set('purchases.settings.stripe.base_url', $unset);
+    config()->set('purchases.settings.stripe.api_version', $unset);
     config()->set('purchases.settings.apple.sandbox', false);
-    config()->set('purchases.settings.apple.url', null);
-    config()->set('purchases.settings.apple.api.url', null);
+    config()->set('purchases.settings.apple.url.live', $unset);
+    config()->set('purchases.settings.apple.api.url.live', $unset);
 
     $client = invokePrivate(app(Stripe::class), 'client');
 
@@ -88,7 +103,7 @@ it('uses the packaged endpoints only when the keys are absent (strict config)', 
         ->and((new ReflectionProperty($client, 'baseUrl'))->getValue($client))->toBe('https://api.stripe.com/v1')
         ->and(invokePrivate(app(Apple::class), 'getBaseUrl'))->toBe('https://buy.itunes.apple.com')
         ->and(invokePrivate(app(AppStoreServerApi::class), 'baseUrl'))->toBe('https://api.storekit.itunes.apple.com');
-});
+})->with(['absent' => null, 'empty' => '', 'whitespace' => '  ']);
 
 it('refuses a wrong-typed google token uri (strict config)', function (): void {
     expect(fn () => ServiceAccountCredentials::fromConfig(['client_email' => 'a@b.c', 'private_key' => 'k', 'token_uri' => ['x']]))
@@ -122,15 +137,24 @@ it('refuses a wrong-typed apple app id instead of skipping the check (strict con
         ->toThrow(InvalidConfigurationException::class, '[purchases.settings.apple.app_apple_id]');
 });
 
-it('refuses a blank or wrong-typed queue topology (strict config)', function (string $key, mixed $value): void {
+it('refuses a wrong-typed queue topology (strict config)', function (string $key, mixed $value): void {
     config()->set($key, $value);
 
     expect(fn () => new ProcessProviderNotification(FakeResult::purchase()))
         ->toThrow(InvalidConfigurationException::class, "[{$key}]");
 })->with([
-    'connection ""' => ['purchases.queue.connection', ''],
+    'connection int' => ['purchases.queue.connection', 5],
     'queue array' => ['purchases.queue.queue', ['high']],
 ]);
+
+it('queues on the default topology when the names are blank (strict config)', function (string $blank): void {
+    config()->set('purchases.queue.connection', $blank);
+    config()->set('purchases.queue.queue', $blank);
+
+    $job = new ProcessProviderNotification(FakeResult::purchase());
+
+    expect($job->connection)->toBeNull()->and($job->queue)->toBeNull();
+})->with(['empty' => '', 'whitespace' => '  ']);
 
 it('queues on the configured topology (strict config)', function (): void {
     config()->set('purchases.queue.connection', 'redis');
@@ -148,10 +172,21 @@ it('refuses a malformed route prefix or middleware list (strict config)', functi
         ->toThrow(InvalidConfigurationException::class, "[{$key}]");
 })->with([
     'prefix array' => ['purchases.routes.prefix', ['hooks']],
-    'prefix blank' => ['purchases.routes.prefix', ' '],
     'middleware string' => ['purchases.routes.middleware', 'api'],
     'middleware non-string entry' => ['purchases.routes.middleware', ['api', 1]],
 ]);
+
+it('mounts the webhook under the default prefix and middleware when they are blank (strict config)', function (string $blank): void {
+    config()->set('purchases.routes.prefix', $blank);
+    config()->set('purchases.routes.middleware', $blank);
+
+    require __DIR__.'/../../routes/purchases.php';
+    app('router')->getRoutes()->refreshNameLookups();
+    $route = app('router')->getRoutes()->getByName('purchases.webhooks');
+
+    expect($route?->uri())->toBe('purchases/webhooks/{provider}')
+        ->and($route?->middleware())->toBe(['api']);
+})->with(['empty' => '', 'whitespace' => '  ']);
 
 it('refuses a malformed provider list instead of registering none (strict config)', function (mixed $providers): void {
     config()->set('purchases.providers', $providers);
@@ -174,4 +209,43 @@ it('reports a junk duration or provider list as INVALID in about (strict config)
         ->toMatch('/Stripe tolerance\s*\.*\s*INVALID/')
         ->toMatch('/Apple clock skew\s*\.*\s*INVALID/')
         ->toMatch('/Providers\s*\.*\s*INVALID/');
+});
+
+it('reads a blank credential as not configured (strict config)', function (Closure $read, string $message): void {
+    expect($read)->toThrow(VerificationException::class, $message);
+})->with([
+    'apple bundle id' => [function (): void {
+        config()->set('purchases.settings.apple.bundle_id', '  ');
+        AppIdentity::fromConfig();
+    }, 'Apple bundle id is not configured'],
+    'app store api key id' => [function (): void {
+        config()->set('purchases.settings.apple.bundle_id', 'com.example.app');
+        config()->set('purchases.settings.apple.api', ['key_id' => ' ', 'issuer_id' => 'i', 'private_key' => 'k']);
+        invokePrivate(app(AppStoreServerApi::class), 'token');
+    }, 'App Store Server API credentials are not configured'],
+    'google package name' => [function (): void {
+        config()->set('purchases.settings.google.package_name', '  ');
+        invokePrivate(app(Google::class), 'packageName');
+    }, 'Google package name is not configured'],
+    'google service account' => [
+        fn () => ServiceAccountCredentials::fromConfig(['client_email' => '  ', 'private_key' => 'k']),
+        'Google service-account credentials are not configured',
+    ],
+    'stripe secret' => [function (): void {
+        config()->set('purchases.settings.stripe.secret', '  ');
+        invokePrivate(app(Stripe::class), 'client');
+    }, 'Stripe secret key is not configured'],
+    'stripe webhook secret' => [function (): void {
+        config()->set('purchases.settings.stripe.webhook_secret', '  ');
+        app(Stripe::class)->event(stripeSignedRequest(['id' => 'evt_1', 'type' => 'charge.succeeded']));
+    }, 'Stripe webhook secret is not configured'],
+]);
+
+it('counts no endpoint override when the endpoint keys are blank (strict config)', function (): void {
+    config()->set('purchases.settings.stripe.base_url', '');
+    config()->set('purchases.settings.google.base_url', '  ');
+
+    Artisan::call('about', ['--only' => 'purchases']);
+
+    expect(Artisan::output())->toMatch('/Provider endpoints\s*\.*\s*DEFAULT/');
 });
