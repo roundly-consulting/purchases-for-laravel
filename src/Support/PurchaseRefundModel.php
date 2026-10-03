@@ -11,19 +11,16 @@ use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 /**
  * Resolves the Eloquent model backing a refund or chargeback from `purchases.models.purchase-refund`.
  *
- * The toolkit's ModelResolver validates that the configured value is a real
- * Eloquent model; it cannot know it is *ours*, so anything that is not a
- * PurchaseRefund (and so cannot answer the package's casts, scopes and relations)
- * falls back to the packaged model.
+ * Absent config resolves the packaged model; anything else must be that model or a subclass of
+ * it, or the toolkit's ModelResolver throws InvalidConfigurationException naming the key — a
+ * foreign class is never silently replaced.
  */
 final class PurchaseRefundModel
 {
     /** @return class-string<PurchaseRefund> */
     public static function class(): string
     {
-        $model = ModelResolver::for('purchases.models.purchase-refund', PurchaseRefund::class);
-
-        return is_a($model, PurchaseRefund::class, true) ? $model : PurchaseRefund::class;
+        return ModelResolver::for('purchases.models.purchase-refund', PurchaseRefund::class);
     }
 
     public static function new(): PurchaseRefund

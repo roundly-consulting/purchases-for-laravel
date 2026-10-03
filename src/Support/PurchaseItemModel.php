@@ -11,19 +11,16 @@ use RoundlyConsulting\Purchases\Models\PurchaseItem;
 /**
  * Resolves the Eloquent model backing a purchase line item from `purchases.models.purchase-item`.
  *
- * The toolkit's ModelResolver validates that the configured value is a real
- * Eloquent model; it cannot know it is *ours*, so anything that is not a
- * PurchaseItem (and so cannot answer the package's casts, scopes and relations)
- * falls back to the packaged model.
+ * Absent config resolves the packaged model; anything else must be that model or a subclass of
+ * it, or the toolkit's ModelResolver throws InvalidConfigurationException naming the key — a
+ * foreign class is never silently replaced.
  */
 final class PurchaseItemModel
 {
     /** @return class-string<PurchaseItem> */
     public static function class(): string
     {
-        $model = ModelResolver::for('purchases.models.purchase-item', PurchaseItem::class);
-
-        return is_a($model, PurchaseItem::class, true) ? $model : PurchaseItem::class;
+        return ModelResolver::for('purchases.models.purchase-item', PurchaseItem::class);
     }
 
     public static function new(): PurchaseItem

@@ -54,10 +54,14 @@ it('honours a host subclass', function (): void {
  * casts, scopes or relations — so the wrapper falls back rather than handing back a
  * model the rest of the package would crash on.
  */
-it('falls back to the packaged model for a real model that is not ours', function (string $key, string $resolver, string $packaged): void {
+it('refuses a foreign model instead of falling back to the packaged one', function (string $key, string $resolver, string $packaged): void {
+    // The toolkit refuses any class that is not the packaged model or a subclass of it.
     config()->set($key, User::class);
 
-    expect($resolver::class())->toBe($packaged);
+    expect(fn (): string => $resolver::class())->toThrow(
+        InvalidConfigurationException::class,
+        "Configuration value [{$key}] must be a class-string of [{$packaged}], [".User::class.'] given.',
+    );
 })->with('configurable models');
 
 it('fails loudly when the configured value is not a model class at all', function (string $key, string $resolver): void {
