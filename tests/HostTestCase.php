@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Tests;
 
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -18,9 +19,27 @@ use Illuminate\Support\ServiceProvider;
  * TestCase would migrate the package's sources *and* the timestamped copies it just
  * published — two differently-named migrations both running the same `Schema::create` —
  * which is the duplicate-table footgun the publish-only policy exists to remove.
+ *
+ * It is also a host of its own on disk. `purchases:install` writes config/purchases.php,
+ * database/migrations and `base_path('.env')` — the last with no use*Path() setter that
+ * reaches it — so the app boots from a throwaway mirror of the testbench skeleton, one per
+ * test: every entry links back to the real one (same config, same bootstrap cache), except
+ * the paths the command writes, which are real sandbox paths. Nothing lands in the shared
+ * skeleton every parallel process boots from: a published config/purchases.php left there
+ * is loaded by every later test as the host's own, and a `.env` is read by any process that
+ * boots while it exists.
  */
 abstract class HostTestCase extends TestCase
 {
+    /**
+     * What `purchases:install` writes: never linked back to the skeleton, or the write
+     * would land there through the link. Their parent directories are real sandbox
+     * directories whose other entries are linked.
+     */
+    private const array WRITTEN = ['.env', 'config/purchases.php', 'database/migrations'];
+
+    private string $sandbox = '';
+
     /**
      * Deliberately empty: the schema is whatever `purchases:install` publishes.
      *
@@ -36,5 +55,65 @@ abstract class HostTestCase extends TestCase
     protected function migrationSources(): array
     {
         return [];
+    }
+
+    protected function getApplicationBasePath(): string
+    {
+        if ($this->sandbox === '') {
+            $this->sandbox = sys_get_temp_dir().'/purchases-host-'.bin2hex(random_bytes(6));
+
+            mkdir($this->sandbox, 0777, true);
+            $this->mirror(static::applicationBasePath(), '');
+        }
+
+        return $this->sandbox;
+    }
+
+    protected function tearDown(): void
+    {
+        try {
+            parent::tearDown();
+        } finally {
+            if ($this->sandbox !== '') {
+                // Links are unlinked, never followed: the skeleton itself is untouched.
+                (new Filesystem)->deleteDirectory($this->sandbox);
+                $this->sandbox = '';
+            }
+        }
+    }
+
+    private function mirror(string $skeleton, string $directory): void
+    {
+        foreach (scandir($skeleton.'/'.$directory) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            $relative = ltrim($directory.'/'.$entry, '/');
+
+            if (in_array($relative, self::WRITTEN, true)) {
+                continue;
+            }
+
+            if ($this->holdsWrittenPath($relative)) {
+                mkdir($this->sandbox.'/'.$relative);
+                $this->mirror($skeleton, $relative);
+
+                continue;
+            }
+
+            symlink($skeleton.'/'.$relative, $this->sandbox.'/'.$relative);
+        }
+    }
+
+    private function holdsWrittenPath(string $relative): bool
+    {
+        foreach (self::WRITTEN as $written) {
+            if (str_starts_with($written, $relative.'/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

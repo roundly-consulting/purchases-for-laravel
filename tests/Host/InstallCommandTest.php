@@ -2,24 +2,23 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\ServiceProvider;
+use RoundlyConsulting\Purchases\PurchasesServiceProvider;
+use RoundlyConsulting\Purchases\Tests\HostTestCase;
 
 /**
- * The publish destination is a real directory inside the Testbench skeleton, so a
- * previous run's files leak into the next one — and because the publisher reuses an
- * existing file for the same migration name, a stale copy masks exactly the
- * duplicate-table failure this policy exists to remove.
+ * The install writes into a per-test mirror of the skeleton ({@see HostTestCase}), never the
+ * testbench skeleton the parallel suite boots from — so no previous run's published copy
+ * can mask the duplicate-table failure the publish-only policy exists to remove.
  */
-function clearPublishedMigrations(): void
-{
-    foreach (glob(database_path('migrations').'/*_create_{purchase,subscription}*.php', GLOB_BRACE) ?: [] as $file) {
-        File::delete($file);
-    }
-}
-
-beforeEach(fn () => clearPublishedMigrations());
-afterEach(fn () => clearPublishedMigrations());
+it('installs into the sandbox, never the shared skeleton', function (): void {
+    expect(base_path('.env'))->toContain('purchases-host-')
+        ->and(database_path('migrations'))->toContain('purchases-host-')
+        ->and(array_values(ServiceProvider::pathsToPublish(PurchasesServiceProvider::class, 'purchases-config')))
+        ->toBe([config_path('purchases.php')])
+        ->and(config_path('purchases.php'))->toContain('purchases-host-');
+});
 
 it('publishes config and migrations without migrating', function (): void {
     $this->artisan('purchases:install')
@@ -51,26 +50,21 @@ it('publishes and runs migrations when confirmed', function (): void {
 
 it('appends selected provider env keys interactively', function (): void {
     $envPath = base_path('.env');
-    @unlink($envPath);
     file_put_contents($envPath, "APP_NAME=Test\n");
 
-    try {
-        $this->artisan('purchases:install', ['--providers' => true])
-            ->expectsChoice(
-                'Which providers would you like to enable?',
-                ['apple', 'stripe'],
-                ['apple', 'google', 'stripe'],
-            )
-            ->expectsConfirmation('Run the migrations now?', 'no')
-            ->assertSuccessful();
+    $this->artisan('purchases:install', ['--providers' => true])
+        ->expectsChoice(
+            'Which providers would you like to enable?',
+            ['apple', 'stripe'],
+            ['apple', 'google', 'stripe'],
+        )
+        ->expectsConfirmation('Run the migrations now?', 'no')
+        ->assertSuccessful();
 
-        $contents = (string) file_get_contents($envPath);
+    $contents = (string) file_get_contents($envPath);
 
-        expect($contents)->toContain('APP_NAME=Test')
-            ->and($contents)->toContain('PURCHASES_APPLE_KEY_ID=')
-            ->and($contents)->toContain('PURCHASES_STRIPE_SECRET=')
-            ->and($contents)->not->toContain('PURCHASES_GOOGLE_PACKAGE_NAME=');
-    } finally {
-        @unlink($envPath);
-    }
+    expect($contents)->toContain('APP_NAME=Test')
+        ->and($contents)->toContain('PURCHASES_APPLE_KEY_ID=')
+        ->and($contents)->toContain('PURCHASES_STRIPE_SECRET=')
+        ->and($contents)->not->toContain('PURCHASES_GOOGLE_PACKAGE_NAME=');
 });
