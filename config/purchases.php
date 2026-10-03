@@ -13,11 +13,12 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 
 /*
  | Every on/off switch below is read from the environment as a string, so each is
- | read strictly: 1/true/on/yes are on, 0/false/off/no are off, unset keeps the
- | documented default (for push authentication that is ON — fail-closed), and
- | anything else throws an InvalidConfigurationException naming the key. Every
- | other setting is strict too: a duration such as the Stripe tolerance must be a
- | whole number, and URLs and queue names must be non-empty strings.
+ | read strictly: 1/true/on/yes are on, 0/false/off/no are off, unset or blank
+ | (KEY=) keeps the documented default (for push authentication that is ON —
+ | fail-closed), and anything else throws an InvalidConfigurationException naming
+ | the key. Every other setting is strict too: blank means not set, so the default
+ | applies, while a duration such as the Stripe tolerance must be a whole number
+ | and URLs and queue names must be strings.
  */
 return [
     'models' => [
@@ -106,7 +107,7 @@ return [
              |
              | Must be between 0 and 3600; anything else is a misconfiguration and
              | is rejected loudly, so a fat-fingered value cannot silently disable
-             | the expiry check.
+             | the expiry check. Blank (KEY=) is not set, so 60 applies.
              */
             'certificate_clock_skew' => env('PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW', 60),
 

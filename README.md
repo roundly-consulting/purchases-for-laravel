@@ -150,18 +150,19 @@ accept `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no`. Anything else, like `P
 outside `bigint`/`uuid`/`ulid`, throws an `InvalidConfigurationException` naming the key. A typo
 never quietly becomes the default.
 
-The other settings are just as strict. A variable you leave unset takes the default above; one
-you set to the wrong shape throws `RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException`
-naming the key:
+The other settings are just as strict. A variable that is not set — left out, or blank such as
+`PURCHASES_STRIPE_TOLERANCE=` — takes the default above; one you set to the wrong shape throws
+`RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException` naming the key:
 
 - durations (`PURCHASES_STRIPE_TOLERANCE`, `PURCHASES_GOOGLE_PUSH_JWKS_CACHE_TTL`,
-  `PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW`) take a whole number such as `300`; `five`, `300.5` or
-  an empty value throw instead of becoming `0`;
-- URLs, the API version, the route prefix and the queue connection/name must be non-empty strings
-  (leave the queue ones unset for the default connection and queue);
+  `PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW`) take a whole number such as `300`; `five` or `300.5`
+  throw instead of becoming `0`;
+- URLs, the API version, the route prefix and the queue connection/name must be strings (leave the
+  queue ones unset or blank for the default connection and queue);
 - `purchases.providers` and `purchases.routes.middleware` must be lists; every provider must
   implement `RoundlyConsulting\Purchases\Providers\Provider`;
-- an empty credential (`PURCHASES_GOOGLE_PUSH_TOKEN=`) reads as unset; a non-string one throws.
+- a blank credential (`PURCHASES_GOOGLE_PUSH_TOKEN=`) is not set, so it reads as not configured; a
+  non-string one throws.
 
 `php artisan about` reports a broken duration or provider list as `INVALID`.
 
