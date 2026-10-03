@@ -13,8 +13,8 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Silently falls back to bigint for an unrecognized value, so a typo in
-        // the host's config never leaves the package unable to migrate.
+        // An unrecognized value throws, so a typo in the host's config fails the
+        // migration loudly instead of keying the owner column wrong.
         $keyType = KeyType::fromConfig('purchases.key_type');
 
         Schema::create(PurchaseModel::new()->getTable(), function (Blueprint $table) use ($keyType): void {
