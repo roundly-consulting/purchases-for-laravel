@@ -13,8 +13,11 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 
 /*
  | Every on/off switch below is read from the environment as a string, so each is
- | coerced: 1/true/on/yes are on, 0/false/off/no are off, and anything else keeps
- | the documented default (for push authentication that is ON — fail-closed).
+ | read strictly: 1/true/on/yes are on, 0/false/off/no are off, unset keeps the
+ | documented default (for push authentication that is ON — fail-closed), and
+ | anything else throws an InvalidConfigurationException naming the key. Every
+ | other setting is strict too: a duration such as the Stripe tolerance must be a
+ | whole number, and URLs and queue names must be non-empty strings.
  */
 return [
     'models' => [
