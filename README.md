@@ -132,11 +132,11 @@ return [
 | `PURCHASES_GOOGLE_PUSH_AUDIENCE` / `PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT` | Pub/Sub push OIDC authentication: the push subscription's audience and service account |
 | `PURCHASES_GOOGLE_PUSH_TOKEN` | Optional shared secret expected as `?token=` on the push endpoint URL |
 | `PURCHASES_GOOGLE_PUSH_AUTHENTICATE` | Authenticate Pub/Sub pushes (default `true`, fail-closed); `false` only behind an upstream authenticator |
-| `PURCHASES_GOOGLE_PUSH_JWKS_URL` / `PURCHASES_GOOGLE_PUSH_JWKS_CACHE_TTL` | Google's signing keys (default `https://www.googleapis.com/oauth2/v3/certs`, cached `3600` s) |
+| `PURCHASES_GOOGLE_PUSH_JWKS_URL` / `PURCHASES_GOOGLE_PUSH_JWKS_CACHE_TTL` | Google's signing keys (default `https://www.googleapis.com/oauth2/v3/certs`, cached `3600` s; the TTL must be at least `1`) |
 | `PURCHASES_STRIPE_SECRET` | Stripe secret/restricted key for REST reads — including the invoice check behind every `payment_intent.*` event on current API versions (see [Stripe](#stripe)) |
 | `PURCHASES_STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `PURCHASES_STRIPE_API_VERSION` | Pinned Stripe API version |
-| `PURCHASES_STRIPE_TOLERANCE` | Webhook timestamp tolerance (seconds) |
+| `PURCHASES_STRIPE_TOLERANCE` | Webhook timestamp tolerance in seconds (at least `1`, default `300`) — the replay window can't be switched off by a typo |
 | `PURCHASES_STRIPE_BASE_URL` | Stripe REST base URL (default `https://api.stripe.com/v1`) |
 | `PURCHASES_KEY_TYPE` | Key type of the `owner` morph column: `bigint` (default), `uuid` or `ulid` — must match your owner models; read when the migrations run |
 | `PURCHASES_ROUTES_ENABLED` / `PURCHASES_ROUTES_PREFIX` | Bundled webhook routes |
@@ -149,6 +149,21 @@ The on/off switches (`PURCHASES_AUDIT_ENABLED`, `PURCHASES_QUEUE_ENABLED`, `PURC
 accept `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no`. Anything else, like `PURCHASES_KEY_TYPE`
 outside `bigint`/`uuid`/`ulid`, throws an `InvalidConfigurationException` naming the key. A typo
 never quietly becomes the default.
+
+The other settings are just as strict. A variable you leave unset takes the default above; one
+you set to the wrong shape throws `RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException`
+naming the key:
+
+- durations (`PURCHASES_STRIPE_TOLERANCE`, `PURCHASES_GOOGLE_PUSH_JWKS_CACHE_TTL`,
+  `PURCHASES_APPLE_CERTIFICATE_CLOCK_SKEW`) take a whole number such as `300`; `five`, `300.5` or
+  an empty value throw instead of becoming `0`;
+- URLs, the API version, the route prefix and the queue connection/name must be non-empty strings
+  (leave the queue ones unset for the default connection and queue);
+- `purchases.providers` and `purchases.routes.middleware` must be lists; every provider must
+  implement `RoundlyConsulting\Purchases\Providers\Provider`;
+- an empty credential (`PURCHASES_GOOGLE_PUSH_TOKEN=`) reads as unset; a non-string one throws.
+
+`php artisan about` reports a broken duration or provider list as `INVALID`.
 
 > Provider secrets are read only from config/env and are marked `#[SensitiveParameter]` so they
 > never leak into stack traces. They are never logged.
