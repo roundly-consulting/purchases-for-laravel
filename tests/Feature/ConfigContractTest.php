@@ -24,34 +24,22 @@ it('ships exactly the config keys it reads', function (): void {
     expect(__DIR__.'/../../config/purchases.php')->toSatisfyConfigContract(
         [__DIR__.'/../../src', __DIR__.'/../../database'],
         [
-            // The six model seams are read through the PurchaseModel/SubscriptionModel/…
-            // resolvers rather than a bare `config()` token, and the migrations reach the
-            // table names through the same accessors. Those are real reads that drive the
-            // whole schema, but they are not `config(` calls, so the prefix is what makes
-            // them visible to the scraper.
-            // Scoped to the real config sections rather than a bare 'purchases.'. The
-            // broad prefix counts ANY literal under it as a config read — which sweeps up
-            // `hasRoutes('purchases.php', …)`, a ROUTES FILENAME, and reports
-            // `purchases.php` as a config key the file does not ship. Naming the sections
-            // keeps every genuine seam read visible without inventing that key.
+            // The provider settings are read through Support\PurchasesConfig's own strict
+            // readers, handed an offset of a section resolved once
+            // (`PurchasesConfig::string($this->config['base_url'] ?? null,
+            // 'purchases.settings.stripe.base_url', …)`). The full key is a literal argument
+            // the scraper does not follow into the reader, so the section prefix is what
+            // counts it. (The model, audit, queue and key-type seams go through
+            // package-toolkit's readers, which the contract reads natively.)
             //
-            // No 'purchases.routes.' entry: every key in that section is already read by a
-            // plain `config()` token in the provider, so the prefix proved nothing and was
-            // removed. Unlike allowUnread/allowUnshipped, extraReadPrefixes is NOT
-            // rot-checked — a redundant entry silences no failure and so can never be
-            // noticed, while still carrying the false-positive risk described above. That
-            // asymmetry is why a prefix earns its place or goes.
-            'extraReadPrefixes' => [
-                'purchases.models.',
-                'purchases.settings.',
-                'purchases.audit.',
-                'purchases.queue.',
-                // Read through `KeyType::fromConfig('purchases.key_type')` in both the
-                // purchases and subscriptions migrations — a real read that decides the
-                // owner morph column type, but not a `config(` token, so the exact key
-                // prefix is what makes it visible to the scraper.
-                'purchases.key_type',
-            ],
+            // Scoped to the section rather than a bare 'purchases.'. The broad prefix counts
+            // ANY literal under it as a config read — which sweeps up
+            // `hasRoutes('purchases.php', …)`, a ROUTES FILENAME, and reports
+            // `purchases.php` as a config key the file does not ship. Unlike
+            // allowUnread/allowUnshipped, extraReadPrefixes is NOT rot-checked — a redundant
+            // entry silences no failure and so can never be noticed, while still carrying
+            // that false-positive risk. That asymmetry is why a prefix earns its place or goes.
+            'extraReadPrefixes' => ['purchases.settings.'],
 
             // Credentials are read as ARRAY OFFSETS on a section the provider resolved
             // once, not as `config('purchases.settings.apple.api.key_id')` literals — so
