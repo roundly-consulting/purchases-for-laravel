@@ -268,7 +268,10 @@ class Apple extends BaseProvider implements VerifiesConnectivity
 
     protected function getBaseUrl(): string
     {
-        return Config::for($this->config)->boolean('sandbox') ? $this->config['url']['sandbox'] : $this->config['url']['live'];
+        $sandbox = Config::for(['purchases.settings.apple.sandbox' => $this->config['sandbox'] ?? null])
+            ->boolean('purchases.settings.apple.sandbox');
+
+        return $sandbox ? $this->config['url']['sandbox'] : $this->config['url']['live'];
     }
 
     protected function client(): PendingRequest

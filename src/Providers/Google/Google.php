@@ -362,7 +362,8 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
     private function shouldAcknowledge(): bool
     {
-        return Config::for($this->config)->boolean('acknowledge', true);
+        return Config::for(['purchases.settings.google.acknowledge' => $this->config['acknowledge'] ?? null])
+            ->boolean('purchases.settings.google.acknowledge', true);
     }
 
     /**

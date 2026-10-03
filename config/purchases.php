@@ -35,8 +35,9 @@ return [
     /*
      | The key type used for the polymorphic owner column on purchases and
      | subscriptions. Use "uuid" or "ulid" when the models that own a purchase use
-     | UUID/ULID primary keys, otherwise leave it as "bigint". Anything unrecognized
-     | falls back to "bigint". Your owner models must share one key type.
+     | UUID/ULID primary keys, otherwise leave it as "bigint". Anything else throws
+     | an InvalidConfigurationException naming the key. Your owner models must
+     | share one key type.
      |
      | Supported: "bigint", "uuid", "ulid"
      */
@@ -47,7 +48,7 @@ return [
      | model state, giving an auditable log you can inspect or replay.
      */
     'audit' => [
-        'enabled' => filter_var(env('PURCHASES_AUDIT_ENABLED', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
+        'enabled' => env('PURCHASES_AUDIT_ENABLED', true),
     ],
 
     /*
@@ -56,7 +57,7 @@ return [
      | happens on the configured queue connection.
      */
     'queue' => [
-        'enabled' => filter_var(env('PURCHASES_QUEUE_ENABLED', false), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false,
+        'enabled' => env('PURCHASES_QUEUE_ENABLED', false),
         'connection' => env('PURCHASES_QUEUE_CONNECTION'),
         'queue' => env('PURCHASES_QUEUE_NAME'),
     ],
@@ -66,7 +67,7 @@ return [
      | registers POST {prefix}/webhooks/{provider} routes that verify and persist.
      */
     'routes' => [
-        'enabled' => filter_var(env('PURCHASES_ROUTES_ENABLED', false), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false,
+        'enabled' => env('PURCHASES_ROUTES_ENABLED', false),
         'prefix' => env('PURCHASES_ROUTES_PREFIX', 'purchases'),
         'middleware' => ['api'],
     ],
@@ -87,7 +88,7 @@ return [
              | Production unless switched on: the App Store environment notifications must
              | come from, and which verifyReceipt / App Store Server API host is called.
              */
-            'sandbox' => filter_var(env('PURCHASES_APPLE_SANDBOX', false), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false,
+            'sandbox' => env('PURCHASES_APPLE_SANDBOX', false),
             'url' => [
                 'live' => env('PURCHASES_APPLE_LIVE_URL', 'https://buy.itunes.apple.com'),
                 'sandbox' => env('PURCHASES_APPLE_SANDBOX_URL', 'https://sandbox.itunes.apple.com'),
@@ -129,7 +130,7 @@ return [
                 'token_uri' => env('PURCHASES_GOOGLE_TOKEN_URI', 'https://oauth2.googleapis.com/token'),
             ],
             'base_url' => env('PURCHASES_GOOGLE_BASE_URL', 'https://androidpublisher.googleapis.com'),
-            'acknowledge' => filter_var(env('PURCHASES_GOOGLE_ACKNOWLEDGE', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
+            'acknowledge' => env('PURCHASES_GOOGLE_ACKNOWLEDGE', true),
 
             /*
              | Real-time Developer Notifications arrive as Cloud Pub/Sub pushes, which
@@ -149,7 +150,7 @@ return [
              | Purchases::handle().
              */
             'push' => [
-                'authenticate' => filter_var(env('PURCHASES_GOOGLE_PUSH_AUTHENTICATE', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
+                'authenticate' => env('PURCHASES_GOOGLE_PUSH_AUTHENTICATE', true),
                 'audience' => env('PURCHASES_GOOGLE_PUSH_AUDIENCE'),
                 'service_account_email' => env('PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT'),
                 'token' => env('PURCHASES_GOOGLE_PUSH_TOKEN'),

@@ -5,9 +5,11 @@ declare(strict_types=1);
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Queue;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException as ToolkitInvalidConfigurationException;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Actions\HandleProviderResultAction;
 use RoundlyConsulting\Purchases\Actions\RecordProviderNotificationAction;
-use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Jobs\ProcessProviderNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\PushAuthenticator;
@@ -16,7 +18,9 @@ use RoundlyConsulting\Purchases\Testing\FakeResult;
 /*
  | Every boolean switch is a string when it comes from the environment. `PURCHASES_*=1`,
  | `=on` and `=yes` must read as on, `=0`, `=off` and `=no` as off — never the reverse, and
- | never "silently off" because a strict `=== true` met the string "1".
+ | never "silently off" because a strict `=== true` met the string "1". The config file hands
+ | the raw string through untouched, so the strict reader can refuse a typo instead of the
+ | file quietly turning it into the default.
  */
 
 /**
@@ -39,7 +43,10 @@ function purchasesConfigWithEnv(string $name, string $value): array
 }
 
 it('reads every boolean env switch as a real boolean', function (string $name, string $path, string $value, bool $expected): void {
-    expect(data_get(purchasesConfigWithEnv($name, $value), $path))->toBe($expected);
+    $config = purchasesConfigWithEnv($name, $value);
+
+    expect(data_get($config, $path))->toBe($value)
+        ->and(Config::for($config)->boolean($path))->toBe($expected);
 })->with([
     'audit 1' => ['PURCHASES_AUDIT_ENABLED', 'audit.enabled', '1', true],
     'audit 0' => ['PURCHASES_AUDIT_ENABLED', 'audit.enabled', '0', false],
@@ -54,8 +61,40 @@ it('reads every boolean env switch as a real boolean', function (string $name, s
     'google acknowledge 0' => ['PURCHASES_GOOGLE_ACKNOWLEDGE', 'settings.google.acknowledge', '0', false],
     'google acknowledge off' => ['PURCHASES_GOOGLE_ACKNOWLEDGE', 'settings.google.acknowledge', 'off', false],
     'google push authenticate no' => ['PURCHASES_GOOGLE_PUSH_AUTHENTICATE', 'settings.google.push.authenticate', 'no', false],
-    // A value that is not a boolean at all keeps the fail-closed default.
-    'google push authenticate garbage' => ['PURCHASES_GOOGLE_PUSH_AUTHENTICATE', 'settings.google.push.authenticate', 'maybe', true],
+]);
+
+it('hands a mistyped env switch through raw (strict config)', function (string $name, string $path): void {
+    expect(data_get(purchasesConfigWithEnv($name, 'disabled'), $path))->toBe('disabled');
+})->with([
+    'audit' => ['PURCHASES_AUDIT_ENABLED', 'audit.enabled'],
+    'queue' => ['PURCHASES_QUEUE_ENABLED', 'queue.enabled'],
+    'routes' => ['PURCHASES_ROUTES_ENABLED', 'routes.enabled'],
+    'apple sandbox' => ['PURCHASES_APPLE_SANDBOX', 'settings.apple.sandbox'],
+    'google acknowledge' => ['PURCHASES_GOOGLE_ACKNOWLEDGE', 'settings.google.acknowledge'],
+    'google push authenticate' => ['PURCHASES_GOOGLE_PUSH_AUTHENTICATE', 'settings.google.push.authenticate'],
+]);
+
+it('keeps the switch defaults when the env is unset', function (string $path, bool $default): void {
+    expect(data_get(purchasesConfigWithEnv('PURCHASES_UNRELATED', 'x'), $path))->toBe($default);
+})->with([
+    'audit' => ['audit.enabled', true],
+    'queue' => ['queue.enabled', false],
+    'routes' => ['routes.enabled', false],
+    'apple sandbox' => ['settings.apple.sandbox', false],
+    'google acknowledge' => ['settings.google.acknowledge', true],
+    'google push authenticate' => ['settings.google.push.authenticate', true],
+]);
+
+it('refuses a mistyped switch at its read path (strict config)', function (string $key, Closure $read): void {
+    config()->set($key, 'disabled');
+
+    expect($read)->toThrow(
+        ToolkitInvalidConfigurationException::class,
+        "Configuration value [{$key}] must be a boolean (true/false, 1/0, on/off or yes/no), [disabled] given.",
+    );
+})->with([
+    'audit' => ['purchases.audit.enabled', fn () => app(RecordProviderNotificationAction::class)->execute(FakeResult::purchase('stripe', 'pi_typo'))],
+    'queue' => ['purchases.queue.enabled', fn () => app(HandleProviderResultAction::class)->execute(FakeResult::purchase('stripe', 'pi_typo_queue'))],
 ]);
 
 it('writes an audit row when auditing is switched on with an env string', function (): void {
@@ -91,9 +130,12 @@ it('reports env-string switches truthfully in about', function (): void {
         ->and($about['purchases']['apple_environment'])->toBe('SANDBOX');
 });
 
-it('keeps google push authentication on for an unparseable switch', function (): void {
+it('refuses a google push when the authenticate switch is not a boolean (strict config)', function (): void {
     app(PushAuthenticator::class)->authenticate(Request::create('/push', 'POST'), ['authenticate' => 'maybe']);
-})->throws(VerificationException::class, 'Google push authentication is not configured');
+})->throws(
+    InvalidConfigurationException::class,
+    'Configuration value [purchases.settings.google.push.authenticate] must be a boolean (true/false, 1/0, on/off or yes/no), [maybe] given.',
+);
 
 it('skips google push authentication only for a switch that reads as off', function (): void {
     app(PushAuthenticator::class)->authenticate(Request::create('/push', 'POST'), ['authenticate' => 'off']);

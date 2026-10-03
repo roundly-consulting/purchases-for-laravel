@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
@@ -27,7 +28,7 @@ use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Testing\PayloadFactory;
 
-function googleProvider(bool $acknowledge = true): Google
+function googleProvider(bool|string $acknowledge = true): Google
 {
     Cache::flush();
 
@@ -133,6 +134,22 @@ it('does not acknowledge a product when disabled', function (): void {
 
     Http::assertNotSent(fn ($request) => str_contains($request->url(), ':acknowledge'));
 });
+
+it('names the full key when the acknowledge switch is not a boolean (strict config)', function (): void {
+    Http::fake([
+        '*/purchases/products/*' => Http::response([
+            'purchaseState' => 0,
+            'acknowledgementState' => 0,
+            'orderId' => 'GPA.1',
+            'productId' => 'coins.100',
+        ]),
+    ]);
+
+    googleProvider(acknowledge: 'disabled')->product('coins.100', 'token-1');
+})->throws(
+    InvalidConfigurationException::class,
+    'Configuration value [purchases.settings.google.acknowledge] must be a boolean (true/false, 1/0, on/off or yes/no), [disabled] given.',
+);
 
 it('verifies an active subscription with line items', function (): void {
     Http::fake([

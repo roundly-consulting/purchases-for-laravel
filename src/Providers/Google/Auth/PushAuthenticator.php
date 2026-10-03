@@ -17,6 +17,8 @@ use RoundlyConsulting\Crypto\Jose\Jwk;
 use RoundlyConsulting\Crypto\Jose\JwkKeyType;
 use RoundlyConsulting\Crypto\Jose\Jws;
 use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\PackageToolkit\Support\Config;
+use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use Throwable;
 
@@ -61,12 +63,18 @@ final class PushAuthenticator
      * @param  array<string, mixed>  $config  `purchases.settings.google.push`
      *
      * @throws VerificationException
+     * @throws InvalidConfigurationException when the authenticate switch is not a boolean
      */
     public function authenticate(Request $request, array $config): void
     {
-        // Fail-closed: only a value that genuinely reads as off (false/0/off/no) disables
-        // it; anything unparseable keeps authentication on.
-        if ((filter_var($config['authenticate'] ?? true, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true) === false) {
+        // Only a value that genuinely reads as off (false/0/off/no) disables it. Anything
+        // unparseable throws rather than guessing either way, so the push is refused.
+        $authenticate = Config::for(
+            ['purchases.settings.google.push.authenticate' => $config['authenticate'] ?? null],
+            InvalidConfigurationException::class,
+        )->boolean('purchases.settings.google.push.authenticate', true);
+
+        if (! $authenticate) {
             return;
         }
 

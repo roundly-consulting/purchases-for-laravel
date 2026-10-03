@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
 use RoundlyConsulting\Crypto\X509\Certificate;
 use RoundlyConsulting\Money\Money;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
@@ -165,6 +166,24 @@ it('verifies a receipt callback and returns the response', function (): void {
     Http::assertSent(fn ($request) => str_contains($request->url(), 'sandbox.itunes.apple.com')
         && $request['password'] === 'secret');
 });
+
+it('names the full key when the sandbox switch is not a boolean (strict config)', function (): void {
+    config()->set('purchases.settings.apple', [
+        'sandbox' => 'disabled',
+        'url' => [
+            'live' => 'https://buy.itunes.apple.com',
+            'sandbox' => 'https://sandbox.itunes.apple.com',
+        ],
+        'password' => 'secret',
+    ]);
+
+    Http::fake();
+
+    (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data'));
+})->throws(
+    InvalidConfigurationException::class,
+    'Configuration value [purchases.settings.apple.sandbox] must be a boolean (true/false, 1/0, on/off or yes/no), [disabled] given.',
+);
 
 it('throws when the receipt status is invalid', function (): void {
     config()->set('purchases.settings.apple', [

@@ -104,7 +104,8 @@ final class AppStoreServerApi
         /** @var array<string, mixed> $urls */
         $urls = $api['url'] ?? [];
 
-        $sandbox = Config::for($this->config)->boolean('sandbox');
+        $sandbox = Config::for(['purchases.settings.apple.sandbox' => $this->config['sandbox'] ?? null])
+            ->boolean('purchases.settings.apple.sandbox');
         $url = $sandbox ? ($urls['sandbox'] ?? null) : ($urls['live'] ?? null);
 
         if (! is_string($url) || $url === '') {

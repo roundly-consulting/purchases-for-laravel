@@ -144,6 +144,12 @@ return [
 | `PURCHASES_QUEUE_ENABLED` | Persist verified notifications on a queue (default `false`) |
 | `PURCHASES_QUEUE_CONNECTION` / `PURCHASES_QUEUE_NAME` | Queue connection / queue for async recording |
 
+The on/off switches (`PURCHASES_AUDIT_ENABLED`, `PURCHASES_QUEUE_ENABLED`, `PURCHASES_ROUTES_ENABLED`,
+`PURCHASES_APPLE_SANDBOX`, `PURCHASES_GOOGLE_ACKNOWLEDGE`, `PURCHASES_GOOGLE_PUSH_AUTHENTICATE`)
+accept `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no`. Anything else, like `PURCHASES_KEY_TYPE`
+outside `bigint`/`uuid`/`ulid`, throws an `InvalidConfigurationException` naming the key. A typo
+never quietly becomes the default.
+
 > Provider secrets are read only from config/env and are marked `#[SensitiveParameter]` so they
 > never leak into stack traces. They are never logged.
 
