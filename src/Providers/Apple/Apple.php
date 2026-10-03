@@ -28,6 +28,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationD
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
 use RoundlyConsulting\Purchases\Results\GenericResult;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use Throwable;
 
 class Apple extends BaseProvider implements VerifiesConnectivity
@@ -271,7 +272,12 @@ class Apple extends BaseProvider implements VerifiesConnectivity
         $sandbox = Config::for(['purchases.settings.apple.sandbox' => $this->config['sandbox'] ?? null])
             ->boolean('purchases.settings.apple.sandbox');
 
-        return $sandbox ? $this->config['url']['sandbox'] : $this->config['url']['live'];
+        /** @var array<string, mixed> $url */
+        $url = $this->config['url'] ?? [];
+
+        return $sandbox
+            ? PurchasesConfig::string($url['sandbox'] ?? null, 'purchases.settings.apple.url.sandbox', 'https://sandbox.itunes.apple.com')
+            : PurchasesConfig::string($url['live'] ?? null, 'purchases.settings.apple.url.live', 'https://buy.itunes.apple.com');
     }
 
     protected function client(): PendingRequest

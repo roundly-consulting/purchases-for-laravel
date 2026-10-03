@@ -11,6 +11,7 @@ use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Auth\AppStoreJwtFactory;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 
 /**
  * The modern App Store Server API — the non-deprecated replacement for verifyReceipt.
@@ -106,14 +107,9 @@ final class AppStoreServerApi
 
         $sandbox = Config::for(['purchases.settings.apple.sandbox' => $this->config['sandbox'] ?? null])
             ->boolean('purchases.settings.apple.sandbox');
-        $url = $sandbox ? ($urls['sandbox'] ?? null) : ($urls['live'] ?? null);
 
-        if (! is_string($url) || $url === '') {
-            return $sandbox
-                ? 'https://api.storekit-sandbox.itunes.apple.com'
-                : 'https://api.storekit.itunes.apple.com';
-        }
-
-        return $url;
+        return $sandbox
+            ? PurchasesConfig::string($urls['sandbox'] ?? null, 'purchases.settings.apple.api.url.sandbox', 'https://api.storekit-sandbox.itunes.apple.com')
+            : PurchasesConfig::string($urls['live'] ?? null, 'purchases.settings.apple.api.url.live', 'https://api.storekit.itunes.apple.com');
     }
 }

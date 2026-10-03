@@ -9,6 +9,7 @@ use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\Environment;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 
 /**
  * The one App Store app this host accepts signed data for: its bundle id, the environment
@@ -46,7 +47,7 @@ final readonly class AppIdentity
         return new self(
             bundleId: $bundleId,
             environment: Config::boolean('purchases.settings.apple.sandbox') ? Environment::Sandbox : Environment::Production,
-            appAppleId: is_int($appAppleId) || (is_string($appAppleId) && $appAppleId !== '') ? (string) $appAppleId : null,
+            appAppleId: is_int($appAppleId) ? (string) $appAppleId : PurchasesConfig::credential($appAppleId, 'purchases.settings.apple.app_apple_id'),
         );
     }
 

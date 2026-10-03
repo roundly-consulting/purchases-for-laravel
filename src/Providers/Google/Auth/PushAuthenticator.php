@@ -20,6 +20,7 @@ use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use Throwable;
 
 /**
@@ -78,9 +79,9 @@ final class PushAuthenticator
             return;
         }
 
-        $audience = self::string($config['audience'] ?? null);
-        $serviceAccount = self::string($config['service_account_email'] ?? null);
-        $token = self::string($config['token'] ?? null);
+        $audience = PurchasesConfig::credential($config['audience'] ?? null, 'purchases.settings.google.push.audience');
+        $serviceAccount = PurchasesConfig::credential($config['service_account_email'] ?? null, 'purchases.settings.google.push.service_account_email');
+        $token = PurchasesConfig::credential($config['token'] ?? null, 'purchases.settings.google.push.token');
 
         if ($audience === null && $serviceAccount === null && $token === null) {
             throw VerificationException::because('Google push authentication is not configured: set purchases.settings.google.push.audience and service_account_email (and/or token).');
@@ -230,9 +231,9 @@ final class PushAuthenticator
 
         $keys = $this->fetch($config);
 
-        $ttl = $config['jwks_cache_ttl'] ?? 3600;
+        $ttl = PurchasesConfig::integer($config['jwks_cache_ttl'] ?? null, 'purchases.settings.google.push.jwks_cache_ttl', 3600, min: 1);
 
-        Cache::put(self::CACHE_KEY, ['fetched_at' => $now, 'keys' => $keys], is_numeric($ttl) ? max(1, (int) $ttl) : 3600);
+        Cache::put(self::CACHE_KEY, ['fetched_at' => $now, 'keys' => $keys], $ttl);
 
         return $keys;
     }
@@ -243,7 +244,7 @@ final class PushAuthenticator
      */
     private function fetch(array $config): array
     {
-        $url = self::string($config['jwks_url'] ?? null) ?? 'https://www.googleapis.com/oauth2/v3/certs';
+        $url = PurchasesConfig::string($config['jwks_url'] ?? null, 'purchases.settings.google.push.jwks_url', 'https://www.googleapis.com/oauth2/v3/certs');
 
         try {
             $body = Http::timeout(10)->throw()->get($url)->json();
@@ -264,10 +265,5 @@ final class PushAuthenticator
         }
 
         return $keys;
-    }
-
-    private static function string(mixed $value): ?string
-    {
-        return is_string($value) && $value !== '' ? $value : null;
     }
 }

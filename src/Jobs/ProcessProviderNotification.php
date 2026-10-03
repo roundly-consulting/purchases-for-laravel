@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 
 /**
  * Persists an already-verified provider result on a queue, so the webhook can
@@ -29,14 +30,8 @@ final class ProcessProviderNotification implements ShouldQueue
         public readonly ProviderResult $result,
         public readonly ?int $notificationId = null,
     ) {
-        /** @var string|null $connection */
-        $connection = config('purchases.queue.connection');
-
-        /** @var string|null $queue */
-        $queue = config('purchases.queue.queue');
-
-        $this->onConnection($connection);
-        $this->onQueue($queue);
+        $this->onConnection(PurchasesConfig::optionalString(config('purchases.queue.connection'), 'purchases.queue.connection'));
+        $this->onQueue(PurchasesConfig::optionalString(config('purchases.queue.queue'), 'purchases.queue.queue'));
     }
 
     public function handle(RecordProviderResultAction $record): void

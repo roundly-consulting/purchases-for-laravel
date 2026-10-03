@@ -71,17 +71,12 @@ it('ships exactly the config keys it reads', function (): void {
                 'PushAuthenticator.php' => ['$config' => 'purchases.settings.google.push'],
             ],
 
-            // `purchases.settings.stripe.api_version` IS read — `Stripe::client()` does
-            // `$this->config['api_version']` and passes it to StripeClient, which sends it
-            // as the Stripe-Version header. It cannot be *expressed* here: `sectionVariables`
-            // matches a single T_VARIABLE token, and `$this->config` is three tokens
-            // (`$this`, `->`, `config`), so a property-backed section is unmappable. That is
-            // a scraper limitation, not dead config — REPORTED, not papered over.
-            //
-            // This entry is rot-proof (a stale allowUnread that silences nothing fails), and
-            // the key is independently proven live by the test below, so nothing is lost by
-            // parking it here rather than deleting a working feature.
-            'allowUnread' => ['purchases.settings.stripe.api_version'],
+            // `purchases.settings.stripe.api_version` is read through
+            // `PurchasesConfig::string($this->config['api_version'] ?? null,
+            // 'purchases.settings.stripe.api_version', …)` — the strict reader names its full
+            // key as a literal, which the `purchases.settings.` prefix counts. (A bare
+            // `$this->config['api_version']` offset is three tokens and was unmappable, so
+            // the key used to sit in allowUnread.) The behavioural pin below stays.
 
             // Deliberately NO `excludeFromReverse` for the service provider. It renders
             // the `about` section (a render is not a read), but the toolkit's
@@ -93,8 +88,8 @@ it('ships exactly the config keys it reads', function (): void {
 });
 
 /**
- * The independent proof that `purchases.settings.stripe.api_version` is alive, standing in
- * for the reverse-direction check that cannot see it (see `allowUnread` above).
+ * The independent proof that `purchases.settings.stripe.api_version` is alive, kept as a
+ * behavioural pin alongside the reverse-direction check.
  *
  * This is the media #27 bug class — a shipped, documented key that nothing applies — so the
  * key being unverifiable by the scraper is exactly the situation where it deserves a real

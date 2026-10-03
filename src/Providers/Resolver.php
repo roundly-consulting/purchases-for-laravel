@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers;
 
 use Illuminate\Support\Collection;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 
 final class Resolver
 {
@@ -13,10 +14,7 @@ final class Resolver
 
     public function __construct()
     {
-        /** @var list<class-string<Provider>>|null $providers */
-        $providers = config('purchases.providers');
-
-        $this->providers = $providers ?? [];
+        $this->providers = PurchasesConfig::providers();
     }
 
     public function resolve(string $id): ?Provider

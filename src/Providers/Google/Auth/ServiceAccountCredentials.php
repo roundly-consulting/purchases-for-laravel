@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Google\Auth;
 
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use SensitiveParameter;
 
 /**
@@ -30,12 +31,10 @@ final readonly class ServiceAccountCredentials
             throw VerificationException::because('Google service-account credentials are not configured.');
         }
 
-        $tokenUri = $config['token_uri'] ?? 'https://oauth2.googleapis.com/token';
-
         return new self(
             clientEmail: $clientEmail,
             privateKey: $privateKey,
-            tokenUri: is_string($tokenUri) ? $tokenUri : 'https://oauth2.googleapis.com/token',
+            tokenUri: PurchasesConfig::string($config['token_uri'] ?? null, 'purchases.settings.google.service_account.token_uri', 'https://oauth2.googleapis.com/token'),
         );
     }
 }

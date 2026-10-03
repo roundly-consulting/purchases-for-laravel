@@ -27,6 +27,7 @@ use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\DeveloperNotificat
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\ProductPurchase;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
 use RoundlyConsulting\Purchases\Results\GenericResult;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use Throwable;
 
 class Google extends BaseProvider implements VerifiesConnectivity
@@ -396,11 +397,9 @@ class Google extends BaseProvider implements VerifiesConnectivity
         /** @var array<string, mixed> $serviceAccount */
         $serviceAccount = $this->config['service_account'] ?? [];
 
-        $baseUrl = $this->config['base_url'] ?? 'https://androidpublisher.googleapis.com';
-
         return $this->client = new GoogleClient(
             credentials: ServiceAccountCredentials::fromConfig($serviceAccount),
-            baseUrl: is_string($baseUrl) ? $baseUrl : 'https://androidpublisher.googleapis.com',
+            baseUrl: PurchasesConfig::string($this->config['base_url'] ?? null, 'purchases.settings.google.base_url', 'https://androidpublisher.googleapis.com'),
         );
     }
 }

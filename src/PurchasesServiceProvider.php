@@ -12,10 +12,12 @@ use RoundlyConsulting\Purchases\Commands\InstallCommand;
 use RoundlyConsulting\Purchases\Commands\ProvidersCommand;
 use RoundlyConsulting\Purchases\Commands\ReplayCommand;
 use RoundlyConsulting\Purchases\Commands\VerifyCommand;
+use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Providers\Resolver;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 use RoundlyConsulting\Purchases\Support\PurchaseRefundModel;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
 final class PurchasesServiceProvider extends PackageServiceProvider
@@ -84,13 +86,13 @@ final class PurchasesServiceProvider extends PackageServiceProvider
      */
     private static function providerCount(): string
     {
-        $providers = config('purchases.providers');
-
-        if (! is_array($providers) || $providers === []) {
-            return 'NONE';
+        try {
+            $count = count(PurchasesConfig::providers());
+        } catch (InvalidConfigurationException) {
+            return 'INVALID';
         }
 
-        return count($providers).' registered';
+        return $count === 0 ? 'NONE' : $count.' registered';
     }
 
     /**
@@ -179,10 +181,16 @@ final class PurchasesServiceProvider extends PackageServiceProvider
         return $configured ? 'SET' : 'MISSING';
     }
 
+    /**
+     * A duration the way its reader sees it: a junk value renders as INVALID rather than
+     * as the number a cast would have made of it, and `about` keeps working.
+     */
     private static function seconds(string $key, int $default): string
     {
-        $value = config($key, $default);
-
-        return (is_int($value) || is_string($value) ? (int) $value : $default).'s';
+        try {
+            return PurchasesConfig::integer(config($key), $key, $default).'s';
+        } catch (InvalidConfigurationException) {
+            return 'INVALID';
+        }
     }
 }

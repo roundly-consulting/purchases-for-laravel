@@ -22,12 +22,16 @@ use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\StripeMoney;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Subscription;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\DataSet;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use Throwable;
 
 class Stripe extends BaseProvider implements VerifiesConnectivity
 {
     /** @var array<string, mixed> */
     protected readonly array $config;
+
+    /** The Stripe API version the parsers are written against (`purchases.settings.stripe.api_version`). */
+    public const string API_VERSION = '2026-05-27.dahlia';
 
     public function __construct(
         private readonly WebhookSignature $signatures = new WebhookSignature,
@@ -55,7 +59,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             payload: $payload,
             header: $header,
             secret: $this->webhookSecret(),
-            tolerance: (int) ($this->config['tolerance'] ?? 300),
+            tolerance: PurchasesConfig::integer($this->config['tolerance'] ?? null, 'purchases.settings.stripe.tolerance', 300, min: 1),
         );
 
         $decoded = json_decode($payload, true);
@@ -413,13 +417,10 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             throw VerificationException::because('Stripe secret key is not configured.');
         }
 
-        $baseUrl = $this->config['base_url'] ?? 'https://api.stripe.com/v1';
-        $apiVersion = $this->config['api_version'] ?? '';
-
         return $this->client = new StripeClient(
             secret: $secret,
-            baseUrl: is_string($baseUrl) ? $baseUrl : 'https://api.stripe.com/v1',
-            apiVersion: is_string($apiVersion) ? $apiVersion : '',
+            baseUrl: PurchasesConfig::string($this->config['base_url'] ?? null, 'purchases.settings.stripe.base_url', 'https://api.stripe.com/v1'),
+            apiVersion: PurchasesConfig::string($this->config['api_version'] ?? null, 'purchases.settings.stripe.api_version', self::API_VERSION),
         );
     }
 }
