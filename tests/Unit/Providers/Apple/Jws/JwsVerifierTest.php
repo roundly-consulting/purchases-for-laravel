@@ -41,7 +41,8 @@ function signWithChain(TestCertificateChain $chain, array $claims, ?array $x5c =
 
 function verifierPinnedTo(TestCertificateChain $chain): JwsVerifier
 {
-    return appleVerifierPinnedTo($chain->pinnedFingerprints());
+    // The verifier pins SHA-1 fingerprints, as Apple's chain is pinned.
+    return appleVerifierPinnedTo($chain->pinnedFingerprints(HashAlgorithm::Sha1));
 }
 
 /**
