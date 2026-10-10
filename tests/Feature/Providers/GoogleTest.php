@@ -29,6 +29,7 @@ use RoundlyConsulting\Purchases\Providers\Google\Enums\PurchaseState;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
+use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\ProductPurchase;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Testing\PayloadFactory;
@@ -51,7 +52,13 @@ function googleProvider(bool|string $acknowledge = true, string $packageName = '
         'push' => ['authenticate' => false],
     ]);
 
-    return new Google(new GoogleClient(
+    return new Google(googleClient());
+}
+
+/** A Play Developer API client whose access token is canned. */
+function googleClient(): GoogleClient
+{
+    return new GoogleClient(
         credentials: new ServiceAccountCredentials('svc@example.iam.gserviceaccount.com', testRsaKey()),
         baseUrl: 'https://androidpublisher.googleapis.com',
         tokens: new class extends AccessTokenFactory
@@ -66,7 +73,36 @@ function googleProvider(bool|string $acknowledge = true, string $packageName = '
                 return 'fake-access-token';
             }
         },
-    ));
+    );
+}
+
+/**
+ * A host's own Google driver (`purchases.providers` invites one) that overrides `product()` and
+ * `subscription()` — recording each call, then running the package's own.
+ */
+function hostGoogleProvider(): Google
+{
+    googleProvider();
+
+    return new class(googleClient()) extends Google
+    {
+        /** @var list<string> */
+        public array $calls = [];
+
+        public function product(string $productId, string $token): ProductPurchase
+        {
+            $this->calls[] = "product({$productId}, {$token})";
+
+            return parent::product($productId, $token);
+        }
+
+        public function subscription(string $token): SubscriptionPurchase
+        {
+            $this->calls[] = "subscription({$token})";
+
+            return parent::subscription($token);
+        }
+    };
 }
 
 function testRsaKey(): string
@@ -964,6 +1000,71 @@ it('leaves a google 4xx during a webhook read as the http client\'s exception', 
     expect(fn () => googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => 'tok-404', 'subscriptionId' => 'pro']])))
         ->toThrow(RequestException::class);
 });
+
+/*
+ * `Google` is a documented extension point: a host may swap in its own subclass. callback()
+ * and callbackResult() go through the public product() / subscription(), so an override sees
+ * every client token, as it did before 1.1.5.
+ */
+it('verifies a callback through an overridden product() or subscription()', function (string $method, array $input, array $answer, string $call): void {
+    Http::fake(['*' => Http::response($answer)]);
+    $google = hostGoogleProvider();
+
+    $google->{$method}(new Request($input));
+
+    expect($google->calls)->toBe([$call]);
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-1'], [
+        'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+        'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED',
+        'lineItems' => [['productId' => 'pro', 'expiryTime' => '2099-01-01T00:00:00Z']],
+    ], 'subscription(tok-1)'],
+    'a one-time product' => [['purchaseToken' => 'tok-1', 'productId' => 'coins.100'], [
+        'purchaseState' => 0,
+        'acknowledgementState' => 1,
+        'productId' => 'coins.100',
+    ], 'product(coins.100, tok-1)'],
+]);
+
+it('refuses a callback token google rejects through an overridden product() or subscription()', function (string $method, array $input, string $message, string $call): void {
+    Http::fake(['*' => Http::response(['error' => ['code' => 404]], 404)]);
+    $google = hostGoogleProvider();
+
+    expect(fn () => $google->{$method}(new Request($input)))
+        ->toThrow(VerificationException::class, $message);
+
+    expect($google->calls)->toBe([$call]);
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-1'], 'Google rejected the purchase token.', 'subscription(tok-1)'],
+    'a one-time product' => [['purchaseToken' => 'tok-1', 'productId' => 'coins.100'], 'Google rejected the purchase token or product id.', 'product(coins.100, tok-1)'],
+]);
+
+/*
+ * Only a lookup on behalf of callback() judges the client's input: once it returns or throws,
+ * a direct lookup on the same provider leaves Google's 4xx as the HTTP client's exception.
+ */
+it('judges only the lookups callback() makes', function (string $outcome, Closure $direct): void {
+    $google = googleProvider();
+    Http::fake(['*' => $outcome === 'verified'
+        ? Http::sequence()->push(['purchaseState' => 0, 'acknowledgementState' => 1, 'productId' => 'coins.100'])->whenEmpty(Http::response(['error' => ['code' => 404]], 404))
+        : Http::response(['error' => ['code' => 404]], 404)]);
+
+    $callback = fn () => $google->callback(new Request(['purchaseToken' => 'tok-1', 'productId' => 'coins.100']));
+
+    if ($outcome === 'verified') {
+        expect($callback())->toBeInstanceOf(ProductPurchase::class);
+    } else {
+        expect($callback)->toThrow(VerificationException::class);
+    }
+
+    expect(fn () => $direct($google))->toThrow(RequestException::class);
+})->with([
+    'after a verified callback' => ['verified'],
+    'after a rejected callback' => ['rejected'],
+])->with([
+    'a product' => [fn (Google $google) => $google->product('coins.100', 'tok-2')],
+    'a subscription' => [fn (Google $google) => $google->subscription('tok-2')],
+]);
 
 /**
  * A subscriptionsv2 resource in the given state, paid up to the given expiry.

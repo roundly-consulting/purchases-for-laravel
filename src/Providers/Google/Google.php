@@ -44,6 +44,13 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
     private readonly PushAuthenticator $push;
 
+    /**
+     * Set while callback() runs product() / subscription(): their lookup then judges input a
+     * client sent up (see get()). A flag, not a parameter, so a host subclass that overrides
+     * either method keeps its signature and still sees every callback.
+     */
+    private bool $judgingCallback = false;
+
     public function __construct(?GoogleClient $client = null, ?PushAuthenticator $push = null)
     {
         /** @var array<string, mixed> $config */
@@ -62,12 +69,14 @@ class Google extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
-     * Read a one-time product purchase — verifying, refusing and acknowledging nothing. See
-     * get() for $rejected.
+     * Read a one-time product purchase — verifying, refusing and acknowledging nothing.
      */
-    private function readProduct(string $productId, string $token, ?string $rejected = null): ProductPurchase
+    private function readProduct(string $productId, string $token): ProductPurchase
     {
-        return ProductPurchase::fromRaw($this->get($this->productPath($productId, $token), $rejected));
+        return ProductPurchase::fromRaw($this->get(
+            $this->productPath($productId, $token),
+            $this->judgingCallback ? 'Google rejected the purchase token or product id.' : null,
+        ));
     }
 
     /**
@@ -125,17 +134,20 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
     /**
      * Read a subscription's current state from subscriptionsv2 — verifying, refusing and
-     * acknowledging nothing. See get() for $rejected.
+     * acknowledging nothing.
      */
-    private function readSubscription(string $token, ?string $rejected = null): SubscriptionPurchase
+    private function readSubscription(string $token): SubscriptionPurchase
     {
-        return SubscriptionPurchase::fromRaw($this->get($this->path('purchases', 'subscriptionsv2', 'tokens', $token), $rejected));
+        return SubscriptionPurchase::fromRaw($this->get(
+            $this->path('purchases', 'subscriptionsv2', 'tokens', $token),
+            $this->judgingCallback ? 'Google rejected the purchase token.' : null,
+        ));
     }
 
     /**
-     * GET a Play Developer API path and decode the answer. With $rejected — a lookup of input
-     * a client sent up — a 4xx about that input is a VerificationException with that message
-     * (see StoreApi::lookUp()). Only Google's answer to the GET is judged: the access token
+     * GET a Play Developer API path and decode the answer. With $rejected — a lookup callback()
+     * makes for input a client sent up — a 4xx about that input is a VerificationException
+     * with that message (see StoreApi::lookUp()). The acknowledgement after it never is. Only Google's answer to the GET is judged: the access token
      * is fetched first, so a service account the OAuth endpoint refuses (400 invalid_grant)
      * is never reported as a rejected token.
      */
@@ -237,11 +249,17 @@ class Google extends BaseProvider implements VerifiesConnectivity
         $token = $this->purchaseToken($request);
         $productId = $this->productId($request);
 
-        if ($productId !== null) {
-            return $this->acceptProduct($productId, $token, $this->readProduct($productId, $token, 'Google rejected the purchase token or product id.'));
-        }
+        // Through the public methods, so a host subclass overriding them sees the call.
+        $judging = $this->judgingCallback;
+        $this->judgingCallback = true;
 
-        return $this->acceptSubscription($token, $this->readSubscription($token, 'Google rejected the purchase token.'));
+        try {
+            return $productId !== null
+                ? $this->product($productId, $token)
+                : $this->subscription($token);
+        } finally {
+            $this->judgingCallback = $judging;
+        }
     }
 
     /**
