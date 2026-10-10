@@ -111,5 +111,6 @@ it('round-trips when the provider says the event happened', function (): void {
 
     expect($notification->payload['occurred_at'])->toBeString()
         ->and(NotificationResultFactory::fromNotification($notification)?->occurredAt()?->getTimestamp())->toBe(1_700_000_123)
-        ->and(NotificationResultFactory::snapshot(FakeResult::purchase())['occurred_at'])->toBeNull();
+        // A result that cannot say when it happened snapshots none.
+        ->and(NotificationResultFactory::snapshot(new GenericResult('stripe', ResultType::Purchase, 'pi_undated', Status::Completed))['occurred_at'])->toBeNull();
 });

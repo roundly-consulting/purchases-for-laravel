@@ -8,12 +8,17 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Added
 
+- `FakeResult::purchase()`, `subscription()` and `refund()` take an optional `occurredAt`, so a
+  test can order fake deliveries.
 - `Purchases::assertSubscriptionRecorded()` on the fake: a subscription result arrived through
   `handle()`, `sync()` or `replay()`, whatever it did — what `assertSubscriptionStarted()` used to
   check.
 
 ### Fixed
 
+- **Behaviour change:** `FakeResult` builds results the way the real providers do — one id as
+  both the provider and the transaction id (they were two different `uniqid()`s), and an
+  `occurredAt` (now, unless given), so event ordering applies to faked deliveries too.
 - Stripe and Google refunds record a `refunded_at`: when the provider names no refund date (only
   Apple does), it is the time of the refund event. It was always `NULL` for them.
 - Two first deliveries of the same purchase, subscription or refund arriving at once no longer

@@ -277,3 +277,34 @@ it('sees what the model trait reads through the same manager', function (): void
 
     $fake->assertSynced('apple');
 });
+
+/*
+ * A fake result looks like a real one: one id for the provider and the transaction (as
+ * Stripe's results have), and a time it happened, so event ordering applies in tests too.
+ */
+
+it('builds fake results with one id and the time they happened', function (): void {
+    Carbon::setTestNow('2026-03-01 10:00:00');
+
+    try {
+        foreach ([FakeResult::purchase(), FakeResult::subscription(), FakeResult::refund()] as $result) {
+            expect($result->transactionId())->toBe($result->providerId())
+                ->and($result->occurredAt()?->equalTo(Carbon::now()))->toBeTrue();
+        }
+    } finally {
+        Carbon::setTestNow();
+    }
+});
+
+it('orders fake results by when they happened', function (): void {
+    $at = Carbon::parse('2026-03-01 10:00:00');
+    Purchases::fake();
+
+    Purchases::sync(FakeResult::purchase('stripe', 'pi_ordered', occurredAt: $at));
+    // An older delivery arriving late changes nothing.
+    Purchases::sync(FakeResult::purchase('stripe', 'pi_ordered', Status::Failed, occurredAt: $at->copy()->subMinute()));
+
+    expect(Purchase::query()->sole()->status)->toBe(Status::Completed)
+        ->and(FakeResult::subscription(occurredAt: $at)->occurredAt()?->equalTo($at))->toBeTrue()
+        ->and(FakeResult::refund(occurredAt: $at)->occurredAt()?->equalTo($at))->toBeTrue();
+});
