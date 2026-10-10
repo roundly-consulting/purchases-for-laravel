@@ -181,19 +181,42 @@ class Google extends BaseProvider implements VerifiesConnectivity
 
     /**
      * Verify a purchase token your app sent up. Pass productId for one-time products;
-     * subscriptions are looked up directly from the token. Nothing about the request is
+     * subscriptions are looked up directly from the token. Both must be strings — anything
+     * else is refused before Google is called. Nothing about the request is
      * authenticated — call it from your own (authenticated) route, never the webhook.
      */
     public function callback(Request $request): ProductPurchase|SubscriptionPurchase
     {
         $token = $this->purchaseToken($request);
-        $productId = $request->input('productId');
+        $productId = $this->productId($request);
 
-        if (is_string($productId) && $productId !== '') {
+        if ($productId !== null) {
             return $this->product($productId, $token);
         }
 
         return $this->subscription($token);
+    }
+
+    /**
+     * The client's product id, or null for a subscription. Missing, null and an empty
+     * string all mean "no product" (an empty string is what a blank form field sends, and
+     * Laravel's ConvertEmptyStringsToNull middleware makes it null on the host's route
+     * anyway). Anything else that is not a string is refused: read as "no product", a
+     * one-time purchase would be verified as a subscription.
+     */
+    private function productId(Request $request): ?string
+    {
+        $productId = $request->input('productId');
+
+        if ($productId === null || $productId === '') {
+            return null;
+        }
+
+        if (! is_string($productId)) {
+            throw VerificationException::because('Malformed Google product id.');
+        }
+
+        return $productId;
     }
 
     /**

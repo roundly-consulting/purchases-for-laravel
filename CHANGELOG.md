@@ -6,6 +6,14 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Google `callback()` and `callbackResult()` refuse a `productId` that is present but not a
+  string (`productId[]=x`, a number, a boolean) with a `VerificationException` ("Malformed Google
+  product id."), before calling Google. It used to be read as "no product", so a one-time
+  purchase was verified as a subscription. A missing, null or empty `productId` still means a
+  subscription.
+
 ## 1.1.1 - 2026-10-10
 
 ### Changed

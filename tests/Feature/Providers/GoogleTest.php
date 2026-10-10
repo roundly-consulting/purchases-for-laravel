@@ -26,6 +26,7 @@ use RoundlyConsulting\Purchases\Providers\Google\Enums\PurchaseState;
 use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Google\GoogleClient;
+use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Testing\PayloadFactory;
 
@@ -267,6 +268,51 @@ it('refuses a purchase token that is not a string, before asking google', functi
     'missing' => [null],
     'empty' => [''],
 ])->with(['subscription' => false, 'one-time product' => true]);
+
+it('refuses a product id that is not a string, before asking google', function (string $method, mixed $productId): void {
+    Http::fake();
+
+    // A product id that is there but not a string is the client's mistake, not "no
+    // product": reading it as missing would verify a one-time purchase as a subscription.
+    expect(fn () => googleProvider()->{$method}(new Request(['purchaseToken' => 'tok', 'productId' => $productId])))
+        ->toThrow(VerificationException::class, 'Malformed Google product id.');
+
+    Http::assertNothingSent();
+})->with(['callback', 'callbackResult'])->with([
+    'an array' => [['coins.100']],
+    'a keyed array' => [['id' => 'coins.100']],
+    'an integer' => [100],
+    'a boolean' => [true],
+    'false' => [false],
+]);
+
+it('verifies a subscription when no product id is given', function (string $method, array $input): void {
+    Http::fake([
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'latestOrderId' => 'GPA.SUB.1',
+            'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED',
+            'lineItems' => [['productId' => 'pro.monthly', 'expiryTime' => '2026-02-01T00:00:00Z']],
+        ]),
+    ]);
+
+    $verified = googleProvider()->{$method}(new Request(['purchaseToken' => 'sub-token'] + $input));
+
+    // An empty string is "missing", as it always was — and what Laravel's
+    // ConvertEmptyStringsToNull middleware turns it into on the host's route anyway.
+    if ($method === 'callback') {
+        expect($verified)->toBeInstanceOf(SubscriptionPurchase::class);
+    } else {
+        expect($verified->type())->toBe(ResultType::Subscription);
+    }
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), '/purchases/subscriptionsv2/tokens/sub-token'));
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/purchases/products/'));
+})->with(['callback', 'callbackResult'])->with([
+    'missing' => [[]],
+    'null' => [['productId' => null]],
+    'empty' => [['productId' => '']],
+]);
 
 it('decodes an RTDN subscription notification', function (): void {
     $payload = base64_encode((string) json_encode([
