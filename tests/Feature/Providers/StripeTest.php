@@ -24,9 +24,25 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 use RoundlyConsulting\Purchases\Providers\Stripe\StripeClient;
+use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\CheckoutSession;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Invoice;
+use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\PaymentIntent;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\StripeEvent;
 use RoundlyConsulting\Purchases\Tests\Fixtures\User;
+
+/**
+ * A callback id as the client may leave it out: no key, null, or an empty string.
+ *
+ * @return array<string, mixed>
+ */
+function absentStripeId(string $key, string $how): array
+{
+    return match ($how) {
+        'missing' => [],
+        'null' => [$key => null],
+        default => [$key => ''],
+    };
+}
 
 function configureStripe(): void
 {
@@ -199,6 +215,91 @@ it('verifies a callback by payment intent id', function (): void {
 it('throws when a callback has no identifiers', function (): void {
     (new Stripe)->callback(new Request);
 })->throws(VerificationException::class);
+
+it('refuses a session id that is not a string, before asking stripe', function (mixed $sessionId, array $also): void {
+    Http::fake();
+
+    // A session id that is there but not a string is the client's mistake, not "no session":
+    // skipping it would verify the payment intent sent next to it instead.
+    expect(fn () => (new Stripe)->callback(new Request(['session_id' => $sessionId] + $also)))
+        ->toThrow(VerificationException::class, 'Malformed Stripe session id.');
+
+    Http::assertNothingSent();
+})->with([
+    'an array' => [['cs_1']],
+    'a keyed array' => [['id' => 'cs_1']],
+    'an integer' => [1],
+    'a boolean' => [true],
+    'false' => [false],
+])->with([
+    'alone' => [[]],
+    'next to a payment intent' => [['payment_intent' => 'pi_1']],
+]);
+
+it('refuses a payment intent id that is not a string, before asking stripe', function (mixed $paymentIntent, array $also): void {
+    Http::fake();
+
+    expect(fn () => (new Stripe)->callback(new Request(['payment_intent' => $paymentIntent] + $also)))
+        ->toThrow(VerificationException::class, 'Malformed Stripe payment intent id.');
+
+    Http::assertNothingSent();
+})->with([
+    'an array' => [['pi_1']],
+    'a keyed array' => [['id' => 'pi_1']],
+    'an integer' => [1],
+    'a boolean' => [true],
+    'false' => [false],
+])->with([
+    'alone' => [[]],
+    'next to a session' => [['session_id' => 'cs_1']],
+]);
+
+it('verifies the session when both ids are given', function (): void {
+    Http::fake([
+        '*/checkout/sessions/cs_1' => Http::response(['id' => 'cs_1', 'payment_status' => 'paid']),
+        '*/payment_intents/*' => Http::response(['id' => 'pi_1', 'status' => 'succeeded']),
+    ]);
+
+    $verified = (new Stripe)->callback(new Request(['session_id' => 'cs_1', 'payment_intent' => 'pi_1']));
+
+    expect($verified)->toBeInstanceOf(CheckoutSession::class)
+        ->and($verified->id)->toBe('cs_1');
+
+    Http::assertSentCount(1);
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/payment_intents/'));
+});
+
+it('verifies the payment intent when no session id is given', function (string $how): void {
+    Http::fake([
+        '*/payment_intents/pi_1' => Http::response(['id' => 'pi_1', 'status' => 'succeeded']),
+        '*/checkout/sessions/*' => Http::response(['id' => 'cs_1', 'payment_status' => 'paid']),
+    ]);
+
+    $verified = (new Stripe)->callback(new Request(absentStripeId('session_id', $how) + ['payment_intent' => 'pi_1']));
+
+    expect($verified)->toBeInstanceOf(PaymentIntent::class)
+        ->and($verified->id)->toBe('pi_1');
+
+    Http::assertSentCount(1);
+})->with(['missing', 'null', 'empty']);
+
+it('verifies the session when no payment intent id is given', function (string $how): void {
+    Http::fake(['*/checkout/sessions/cs_1' => Http::response(['id' => 'cs_1', 'payment_status' => 'paid'])]);
+
+    $verified = (new Stripe)->callback(new Request(['session_id' => 'cs_1'] + absentStripeId('payment_intent', $how)));
+
+    expect($verified)->toBeInstanceOf(CheckoutSession::class)
+        ->and($verified->id)->toBe('cs_1');
+})->with(['missing', 'null', 'empty']);
+
+it('says no id was provided when both are missing, null or empty', function (string $session, string $paymentIntent): void {
+    Http::fake();
+
+    expect(fn () => (new Stripe)->callback(new Request(absentStripeId('session_id', $session) + absentStripeId('payment_intent', $paymentIntent))))
+        ->toThrow(VerificationException::class, 'No Stripe session or payment intent id provided.');
+
+    Http::assertNothingSent();
+})->with(['missing', 'null', 'empty'])->with(['missing', 'null', 'empty']);
 
 it('throws when the secret key is not configured', function (): void {
     config()->set('purchases.settings.stripe.secret', null);

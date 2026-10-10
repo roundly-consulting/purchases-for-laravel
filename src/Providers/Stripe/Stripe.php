@@ -93,23 +93,47 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
-     * Retrieve and verify a payment intent or session by id.
+     * Retrieve and verify a payment intent or session by id — the `session_id` first, else the
+     * `payment_intent`. Both must be strings: anything else is refused before Stripe is
+     * called. Nothing about the request is authenticated — call it from your own route.
      */
     public function callback(Request $request): PaymentIntent|CheckoutSession
     {
-        $sessionId = $request->input('session_id');
+        // Both are read before either is used, so a malformed id is refused whatever is next to it.
+        $sessionId = $this->callbackId($request, 'session_id', 'session id');
+        $paymentIntentId = $this->callbackId($request, 'payment_intent', 'payment intent id');
 
-        if (is_string($sessionId) && $sessionId !== '') {
+        if ($sessionId !== null) {
             return $this->session($sessionId);
         }
 
-        $paymentIntentId = $request->input('payment_intent');
-
-        if (is_string($paymentIntentId) && $paymentIntentId !== '') {
+        if ($paymentIntentId !== null) {
             return $this->paymentIntent($paymentIntentId);
         }
 
         throw VerificationException::because('No Stripe session or payment intent id provided.');
+    }
+
+    /**
+     * A redirect id the client sent up, or null when it sent none. Missing, null and an empty
+     * string all mean "none" (an empty string is what a blank field sends, and Laravel's
+     * ConvertEmptyStringsToNull middleware makes it null on the host's route anyway).
+     * Anything else that is not a string is refused, never skipped: a skipped session id
+     * would verify the payment intent sent next to it instead.
+     */
+    private function callbackId(Request $request, string $key, string $label): ?string
+    {
+        $id = $request->input($key);
+
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        if (! is_string($id)) {
+            throw VerificationException::because("Malformed Stripe {$label}.");
+        }
+
+        return $id;
     }
 
     public function result(Request $request): ProviderResult

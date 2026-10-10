@@ -6,6 +6,15 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Stripe `callback()` refuses a `session_id` or `payment_intent` that is present but not a string
+  (`session_id[]=x`, a number, a boolean) with a `VerificationException` ("Malformed Stripe session
+  id." / "Malformed Stripe payment intent id."), before calling Stripe. A malformed `session_id`
+  used to be skipped, so a `payment_intent` sent next to it was verified instead, and one sent alone
+  was answered "No Stripe session or payment intent id provided.". A missing, null or empty id still
+  means "not sent", and a `session_id` still wins over a `payment_intent`.
+
 ## 1.1.2 - 2026-10-10
 
 ### Fixed
