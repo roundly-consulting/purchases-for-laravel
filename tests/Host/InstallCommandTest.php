@@ -122,3 +122,20 @@ it('leaves the env file alone when every key is already there', function (): voi
 
     expect((string) file_get_contents($envPath))->toBe($first ?? null);
 });
+
+it('appends google\'s push authentication keys', function (): void {
+    $envPath = base_path('.env');
+    file_put_contents($envPath, "APP_NAME=Test\n");
+
+    $this->artisan('purchases:install', ['--providers' => true])
+        ->expectsChoice('Which providers would you like to enable?', ['google'], ['apple', 'google', 'stripe'])
+        ->expectsConfirmation('Run the migrations now?', 'no')
+        ->assertSuccessful();
+
+    $contents = (string) file_get_contents($envPath);
+
+    expect($contents)->toContain("\nPURCHASES_GOOGLE_PACKAGE_NAME=\n")
+        ->and($contents)->toContain("\nPURCHASES_GOOGLE_PUSH_AUDIENCE=\n")
+        ->and($contents)->toContain("\nPURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT=\n")
+        ->and($contents)->toContain("\nPURCHASES_GOOGLE_PUSH_TOKEN=\n");
+});

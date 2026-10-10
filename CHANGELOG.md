@@ -16,6 +16,11 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- `purchases:install --providers` appends Google's push authentication keys
+  (`PURCHASES_GOOGLE_PUSH_AUDIENCE`, `PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT`,
+  `PURCHASES_GOOGLE_PUSH_TOKEN`), and `purchases:providers` reports Google as configured only once
+  its pushes can be authenticated (a URL token, the OIDC pair, or authentication switched off).
+  Push authentication is fail-closed, so every RTDN was refused while the command said "yes".
 - **Behaviour change:** a Google Real-time Developer Notification for another app (its
   `packageName` is not `purchases.settings.google.package_name`, as on a shared Pub/Sub topic) is
   audited as information and answered 2xx — never applied. Another app's voided purchase used to

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Commands;
 
 use Illuminate\Console\Command;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\Purchases\PurchasesManager;
 
@@ -41,12 +42,32 @@ final class ProvidersCommand extends Command
             'apple' => filled(config('purchases.settings.apple.bundle_id'))
                 && (Config::boolean('purchases.settings.apple.sandbox') || filled(config('purchases.settings.apple.app_apple_id'))),
             'google' => filled(config('purchases.settings.google.package_name'))
-                && filled(config('purchases.settings.google.service_account.client_email')),
+                && filled(config('purchases.settings.google.service_account.client_email'))
+                && $this->googlePushIsAuthenticated(),
             // The webhook secret verifies every event; the secret key tells which invoice a
             // PaymentIntent pays (API versions since 2025-03-31). Either alone is refused.
             'stripe' => filled(config('purchases.settings.stripe.secret'))
                 && filled(config('purchases.settings.stripe.webhook_secret')),
             default => true,
         };
+    }
+
+    /**
+     * Google pushes are authenticated fail-closed: unless authentication is switched off,
+     * every RTDN is refused until a URL token or the OIDC audience and service account are
+     * set — and a switch that is not a boolean refuses them too.
+     */
+    private function googlePushIsAuthenticated(): bool
+    {
+        try {
+            $authenticate = Config::boolean('purchases.settings.google.push.authenticate', true);
+        } catch (InvalidConfigurationException) {
+            return false;
+        }
+
+        return ! $authenticate
+            || filled(config('purchases.settings.google.push.token'))
+            || (filled(config('purchases.settings.google.push.audience'))
+                && filled(config('purchases.settings.google.push.service_account_email')));
     }
 }

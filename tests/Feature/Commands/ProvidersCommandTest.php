@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Purchases\Providers\Apple\Apple;
+use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 
 it('lists configured providers and flags missing config', function (): void {
@@ -57,4 +58,29 @@ it('flags stripe as missing config until both of its keys are set', function (ar
     'only the webhook secret' => [['secret' => null, 'webhook_secret' => 'whsec_1'], 'missing config'],
     'only the secret key' => [['secret' => 'sk_1', 'webhook_secret' => ''], 'missing config'],
     'both keys' => [['secret' => 'sk_1', 'webhook_secret' => 'whsec_1'], 'yes'],
+]);
+
+/*
+ * Google pushes are authenticated fail-closed: with authentication on (the default) and no
+ * OIDC pair or URL token configured, every RTDN is refused — so Google takes no traffic yet.
+ */
+it('flags google as missing config until its pushes can be authenticated', function (array $push, string $expected): void {
+    config()->set('purchases.providers', [Google::class]);
+    config()->set('purchases.settings.google', [
+        'package_name' => 'com.example.app',
+        'service_account' => ['client_email' => 'svc@example.iam.gserviceaccount.com'],
+        'push' => $push,
+    ]);
+
+    $this->artisan('purchases:providers')
+        ->expectsTable(['Provider', 'Configured'], [['google', $expected]])
+        ->assertSuccessful();
+})->with([
+    'no push authentication configured' => [['authenticate' => true], 'missing config'],
+    'nothing set at all' => [[], 'missing config'],
+    'an oidc audience without its service account' => [['audience' => 'https://example.com/push'], 'missing config'],
+    'a switch that is not a boolean' => [['authenticate' => 'maybe', 'token' => 'secret'], 'missing config'],
+    'a url token' => [['token' => 'secret'], 'yes'],
+    'an oidc audience and service account' => [['audience' => 'https://example.com/push', 'service_account_email' => 'push@example.iam.gserviceaccount.com'], 'yes'],
+    'authentication switched off' => [['authenticate' => false], 'yes'],
 ]);

@@ -36,6 +36,10 @@ final class InstallCommand extends Command
             'PURCHASES_GOOGLE_PACKAGE_NAME=',
             'PURCHASES_GOOGLE_CLIENT_EMAIL=',
             'PURCHASES_GOOGLE_PRIVATE_KEY=',
+            '# Google Pub/Sub push authentication: the OIDC audience and service account, and/or a URL token',
+            'PURCHASES_GOOGLE_PUSH_AUDIENCE=',
+            'PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT=',
+            'PURCHASES_GOOGLE_PUSH_TOKEN=',
         ],
         'stripe' => [
             '# Stripe API and webhook credentials',
