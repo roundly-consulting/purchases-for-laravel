@@ -8,19 +8,64 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Added
 
-- `FakeResult::purchase()`, `subscription()` and `refund()` take an optional `occurredAt`, so a
-  test can order fake deliveries.
 - `Purchases::assertSubscriptionRecorded()` on the fake: a subscription result arrived through
   `handle()`, `sync()` or `replay()`, whatever it did — what `assertSubscriptionStarted()` used to
   check.
+- `FakeResult::purchase()`, `subscription()` and `refund()` take an optional `occurredAt`, so a
+  test can order fake deliveries.
 
 ### Fixed
 
-- An Apple webhook whose `signedPayload` is not a string (`signedPayload[]=x`) is refused with 400
-  instead of failing with a 500 ("Array to string conversion").
-- `purchases:verify` checks Google credentials by exchanging them for a fresh access token. A
-  cached token answered the check, so it stayed green for up to an hour after the private key
-  broke.
+- **Behaviour change:** a subscription created before it was paid for (Stripe `incomplete`,
+  Google `SUBSCRIPTION_STATE_PENDING`) now fires `SubscriptionStarted` when it first becomes
+  active, instead of `SubscriptionRenewed` — so the owner-linking listener runs for 3D Secure and
+  `default_incomplete` Stripe subscriptions. A paused Google subscription that resumes still
+  fires `SubscriptionRenewed`.
+- Provider dates (`active_from`, `trial_ends_at`, `ends_at`, `refunded_at`) are stored on their
+  real instant when `app.timezone` is not UTC. They used to shift by the timezone offset, so on a
+  Central European host a subscription expired an hour or two early (and west of UTC, late).
+- Google Play acknowledgements send a JSON object (`{}`) as the request body. They sent `[]`,
+  which Google rejects with 400, so `product()`, `subscription()` and `callbackResult()` threw
+  after a successful verification and purchases stayed unacknowledged (Google refunds those after
+  three days).
+- **Behaviour change:** a one-off Stripe invoice recorded from `invoice.paid` now carries the
+  PaymentIntent that paid it as its `transaction_id` (still keyed on the invoice), so its
+  `charge.refunded` and `charge.dispute.*` link to it and flip it to `Refunded`. They used to be
+  recorded unlinked and leave the purchase `Completed`. On API versions since 2025-03-31 the
+  PaymentIntent is read from Stripe's Invoice Payments API, which needs
+  `PURCHASES_STRIPE_SECRET`.
+- Re-running `purchases:install --providers` no longer appends a key the `.env` already defines.
+  Its blank copy came later in the file and won, so a second run wiped configured secrets (for
+  example `PURCHASES_STRIPE_WEBHOOK_SECRET`) and flipped `PURCHASES_APPLE_SANDBOX` back to
+  `false`.
+- `purchases:providers` reports Stripe as configured only when both `PURCHASES_STRIPE_SECRET` and
+  `PURCHASES_STRIPE_WEBHOOK_SECRET` are set, and the README names both. With the webhook secret
+  alone, every `payment_intent.*` webhook on a current API version was refused (the secret key
+  answers which invoice a payment belongs to) while the command said "yes".
+- Two first deliveries of the same purchase, subscription or refund arriving at once no longer
+  fail one of them on MySQL. Its key lock takes a gap lock on a row that does not exist yet, so
+  both inserts deadlocked (error 1213) and one webhook — or queued job — failed until the store
+  redelivered it or you ran `purchases:replay`. The recording transaction is now retried.
+- Stripe and Google refunds record a `refunded_at`: when the provider names no refund date (only
+  Apple does), it is the time of the refund event. It was always `NULL` for them.
+- **Behaviour change:** `FakeResult` builds results the way the real providers do — one id as
+  both the provider and the transaction id (they were two different `uniqid()`s), and an
+  `occurredAt` (now, unless given), so event ordering applies to faked deliveries too.
+- **Behaviour change:** `Purchases::assertSubscriptionStarted()` now passes only when the
+  recording pipeline really fired `SubscriptionStarted` (with or without `Event::fake()`). It
+  used to pass for any subscription result — a canceled one or a renewal included. Tests that
+  meant "a subscription result arrived" should switch to `assertSubscriptionRecorded()`.
+- **Behaviour change:** a Google Real-time Developer Notification for another app (its
+  `packageName` is not `purchases.settings.google.package_name`, as on a shared Pub/Sub topic) is
+  audited as information and answered 2xx — never applied. Another app's voided purchase used to
+  be recorded as a refund here, and its subscription RTDNs were looked up under this app and failed
+  with a 500 that Pub/Sub redelivered for days. `PayloadFactory`'s Google RTDNs now name the
+  configured package.
+- `purchases:install --providers` appends Google's push authentication keys
+  (`PURCHASES_GOOGLE_PUSH_AUDIENCE`, `PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT`,
+  `PURCHASES_GOOGLE_PUSH_TOKEN`), and `purchases:providers` reports Google as configured only once
+  its pushes can be authenticated (a URL token, the OIDC pair, or authentication switched off).
+  Push authentication is fail-closed, so every RTDN was refused while the command said "yes".
 - Apple's `verifyReceipt` callback retries against the sandbox when the production host answers
   21007, as Apple prescribes, so App Review and TestFlight receipts verify on a production
   configuration.
@@ -28,57 +73,11 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
   `VerificationException` (status first), instead of a `TypeError` when Apple leaves out the
   optional `environment` — and a valid receipt without one takes the environment of the host that
   verified it.
-- `purchases:install --providers` appends Google's push authentication keys
-  (`PURCHASES_GOOGLE_PUSH_AUDIENCE`, `PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT`,
-  `PURCHASES_GOOGLE_PUSH_TOKEN`), and `purchases:providers` reports Google as configured only once
-  its pushes can be authenticated (a URL token, the OIDC pair, or authentication switched off).
-  Push authentication is fail-closed, so every RTDN was refused while the command said "yes".
-- **Behaviour change:** a Google Real-time Developer Notification for another app (its
-  `packageName` is not `purchases.settings.google.package_name`, as on a shared Pub/Sub topic) is
-  audited as information and answered 2xx — never applied. Another app's voided purchase used to
-  be recorded as a refund here, and its subscription RTDNs were looked up under this app and failed
-  with a 500 that Pub/Sub redelivered for days. `PayloadFactory`'s Google RTDNs now name the
-  configured package.
-- **Behaviour change:** `FakeResult` builds results the way the real providers do — one id as
-  both the provider and the transaction id (they were two different `uniqid()`s), and an
-  `occurredAt` (now, unless given), so event ordering applies to faked deliveries too.
-- Stripe and Google refunds record a `refunded_at`: when the provider names no refund date (only
-  Apple does), it is the time of the refund event. It was always `NULL` for them.
-- Two first deliveries of the same purchase, subscription or refund arriving at once no longer
-  fail one of them on MySQL. Its key lock takes a gap lock on a row that does not exist yet, so
-  both inserts deadlocked (error 1213) and one webhook — or queued job — failed until the store
-  redelivered it or you ran `purchases:replay`. The recording transaction is now retried.
-- `purchases:providers` reports Stripe as configured only when both `PURCHASES_STRIPE_SECRET` and
-  `PURCHASES_STRIPE_WEBHOOK_SECRET` are set, and the README names both. With the webhook secret
-  alone, every `payment_intent.*` webhook on a current API version was refused (the secret key
-  answers which invoice a payment belongs to) while the command said "yes".
-- Re-running `purchases:install --providers` no longer appends a key the `.env` already defines.
-  Its blank copy came later in the file and won, so a second run wiped configured secrets (for
-  example `PURCHASES_STRIPE_WEBHOOK_SECRET`) and flipped `PURCHASES_APPLE_SANDBOX` back to
-  `false`.
-- **Behaviour change:** a one-off Stripe invoice recorded from `invoice.paid` now carries the
-  PaymentIntent that paid it as its `transaction_id` (still keyed on the invoice), so its
-  `charge.refunded` and `charge.dispute.*` link to it and flip it to `Refunded`. They used to be
-  recorded unlinked and leave the purchase `Completed`. On API versions since 2025-03-31 the
-  PaymentIntent is read from Stripe's Invoice Payments API, which needs
-  `PURCHASES_STRIPE_SECRET`.
-- Google Play acknowledgements send a JSON object (`{}`) as the request body. They sent `[]`,
-  which Google rejects with 400, so `product()`, `subscription()` and `callbackResult()` threw
-  after a successful verification and purchases stayed unacknowledged (Google refunds those after
-  three days).
-- Provider dates (`active_from`, `trial_ends_at`, `ends_at`, `refunded_at`) are stored on their
-  real instant when `app.timezone` is not UTC. They used to shift by the timezone offset, so on a
-  Central European host a subscription expired an hour or two early (and west of UTC, late).
-- **Behaviour change:** `Purchases::assertSubscriptionStarted()` now passes only when the
-  recording pipeline really fired `SubscriptionStarted` (with or without `Event::fake()`). It
-  used to pass for any subscription result — a canceled one or a renewal included. Tests that
-  meant "a subscription result arrived" should switch to `assertSubscriptionRecorded()`.
-
-- **Behaviour change:** a subscription created before it was paid for (Stripe `incomplete`,
-  Google `SUBSCRIPTION_STATE_PENDING`) now fires `SubscriptionStarted` when it first becomes
-  active, instead of `SubscriptionRenewed` — so the owner-linking listener runs for 3D Secure and
-  `default_incomplete` Stripe subscriptions. A paused Google subscription that resumes still
-  fires `SubscriptionRenewed`.
+- `purchases:verify` checks Google credentials by exchanging them for a fresh access token. A
+  cached token answered the check, so it stayed green for up to an hour after the private key
+  broke.
+- An Apple webhook whose `signedPayload` is not a string (`signedPayload[]=x`) is refused with 400
+  instead of failing with a 500 ("Array to string conversion").
 
 ## 1.0.0 - 2026-10-03
 
