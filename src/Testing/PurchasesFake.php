@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Testing;
 
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Testing\Fakes\EventFake;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Providers\Resolver;
 use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
@@ -25,7 +30,8 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  *
  * It records every `handle()`, `sync()` and `replay()` — through the facade, an injected
  * manager, the webhook controller or `purchases:replay` alike — and still runs the real
- * recording pipeline, so rows are written and lifecycle events fire. Results pushed with
+ * recording pipeline, so rows are written and lifecycle events fire (it listens for
+ * SubscriptionStarted, for `assertSubscriptionStarted()`). Results pushed with
  * `push()` skip signature verification; a faked `handle()` also skips the audit log and
  * the queue and records synchronously.
  */
@@ -42,6 +48,19 @@ final class PurchasesFake extends PurchasesManager
 
     /** @var array<string, list<ProviderResult>> */
     private array $queued = [];
+
+    /** @var list<SubscriptionStarted> */
+    private array $started = [];
+
+    public function __construct(Container $container, Resolver $resolver)
+    {
+        parent::__construct($container, $resolver);
+
+        // What counts as a start is the real pipeline's call: the fake only listens for it.
+        $this->events()->listen(SubscriptionStarted::class, function (SubscriptionStarted $event): void {
+            $this->started[] = $event;
+        });
+    }
 
     /**
      * Queue a result so the next handle()/result() call for this provider returns
@@ -171,9 +190,26 @@ final class PurchasesFake extends PurchasesManager
     }
 
     /**
-     * A subscription result arrived through handle(), sync() or replay().
+     * The recording pipeline fired SubscriptionStarted — a subscription was created active,
+     * or first activated — whether events are faked or not.
      */
     public function assertSubscriptionStarted(?string $provider = null): void
+    {
+        $matched = collect($this->startedEvents())->contains(
+            fn (SubscriptionStarted $event): bool => $provider === null || $event->result->provider() === $provider,
+        );
+
+        Assert::assertTrue(
+            $matched,
+            'Expected SubscriptionStarted to fire'.($provider !== null ? " for [{$provider}]" : '').'.',
+        );
+    }
+
+    /**
+     * A subscription result arrived through handle(), sync() or replay() — whatever it did
+     * to the subscription.
+     */
+    public function assertSubscriptionRecorded(?string $provider = null): void
     {
         $this->assertRecordedType(ResultType::Subscription, $provider, Subscription::class);
     }
@@ -184,6 +220,36 @@ final class PurchasesFake extends PurchasesManager
     public function assertRefundRecorded(?string $provider = null): void
     {
         $this->assertRecordedType(ResultType::Refund, $provider, PurchaseRefund::class);
+    }
+
+    /**
+     * The SubscriptionStarted events heard so far. Under `Event::fake()` a faked event never
+     * reaches a listener — the event fake keeps it instead, so it is read from there too.
+     *
+     * @return list<SubscriptionStarted>
+     */
+    private function startedEvents(): array
+    {
+        $started = $this->started;
+        $events = $this->events();
+
+        if ($events instanceof EventFake) {
+            foreach ($events->dispatched(SubscriptionStarted::class) as $arguments) {
+                if (is_array($arguments) && ($arguments[0] ?? null) instanceof SubscriptionStarted) {
+                    $started[] = $arguments[0];
+                }
+            }
+        }
+
+        return $started;
+    }
+
+    /**
+     * The bound event dispatcher — the real one, or whatever `Event::fake()` swapped in.
+     */
+    private function events(): Dispatcher
+    {
+        return $this->container->make(Dispatcher::class);
     }
 
     private static function key(PurchaseNotification $notification): string

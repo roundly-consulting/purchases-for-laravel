@@ -6,7 +6,18 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Added
+
+- `Purchases::assertSubscriptionRecorded()` on the fake: a subscription result arrived through
+  `handle()`, `sync()` or `replay()`, whatever it did — what `assertSubscriptionStarted()` used to
+  check.
+
 ### Fixed
+
+- **Behaviour change:** `Purchases::assertSubscriptionStarted()` now passes only when the
+  recording pipeline really fired `SubscriptionStarted` (with or without `Event::fake()`). It
+  used to pass for any subscription result — a canceled one or a renewal included. Tests that
+  meant "a subscription result arrived" should switch to `assertSubscriptionRecorded()`.
 
 - **Behaviour change:** a subscription created before it was paid for (Stripe `incomplete`,
   Google `SUBSCRIPTION_STATE_PENDING`) now fires `SubscriptionStarted` when it first becomes

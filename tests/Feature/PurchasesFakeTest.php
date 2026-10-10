@@ -3,9 +3,13 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\ExpectationFailedException;
+use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
 use RoundlyConsulting\Purchases\Exceptions\InvalidProviderNotificationException;
 use RoundlyConsulting\Purchases\Facades\Purchases;
 use RoundlyConsulting\Purchases\Models\Purchase;
@@ -130,8 +134,69 @@ it('fails the recorded-type asserts when no such result arrived', function (): v
 
     expect(fn () => $fake->assertPurchaseRecorded('apple'))->toThrow(ExpectationFailedException::class, 'for [apple]')
         ->and(fn () => $fake->assertSubscriptionStarted())->toThrow(ExpectationFailedException::class)
+        ->and(fn () => $fake->assertSubscriptionRecorded())->toThrow(ExpectationFailedException::class, 'Expected a '.Subscription::class.' to be recorded.')
         ->and(fn () => $fake->assertRefundRecorded())->toThrow(ExpectationFailedException::class);
 });
+
+/*
+ * assertSubscriptionStarted() promises the lifecycle event, so it holds only when the real
+ * pipeline fired SubscriptionStarted. assertSubscriptionRecorded() is its "any subscription
+ * result arrived" sibling.
+ */
+
+it('asserts a subscription started only when the pipeline started one', function (): void {
+    $fake = Purchases::fake();
+    $fake->push('stripe', FakeResult::subscription('stripe', 'sub_canceled', Status::Canceled));
+    Purchases::handle('stripe', Request::create('/'));
+
+    $fake->assertSubscriptionRecorded();
+    $fake->assertSubscriptionRecorded('stripe');
+
+    expect(fn () => $fake->assertSubscriptionStarted())->toThrow(ExpectationFailedException::class, 'Expected SubscriptionStarted to fire.')
+        ->and(fn () => $fake->assertSubscriptionRecorded('apple'))->toThrow(ExpectationFailedException::class, 'for [apple]');
+});
+
+it('does not count a renewal as a start', function (): void {
+    app(RecordProviderResultAction::class)->execute(FakeResult::subscription('google', 'GPA.renew'));
+
+    $fake = Purchases::fake();
+    Purchases::sync(new GenericResult('google', ResultType::Subscription, 'GPA.renew', Status::Completed, endsAt: Carbon::now()->addMonths(2)));
+
+    $fake->assertSubscriptionRecorded('google');
+    expect(fn () => $fake->assertSubscriptionStarted('google'))->toThrow(ExpectationFailedException::class);
+});
+
+it('asserts a subscription started once a pending one activates', function (): void {
+    $fake = Purchases::fake();
+    $fake->push('stripe', FakeResult::subscription('stripe', 'sub_pending', Status::Pending));
+    $fake->push('stripe', FakeResult::subscription('stripe', 'sub_pending'));
+
+    Purchases::handle('stripe', Request::create('/'));
+    expect(fn () => $fake->assertSubscriptionStarted())->toThrow(ExpectationFailedException::class);
+
+    Purchases::handle('stripe', Request::create('/'));
+    $fake->assertSubscriptionStarted();
+    $fake->assertSubscriptionStarted('stripe');
+
+    expect(fn () => $fake->assertSubscriptionStarted('apple'))->toThrow(ExpectationFailedException::class, 'Expected SubscriptionStarted to fire for [apple].');
+});
+
+it('sees a started subscription while events are faked', function (bool $eventsFakedFirst): void {
+    if ($eventsFakedFirst) {
+        Event::fake();
+    }
+
+    $fake = Purchases::fake();
+
+    if (! $eventsFakedFirst) {
+        Event::fake([SubscriptionStarted::class]);
+    }
+
+    Purchases::sync(FakeResult::subscription('google', 'GPA.faked'));
+
+    $fake->assertSubscriptionStarted('google');
+    Event::assertDispatched(SubscriptionStarted::class);
+})->with(['events faked before' => [true], 'events faked after' => [false]]);
 
 it('records sync() and asserts on it', function (): void {
     $fake = Purchases::fake();

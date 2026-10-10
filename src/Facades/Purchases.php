@@ -28,6 +28,7 @@ use RoundlyConsulting\Purchases\Testing\PurchasesFake;
  * @method static void assertNothingReplayed()
  * @method static void assertPurchaseRecorded(?string $provider = null)
  * @method static void assertSubscriptionStarted(?string $provider = null)
+ * @method static void assertSubscriptionRecorded(?string $provider = null)
  * @method static void assertRefundRecorded(?string $provider = null)
  *
  * @see PurchasesManager
