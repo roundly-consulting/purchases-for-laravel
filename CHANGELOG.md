@@ -14,6 +14,10 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- Re-running `purchases:install --providers` no longer appends a key the `.env` already defines.
+  Its blank copy came later in the file and won, so a second run wiped configured secrets (for
+  example `PURCHASES_STRIPE_WEBHOOK_SECRET`) and flipped `PURCHASES_APPLE_SANDBOX` back to
+  `false`.
 - **Behaviour change:** a one-off Stripe invoice recorded from `invoice.paid` now carries the
   PaymentIntent that paid it as its `transaction_id` (still keyed on the invoice), so its
   `charge.refunded` and `charge.dispute.*` link to it and flip it to `Refunded`. They used to be

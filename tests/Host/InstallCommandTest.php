@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Dotenv\Dotenv;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Purchases\PurchasesServiceProvider;
@@ -67,4 +68,57 @@ it('appends selected provider env keys interactively', function (): void {
         ->and($contents)->toContain('PURCHASES_APPLE_KEY_ID=')
         ->and($contents)->toContain('PURCHASES_STRIPE_SECRET=')
         ->and($contents)->not->toContain('PURCHASES_GOOGLE_PACKAGE_NAME=');
+});
+
+/*
+ * phpdotenv lets a later duplicate of a key in the same file override the earlier one, so
+ * re-running the installer must never append a key the .env already defines: its blank copy
+ * would wipe the configured secret.
+ */
+it('never appends a key the env file already defines', function (): void {
+    $envPath = base_path('.env');
+    file_put_contents($envPath, implode("\n", [
+        'APP_NAME=Test',
+        'PURCHASES_APPLE_SANDBOX=true',
+        'PURCHASES_STRIPE_SECRET=sk_live_real',
+        'export PURCHASES_STRIPE_WEBHOOK_SECRET=whsec_real',
+    ])."\n");
+
+    $this->artisan('purchases:install', ['--providers' => true])
+        ->expectsChoice('Which providers would you like to enable?', ['apple', 'stripe'], ['apple', 'google', 'stripe'])
+        ->expectsConfirmation('Run the migrations now?', 'no')
+        ->assertSuccessful();
+
+    $contents = (string) file_get_contents($envPath);
+    $defined = fn (string $key): int => preg_match_all('/^\s*(?:export\s+)?'.$key.'\s*=/m', $contents);
+    $loaded = Dotenv::createArrayBacked(base_path())->load();
+
+    expect($defined('PURCHASES_APPLE_SANDBOX'))->toBe(1)
+        ->and($defined('PURCHASES_STRIPE_SECRET'))->toBe(1)
+        ->and($defined('PURCHASES_STRIPE_WEBHOOK_SECRET'))->toBe(1)
+        // A key that was not there yet is still appended.
+        ->and($defined('PURCHASES_APPLE_KEY_ID'))->toBe(1)
+        ->and($loaded['PURCHASES_APPLE_SANDBOX'])->toBe('true')
+        ->and($loaded['PURCHASES_STRIPE_SECRET'])->toBe('sk_live_real')
+        ->and($loaded['PURCHASES_STRIPE_WEBHOOK_SECRET'])->toBe('whsec_real')
+        // Stripe's two keys were both there, so its heading is not appended alone either.
+        ->and($contents)->not->toContain('# Stripe API and webhook credentials');
+});
+
+it('leaves the env file alone when every key is already there', function (): void {
+    $envPath = base_path('.env');
+    file_put_contents($envPath, "APP_NAME=Test\n");
+
+    foreach ([1, 2] as $run) {
+        $this->artisan('purchases:install', ['--providers' => true])
+            ->expectsChoice('Which providers would you like to enable?', ['stripe'], ['apple', 'google', 'stripe'])
+            ->expectsConfirmation('Run the migrations now?', 'no')
+            ->assertSuccessful();
+
+        if ($run === 1) {
+            $first = (string) file_get_contents($envPath);
+        }
+    }
+
+    expect((string) file_get_contents($envPath))->toBe($first ?? null);
 });

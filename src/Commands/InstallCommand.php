@@ -75,21 +75,75 @@ final class InstallCommand extends Command
             return;
         }
 
+        $path = base_path('.env');
+        $existing = is_file($path) ? (string) file_get_contents($path) : '';
+        $defined = self::definedKeys($existing);
         $lines = [''];
 
         foreach ($providers as $provider) {
-            foreach (self::ENV_KEYS[$provider] as $line) {
-                $lines[] = $line;
-            }
+            $block = self::missingLines(self::ENV_KEYS[$provider], $defined);
 
-            $lines[] = '';
+            if ($block !== []) {
+                $lines = [...$lines, ...$block, ''];
+            }
         }
 
-        $path = base_path('.env');
-        $existing = is_file($path) ? (string) file_get_contents($path) : '';
+        if ($lines === ['']) {
+            $this->info('Every provider environment key is already in .env.');
+
+            return;
+        }
 
         file_put_contents($path, rtrim($existing)."\n".implode("\n", $lines)."\n");
 
         $this->info('Appended provider environment keys to .env.');
+    }
+
+    /**
+     * A provider's lines without the keys the .env already defines — phpdotenv lets a later
+     * duplicate override the earlier one, so a blank copy would wipe a configured secret. A
+     * comment is kept only when a key it heads is appended.
+     *
+     * @param  list<string>  $template
+     * @param  list<string>  $defined
+     * @return list<string>
+     */
+    private static function missingLines(array $template, array $defined): array
+    {
+        $lines = [];
+        $heading = null;
+
+        foreach ($template as $line) {
+            if (str_starts_with($line, '#')) {
+                $heading = $line;
+
+                continue;
+            }
+
+            if (in_array(strstr($line, '=', true), $defined, true)) {
+                continue;
+            }
+
+            if ($heading !== null) {
+                $lines[] = $heading;
+                $heading = null;
+            }
+
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The keys an env file defines (`KEY=…`, `export KEY=…`).
+     *
+     * @return list<string>
+     */
+    private static function definedKeys(string $contents): array
+    {
+        preg_match_all('/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=/m', $contents, $matches);
+
+        return $matches[1];
     }
 }
