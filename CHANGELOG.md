@@ -6,22 +6,31 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.4 - 2026-10-10
+
 ### Fixed
 
-- Stripe `session()`, `paymentIntent()`, `subscription()` and `invoice()`, and so `callback()`,
-  percent-encode the id they put into the API path (`rawurlencode`, as Google and Apple already
-  do). A client's `session_id=cs_1?expand[]=customer` used to add a query string to the request
-  sent to Stripe, and `../` walked the path to another endpoint. An empty, `.` or `..` id is
-  refused with a `VerificationException` ("Malformed Stripe id.") before Stripe is called: no
-  encoding keeps it one path segment, so it would land on a list or parent endpoint. A valid id
-  (`cs_test_a1B2`) is sent unchanged.
 - Stripe `callback()` throws a `VerificationException` ("Stripe rejected the session id." /
   "Stripe rejected the payment intent id.") when Stripe answers the lookup with a 4xx about the id,
   such as a 404 for an unknown session or a 400. Stripe's `RequestException` is kept as its
   previous exception. It used to escape as the `RequestException`, so a host catching only
   `VerificationException` answered a client's bad id with a 500. A 5xx, a 429 (rate limited), a
   401 / 403 (the secret key is refused) and a connection failure are not about the id: they still
-  throw the HTTP client's `RequestException` / `ConnectionException`.
+  throw the HTTP client's `RequestException` / `ConnectionException`. Upgrade: a host that catches
+  `RequestException` from `callback()` to handle a bad id now gets a `VerificationException`
+  instead, so catch that (the `RequestException` is its `getPrevious()`). Direct `session()`,
+  `paymentIntent()`, `subscription()` and `invoice()` calls still throw the `RequestException`.
+
+### Security
+
+- This is a security fix: update if a client-supplied id reaches Stripe `callback()` or a Stripe
+  lookup. Stripe `session()`, `paymentIntent()`, `subscription()` and `invoice()`, and so
+  `callback()`, percent-encode the id they put into the API path (`rawurlencode`, as Google and
+  Apple already do). A client's `session_id=cs_1?expand[]=customer` used to add a query string to
+  the request sent to Stripe with the host's secret key, and `../` walked the path to another
+  endpoint. An empty, `.` or `..` id is refused with a `VerificationException` ("Malformed Stripe
+  id.") before Stripe is called: no encoding keeps it one path segment, so it would land on a list
+  or parent endpoint. A valid id (`cs_test_a1B2`) is sent unchanged.
 
 ## 1.1.3 - 2026-10-10
 
