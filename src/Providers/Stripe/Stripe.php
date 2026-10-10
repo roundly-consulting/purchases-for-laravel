@@ -14,6 +14,7 @@ use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
+use RoundlyConsulting\Purchases\Providers\StoreApi;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\CheckoutSession;
@@ -34,9 +35,6 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
 
     /** The Stripe API version the parsers are written against (`purchases.settings.stripe.api_version`). */
     public const string API_VERSION = '2026-05-27.dahlia';
-
-    /** 4xx answers that are not about the id: a refused secret key (401, 403), a rate limit (429). */
-    private const array NOT_ABOUT_THE_ID = [401, 403, 429];
 
     public function __construct(
         private readonly WebhookSignature $signatures = new WebhookSignature,
@@ -98,26 +96,18 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
-     * A Stripe API path. Every segment is percent-encoded: an id may come from a client, and
-     * unescaped it could add a query string (`?expand[]=…`), cut the path short (`#`) or walk
-     * it (`../`) to another endpoint. An empty, `.` or `..` segment is refused: no escaping
-     * keeps it a segment of its own — the HTTP client resolves it, onto a list or a parent.
+     * A Stripe API path, each segment encoded and an empty, `.` or `..` one refused (see
+     * StoreApi::segments()).
      */
     private function path(string ...$segments): string
     {
-        foreach ($segments as $segment) {
-            if (in_array($segment, ['', '.', '..'], true)) {
-                throw VerificationException::because('Malformed Stripe id.');
-            }
-        }
-
-        return '/'.implode('/', array_map(rawurlencode(...), $segments));
+        return '/'.StoreApi::segments('Malformed Stripe id.', ...$segments);
     }
 
     /**
      * Retrieve and verify a payment intent or session by id — the `session_id` first, else the
      * `payment_intent`. Both must be strings: anything else is refused before Stripe is
-     * called. An id Stripe rejects is refused too (see lookUp()). Nothing about the request is
+     * called. An id Stripe rejects is refused too (see StoreApi::lookUp()). Nothing about the request is
      * authenticated — call it from your own route.
      *
      * @throws VerificationException a malformed, missing or rejected id
@@ -131,39 +121,14 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         $paymentIntentId = $this->callbackId($request, 'payment_intent', 'payment intent id');
 
         if ($sessionId !== null) {
-            return $this->lookUp(fn (): CheckoutSession => $this->session($sessionId), 'session id');
+            return StoreApi::lookUp(fn (): CheckoutSession => $this->session($sessionId), 'Stripe rejected the session id.');
         }
 
         if ($paymentIntentId !== null) {
-            return $this->lookUp(fn (): PaymentIntent => $this->paymentIntent($paymentIntentId), 'payment intent id');
+            return StoreApi::lookUp(fn (): PaymentIntent => $this->paymentIntent($paymentIntentId), 'Stripe rejected the payment intent id.');
         }
 
         throw VerificationException::because('No Stripe session or payment intent id provided.');
-    }
-
-    /**
-     * Ask Stripe about an id the client sent up. A 4xx about the id — 400 (a malformed one),
-     * 404 (an unknown one) — is the client's mistake, so it is a VerificationException, like
-     * any other bad callback input, with Stripe's answer as its previous exception. A 401 /
-     * 403 (the secret key is refused), a 429 (rate limited), a 5xx and a connection failure
-     * say nothing about the id: they stay as they are, for the host to retry or answer 500.
-     *
-     * @template TObject of PaymentIntent|CheckoutSession
-     *
-     * @param  callable(): TObject  $lookup
-     * @return TObject
-     */
-    private function lookUp(callable $lookup, string $label): PaymentIntent|CheckoutSession
-    {
-        try {
-            return $lookup();
-        } catch (RequestException $e) {
-            if (! $e->response->clientError() || in_array($e->response->status(), self::NOT_ABOUT_THE_ID, true)) {
-                throw $e;
-            }
-
-            throw new VerificationException("Stripe rejected the {$label}.", previous: $e);
-        }
     }
 
     /**
