@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Psr7\Request as Psr7Request;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
@@ -374,6 +379,75 @@ it('says no id was provided when both are missing, null or empty', function (str
 
     Http::assertNothingSent();
 })->with(['missing', 'null', 'empty'])->with(['missing', 'null', 'empty']);
+
+/*
+ * Stripe answering 4xx to a callback lookup (an unknown session, a malformed id) is the
+ * client's mistake: it is a VerificationException, as every other bad callback input is,
+ * so a host that catches only that answers it instead of failing with a 500.
+ */
+it('refuses a callback id stripe rejects, keeping stripe\'s answer', function (string $key, string $resource, string $label, int $status): void {
+    Http::fake(["*/{$resource}/*" => Http::response(['error' => ['type' => 'invalid_request_error', 'code' => 'resource_missing']], $status)]);
+
+    expect(fn () => (new Stripe)->callback(new Request([$key => 'x_unknown'])))
+        ->toThrow(function (VerificationException $e) use ($label, $status): void {
+            expect($e->getMessage())->toBe("Stripe rejected the {$label}.")
+                ->and($e->getPrevious())->toBeInstanceOf(RequestException::class)
+                ->and($e->getPrevious()?->response->status())->toBe($status);
+        });
+
+    Http::assertSentCount(1);
+})->with([
+    'a session id' => ['session_id', 'checkout/sessions', 'session id'],
+    'a payment intent id' => ['payment_intent', 'payment_intents', 'payment intent id'],
+])->with([
+    'not found' => [404],
+    'bad request' => [400],
+]);
+
+/*
+ * A Stripe outage, a rate limit and a refused secret key say nothing about the id: they stay
+ * the HTTP client's exception, so the host retries them or answers 500 (and its error
+ * reporting sees a broken key instead of a stream of "rejected" ids).
+ */
+it('leaves a stripe failure that is not about the id as it is', function (string $key, string $resource, int $status): void {
+    Http::fake(["*/{$resource}/*" => Http::response(['error' => ['type' => 'api_error']], $status)]);
+
+    expect(fn () => (new Stripe)->callback(new Request([$key => 'x_1'])))
+        ->toThrow(function (RequestException $e) use ($status): void {
+            expect($e->response->status())->toBe($status);
+        });
+})->with([
+    'a session id' => ['session_id', 'checkout/sessions'],
+    'a payment intent id' => ['payment_intent', 'payment_intents'],
+])->with([
+    'a server error' => [500],
+    'unavailable' => [503],
+    'rate limited' => [429],
+    'an invalid secret key' => [401],
+    'a restricted key without access' => [403],
+]);
+
+it('leaves a connection failure of a callback lookup as it is', function (): void {
+    Http::fake(['*' => fn () => throw new ConnectException('Connection timed out.', new Psr7Request('GET', 'https://api.stripe.com/v1/checkout/sessions/cs_1'))]);
+
+    expect(fn () => (new Stripe)->callback(new Request(['session_id' => 'cs_1'])))
+        ->toThrow(ConnectionException::class);
+});
+
+it('leaves a stripe 4xx from a direct lookup as the http client\'s exception', function (): void {
+    Http::fake(['*/checkout/sessions/*' => Http::response(['error' => ['code' => 'resource_missing']], 404)]);
+
+    expect(fn () => (new Stripe)->session('cs_unknown'))->toThrow(RequestException::class);
+});
+
+it('leaves a stripe 4xx during a webhook lookup as the http client\'s exception', function (): void {
+    // beforeEach already answers invoice_payments; the first matching stub wins, so start over.
+    Http::swap(new HttpFactory);
+    Http::fake(['api.stripe.com/v1/invoice_payments*' => Http::response(['error' => ['type' => 'invalid_request_error']], 400)]);
+
+    expect(fn () => stripeResultFor('payment_intent.succeeded', ['id' => 'pi_lookup', 'status' => 'succeeded', 'amount' => 100, 'currency' => 'usd']))
+        ->toThrow(RequestException::class);
+});
 
 it('throws when the secret key is not configured', function (): void {
     config()->set('purchases.settings.stripe.secret', null);

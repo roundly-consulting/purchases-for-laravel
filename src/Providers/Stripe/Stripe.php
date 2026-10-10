@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Stripe;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
@@ -32,6 +34,9 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
 
     /** The Stripe API version the parsers are written against (`purchases.settings.stripe.api_version`). */
     public const string API_VERSION = '2026-05-27.dahlia';
+
+    /** 4xx answers that are not about the id: a refused secret key (401, 403), a rate limit (429). */
+    private const array NOT_ABOUT_THE_ID = [401, 403, 429];
 
     public function __construct(
         private readonly WebhookSignature $signatures = new WebhookSignature,
@@ -112,7 +117,12 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
     /**
      * Retrieve and verify a payment intent or session by id — the `session_id` first, else the
      * `payment_intent`. Both must be strings: anything else is refused before Stripe is
-     * called. Nothing about the request is authenticated — call it from your own route.
+     * called. An id Stripe rejects is refused too (see lookUp()). Nothing about the request is
+     * authenticated — call it from your own route.
+     *
+     * @throws VerificationException a malformed, missing or rejected id
+     * @throws RequestException a Stripe outage, a rate limit or a refused secret key
+     * @throws ConnectionException Stripe could not be reached
      */
     public function callback(Request $request): PaymentIntent|CheckoutSession
     {
@@ -121,14 +131,39 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         $paymentIntentId = $this->callbackId($request, 'payment_intent', 'payment intent id');
 
         if ($sessionId !== null) {
-            return $this->session($sessionId);
+            return $this->lookUp(fn (): CheckoutSession => $this->session($sessionId), 'session id');
         }
 
         if ($paymentIntentId !== null) {
-            return $this->paymentIntent($paymentIntentId);
+            return $this->lookUp(fn (): PaymentIntent => $this->paymentIntent($paymentIntentId), 'payment intent id');
         }
 
         throw VerificationException::because('No Stripe session or payment intent id provided.');
+    }
+
+    /**
+     * Ask Stripe about an id the client sent up. A 4xx about the id — 400 (a malformed one),
+     * 404 (an unknown one) — is the client's mistake, so it is a VerificationException, like
+     * any other bad callback input, with Stripe's answer as its previous exception. A 401 /
+     * 403 (the secret key is refused), a 429 (rate limited), a 5xx and a connection failure
+     * say nothing about the id: they stay as they are, for the host to retry or answer 500.
+     *
+     * @template TObject of PaymentIntent|CheckoutSession
+     *
+     * @param  callable(): TObject  $lookup
+     * @return TObject
+     */
+    private function lookUp(callable $lookup, string $label): PaymentIntent|CheckoutSession
+    {
+        try {
+            return $lookup();
+        } catch (RequestException $e) {
+            if (! $e->response->clientError() || in_array($e->response->status(), self::NOT_ABOUT_THE_ID, true)) {
+                throw $e;
+            }
+
+            throw new VerificationException("Stripe rejected the {$label}.", previous: $e);
+        }
     }
 
     /**

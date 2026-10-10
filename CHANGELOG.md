@@ -15,6 +15,13 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
   refused with a `VerificationException` ("Malformed Stripe id.") before Stripe is called: no
   encoding keeps it one path segment, so it would land on a list or parent endpoint. A valid id
   (`cs_test_a1B2`) is sent unchanged.
+- Stripe `callback()` throws a `VerificationException` ("Stripe rejected the session id." /
+  "Stripe rejected the payment intent id.") when Stripe answers the lookup with a 4xx about the id,
+  such as a 404 for an unknown session or a 400. Stripe's `RequestException` is kept as its
+  previous exception. It used to escape as the `RequestException`, so a host catching only
+  `VerificationException` answered a client's bad id with a 500. A 5xx, a 429 (rate limited), a
+  401 / 403 (the secret key is refused) and a connection failure are not about the id: they still
+  throw the HTTP client's `RequestException` / `ConnectionException`.
 
 ## 1.1.3 - 2026-10-10
 
