@@ -149,10 +149,15 @@ it('applies a delivery that lost a creation race as an update', function (): voi
     // found nothing: the unique index refuses this insert, and the event is applied to
     // the row that won instead of failing the webhook.
     $model = PurchaseModel::class();
+    $connection = PurchaseModel::new()->getConnection();
     $raced = false;
 
-    PurchaseModel::new()->getConnection()->listen(function (QueryExecuted $query) use ($model, &$raced): void {
-        if ($raced || ! str_starts_with($query->sql, 'select') || ! str_contains($query->sql, '"purchases"')) {
+    // The table as this engine quotes it ("purchases" on sqlite and postgres, `purchases` on
+    // MySQL): the quotes keep purchase_items and purchase_refunds from matching.
+    $table = $connection->getQueryGrammar()->wrapTable(PurchaseModel::new()->getTable());
+
+    $connection->listen(function (QueryExecuted $query) use ($model, $table, &$raced): void {
+        if ($raced || ! str_starts_with($query->sql, 'select') || ! str_contains($query->sql, $table)) {
             return;
         }
 
