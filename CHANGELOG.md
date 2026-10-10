@@ -16,6 +16,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- An Apple webhook whose `signedPayload` is not a string (`signedPayload[]=x`) is refused with 400
+  instead of failing with a 500 ("Array to string conversion").
 - `purchases:verify` checks Google credentials by exchanging them for a fresh access token. A
   cached token answered the check, so it stayed green for up to an hour after the private key
   broke.

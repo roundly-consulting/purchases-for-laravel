@@ -68,7 +68,12 @@ class Apple extends BaseProvider implements VerifiesConnectivity
      */
     public function notification(Request $request): ServerNotificationDecodedPayload
     {
-        $signedPayload = (string) $request->input('signedPayload');
+        $signedPayload = $request->input('signedPayload');
+
+        // Anyone can post to the webhook: anything but a JWS string is refused, never cast.
+        if (! is_string($signedPayload) || $signedPayload === '') {
+            throw VerificationException::because('Missing or malformed Apple signedPayload.');
+        }
 
         $this->jws->verify($signedPayload);
 

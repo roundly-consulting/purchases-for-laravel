@@ -8,6 +8,7 @@ use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
+use RoundlyConsulting\Purchases\Providers\Apple\Apple;
 use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 use RoundlyConsulting\Purchases\Testing\PayloadFactory;
@@ -99,3 +100,17 @@ it('answers 2xx to another app\'s google notification, recording nothing', funct
     expect(PurchaseRefund::query()->count())->toBe(0)
         ->and(PurchaseNotification::query()->sole()->type)->toBe('notification');
 });
+
+it('refuses an apple notification whose signed payload is not a string', function (mixed $signedPayload): void {
+    config()->set('purchases.providers', [Apple::class]);
+    config()->set('purchases.settings.apple.bundle_id', 'com.example.app');
+
+    $this->postJson('/purchases/webhooks/apple', $signedPayload === 'missing' ? [] : ['signedPayload' => $signedPayload])
+        ->assertBadRequest();
+})->with([
+    'an array' => [['x']],
+    'an integer' => [5],
+    'missing' => ['missing'],
+    'empty' => [''],
+    'not a jws' => ['x'],
+]);
