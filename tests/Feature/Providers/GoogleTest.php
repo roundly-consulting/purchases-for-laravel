@@ -899,6 +899,29 @@ it('leaves a connection failure of a callback lookup as it is', function (string
 })->with(['callback', 'callbackResult']);
 
 /*
+ * The access token is fetched before the lookup. Google's OAuth endpoint refusing the service
+ * account (400 invalid_grant for a revoked key or a skewed clock, 401 invalid_client) is the
+ * host's problem, never "Google rejected the purchase token".
+ */
+it('leaves a token endpoint refusal during a callback as it is', function (string $method, array $input, int $status, string $error): void {
+    googleProvider();
+    Cache::flush();
+    Http::fake(['oauth2.googleapis.com/*' => Http::response(['error' => $error], $status)]);
+
+    expect(fn () => (new Google)->{$method}(new Request($input)))
+        ->toThrow(fn (RequestException $e) => expect($e->response->status())->toBe($status));
+
+    Http::assertSentCount(1);
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'androidpublisher'));
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-1']],
+    'a one-time product' => [['purchaseToken' => 'tok-1', 'productId' => 'coins.100']],
+])->with([
+    'a revoked key' => [400, 'invalid_grant'],
+    'an unknown client' => [401, 'invalid_client'],
+]);
+
+/*
  * The acknowledgement follows a lookup Google answered: the token is good, so a refused
  * acknowledgement is not the client's mistake. It stays the HTTP client's exception, and the
  * client retries a purchase it really made instead of being told it was rejected.
