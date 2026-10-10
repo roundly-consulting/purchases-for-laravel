@@ -6,12 +6,19 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.1 - 2026-10-10
+
+### Changed
+
+- Maintenance: CI also runs the test suite against MySQL 8, alongside SQLite and PostgreSQL.
+
 ### Fixed
 
 - Google `callback()` and `callbackResult()` refuse a `purchaseToken` that is not a string
   (`purchaseToken[]=x`, a number) with a `VerificationException`, before calling Google. An array
   used to fail with a 500 ("Array to string conversion") on the host's own route, and a number was
-  looked up as a token.
+  looked up as a token. The exception message for a missing or empty token now reads "Missing or
+  malformed Google purchase token." (it was "Missing Google purchase token.").
 
 ## 1.1.0 - 2026-10-10
 
