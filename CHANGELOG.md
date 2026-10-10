@@ -16,6 +16,10 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- Apple's deprecated `verifyReceipt` callback refuses an invalid or malformed response with a
+  `VerificationException` (status first), instead of a `TypeError` when Apple leaves out the
+  optional `environment` — and a valid receipt without one takes the environment of the host that
+  verified it.
 - `purchases:install --providers` appends Google's push authentication keys
   (`PURCHASES_GOOGLE_PUSH_AUDIENCE`, `PURCHASES_GOOGLE_PUSH_SERVICE_ACCOUNT`,
   `PURCHASES_GOOGLE_PUSH_TOKEN`), and `purchases:providers` reports Google as configured only once

@@ -18,12 +18,14 @@ use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
+use RoundlyConsulting\Purchases\Providers\Apple\Enums\Environment;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationSubType;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\NotificationType;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\Ownership;
 use RoundlyConsulting\Purchases\Providers\Apple\Enums\ProductType;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
+use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptStatus;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
@@ -98,13 +100,32 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             'exclude-old-transactions' => false,
         ]);
 
-        $receipt = ReceiptResponse::fromRaw($response->json());
+        return $this->receipt($response->json(), $this->sandbox());
+    }
 
-        if (! $receipt->status->isValid()) {
-            throw VerificationException::because($receipt->status->message());
+    /**
+     * A verifyReceipt response, once its status says the receipt is valid. Apple marks
+     * `environment` optional — an error response often carries only its `status` — so the
+     * status decides first, and a valid receipt that names no environment is from the one of
+     * the host that verified it.
+     */
+    private function receipt(mixed $raw, bool $sandbox): ReceiptResponse
+    {
+        if (! is_array($raw) || ! is_int($raw['status'] ?? null)) {
+            throw VerificationException::because('Malformed App Store verifyReceipt response.');
         }
 
-        return $receipt;
+        $status = new ReceiptStatus($raw['status']);
+
+        if (! $status->isValid()) {
+            throw VerificationException::because($status->message());
+        }
+
+        if (Environment::tryFrom(is_string($raw['environment'] ?? null) ? $raw['environment'] : '') === null) {
+            $raw['environment'] = ($sandbox ? Environment::Sandbox : Environment::Production)->value;
+        }
+
+        return ReceiptResponse::fromRaw($raw);
     }
 
     public function result(Request $request): ProviderResult
@@ -269,9 +290,17 @@ class Apple extends BaseProvider implements VerifiesConnectivity
 
     protected function getBaseUrl(): string
     {
-        $sandbox = Config::for(['purchases.settings.apple.sandbox' => $this->config['sandbox'] ?? null])
-            ->boolean('purchases.settings.apple.sandbox');
+        return $this->receiptHost($this->sandbox());
+    }
 
+    private function sandbox(): bool
+    {
+        return Config::for(['purchases.settings.apple.sandbox' => $this->config['sandbox'] ?? null])
+            ->boolean('purchases.settings.apple.sandbox');
+    }
+
+    private function receiptHost(bool $sandbox): string
+    {
         /** @var array<string, mixed> $url */
         $url = $this->config['url'] ?? [];
 

@@ -205,6 +205,40 @@ it('throws when the receipt status is invalid', function (): void {
     (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data'));
 })->throws(VerificationException::class);
 
+/*
+ * Apple's verifyReceipt marks `environment` optional, and an error response often carries
+ * only its `status`: the status decides, and the response never fails on what it leaves out.
+ */
+it('refuses an invalid receipt whose response names no environment', function (): void {
+    config()->set('purchases.settings.apple', ['sandbox' => false, 'password' => 'secret']);
+    Http::fake(['*/verifyReceipt' => Http::response(['status' => 21003])]);
+
+    (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data'));
+})->throws(VerificationException::class, '[21003]The system couldn’t authenticate the receipt.');
+
+it('refuses a verifyReceipt response without a status', function (mixed $body): void {
+    config()->set('purchases.settings.apple', ['sandbox' => false, 'password' => 'secret']);
+    Http::fake(['*/verifyReceipt' => Http::response($body)]);
+
+    (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data'));
+})->with([
+    'no status' => [['environment' => 'Production']],
+    'a status that is not a number' => [['status' => 'ok']],
+    'not json' => ['<html>busy</html>'],
+])->throws(VerificationException::class, 'Malformed App Store verifyReceipt response.');
+
+it('takes a valid receipt\'s environment from the host that verified it when apple omits it', function (bool $sandbox, Environment $expected): void {
+    config()->set('purchases.settings.apple', ['sandbox' => $sandbox, 'password' => 'secret']);
+    Http::fake(['*/verifyReceipt' => Http::response(['status' => 0, 'latest_receipt' => 'base64-receipt'])]);
+
+    $response = (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data'));
+
+    expect($response->environment)->toBe($expected);
+})->with([
+    'production' => [false, Environment::Production],
+    'sandbox' => [true, Environment::Sandbox],
+]);
+
 it('maps a renewal notification into a unified subscription result', function (): void {
     $jws = fakeJwsMapping([
         'token' => [
