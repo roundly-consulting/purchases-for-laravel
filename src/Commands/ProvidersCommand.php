@@ -42,8 +42,10 @@ final class ProvidersCommand extends Command
                 && (Config::boolean('purchases.settings.apple.sandbox') || filled(config('purchases.settings.apple.app_apple_id'))),
             'google' => filled(config('purchases.settings.google.package_name'))
                 && filled(config('purchases.settings.google.service_account.client_email')),
+            // The webhook secret verifies every event; the secret key tells which invoice a
+            // PaymentIntent pays (API versions since 2025-03-31). Either alone is refused.
             'stripe' => filled(config('purchases.settings.stripe.secret'))
-                || filled(config('purchases.settings.stripe.webhook_secret')),
+                && filled(config('purchases.settings.stripe.webhook_secret')),
             default => true,
         };
     }

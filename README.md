@@ -34,8 +34,9 @@ php artisan migrate
 ```
 
 If your owner models have UUID/ULID keys, set `PURCHASES_KEY_TYPE` **before** migrating. Fill in
-each provider's credentials (for Stripe, `PURCHASES_STRIPE_WEBHOOK_SECRET`) and set
-`PURCHASES_ROUTES_ENABLED=true` to receive webhooks at `POST /purchases/webhooks/{provider}`.
+each provider's credentials (Stripe needs both `PURCHASES_STRIPE_SECRET` and
+`PURCHASES_STRIPE_WEBHOOK_SECRET`) and set `PURCHASES_ROUTES_ENABLED=true` to receive webhooks at
+`POST /purchases/webhooks/{provider}`.
 
 ## Usage
 

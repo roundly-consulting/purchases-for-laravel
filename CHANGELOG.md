@@ -14,6 +14,10 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- `purchases:providers` reports Stripe as configured only when both `PURCHASES_STRIPE_SECRET` and
+  `PURCHASES_STRIPE_WEBHOOK_SECRET` are set, and the README names both. With the webhook secret
+  alone, every `payment_intent.*` webhook on a current API version was refused (the secret key
+  answers which invoice a payment belongs to) while the command said "yes".
 - Re-running `purchases:install --providers` no longer appends a key the `.env` already defines.
   Its blank copy came later in the file and won, so a second run wiped configured secrets (for
   example `PURCHASES_STRIPE_WEBHOOK_SECRET`) and flipped `PURCHASES_APPLE_SANDBOX` back to

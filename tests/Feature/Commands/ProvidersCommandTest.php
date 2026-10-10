@@ -41,3 +41,20 @@ it('warns when no providers are registered', function (): void {
         ->expectsOutputToContain('No providers are registered')
         ->assertSuccessful();
 });
+
+/*
+ * Stripe takes no traffic without both keys: the webhook secret verifies every event, and the
+ * secret key answers which invoice a PaymentIntent pays (API versions since 2025-03-31).
+ */
+it('flags stripe as missing config until both of its keys are set', function (array $stripe, string $expected): void {
+    config()->set('purchases.providers', [Stripe::class]);
+    config()->set('purchases.settings.stripe', $stripe);
+
+    $this->artisan('purchases:providers')
+        ->expectsTable(['Provider', 'Configured'], [['stripe', $expected]])
+        ->assertSuccessful();
+})->with([
+    'only the webhook secret' => [['secret' => null, 'webhook_secret' => 'whsec_1'], 'missing config'],
+    'only the secret key' => [['secret' => 'sk_1', 'webhook_secret' => ''], 'missing config'],
+    'both keys' => [['secret' => 'sk_1', 'webhook_secret' => 'whsec_1'], 'yes'],
+]);
