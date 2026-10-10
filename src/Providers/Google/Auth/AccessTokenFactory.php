@@ -39,6 +39,19 @@ class AccessTokenFactory
         );
     }
 
+    /**
+     * Exchange the credentials for a new token now, bypassing (and refreshing) the cache —
+     * proof the credentials work today, not that they worked within the last hour.
+     */
+    public function fresh(ServiceAccountCredentials $credentials): string
+    {
+        $token = $this->request($credentials);
+
+        Cache::put(self::cacheKey($credentials), $token, $this->ttl());
+
+        return $token;
+    }
+
     private function request(ServiceAccountCredentials $credentials): string
     {
         $assertion = $this->assertion($credentials);

@@ -56,6 +56,11 @@ function googleProvider(bool|string $acknowledge = true): Google
             {
                 return 'fake-access-token';
             }
+
+            public function fresh(ServiceAccountCredentials $credentials): string
+            {
+                return 'fake-access-token';
+            }
         },
     ));
 }
@@ -527,13 +532,42 @@ it('verifies google connectivity via token exchange', function (): void {
     expect($result->ok)->toBeTrue();
 });
 
+/*
+ * A cached access token proves the key worked up to an hour ago, not that it works now:
+ * the connectivity check always exchanges the credentials for a fresh token.
+ */
+it('does not take a cached token as proof the google credentials work', function (): void {
+    googleProvider();
+    config()->set('purchases.settings.google.service_account.private_key', 'not-a-key');
+    Cache::put('purchases:google:token:'.sha1('svc@example.iam.gserviceaccount.com'), 'cached-token', 3540);
+    Http::fake();
+
+    $result = (new Google)->verifyConnectivity();
+
+    expect($result->ok)->toBeFalse()
+        ->and($result->message)->toBe('Invalid Google service-account private key.');
+});
+
+it('exchanges the google credentials for a fresh token to verify them', function (): void {
+    googleProvider();
+    Cache::put('purchases:google:token:'.sha1('svc@example.iam.gserviceaccount.com'), 'cached-token', 3540);
+    Http::fake(['oauth2.googleapis.com/token' => Http::response(['access_token' => 'fresh-token', 'expires_in' => 3599])]);
+
+    expect((new Google)->verifyConnectivity()->ok)->toBeTrue()
+        // The fresh token replaces the cached one for the requests that follow.
+        ->and(Cache::get('purchases:google:token:'.sha1('svc@example.iam.gserviceaccount.com')))->toBe('fresh-token');
+
+    Http::assertSent(fn ($request): bool => $request->url() === 'https://oauth2.googleapis.com/token'
+        && $request['grant_type'] === 'urn:ietf:params:oauth:grant-type:jwt-bearer');
+});
+
 it('reports failed google connectivity gracefully', function (): void {
     $provider = new Google(new GoogleClient(
         credentials: new ServiceAccountCredentials('svc@example.iam.gserviceaccount.com', testRsaKey()),
         baseUrl: 'https://androidpublisher.googleapis.com',
         tokens: new class extends AccessTokenFactory
         {
-            public function token(ServiceAccountCredentials $credentials): string
+            public function fresh(ServiceAccountCredentials $credentials): string
             {
                 throw VerificationException::because('bad credentials');
             }

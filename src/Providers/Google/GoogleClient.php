@@ -21,6 +21,14 @@ final class GoogleClient
         private readonly AccessTokenFactory $tokens = new AccessTokenFactory,
     ) {}
 
+    /**
+     * Exchange the service-account credentials for a fresh access token, never a cached one.
+     */
+    public function refreshToken(): void
+    {
+        $this->tokens->fresh($this->credentials);
+    }
+
     public function request(): PendingRequest
     {
         return Http::baseUrl($this->baseUrl)

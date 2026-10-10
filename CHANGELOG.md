@@ -16,6 +16,9 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- `purchases:verify` checks Google credentials by exchanging them for a fresh access token. A
+  cached token answered the check, so it stayed green for up to an hour after the private key
+  broke.
 - Apple's `verifyReceipt` callback retries against the sandbox when the production host answers
   21007, as Apple prescribes, so App Review and TestFlight receipts verify on a production
   configuration.

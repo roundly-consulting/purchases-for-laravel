@@ -370,13 +370,13 @@ class Google extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
-     * Confirm the service-account credentials work by exchanging them for an
-     * OAuth2 access token (the JWT-bearer grant).
+     * Confirm the service-account credentials work by exchanging them for a fresh
+     * OAuth2 access token (the JWT-bearer grant) — a cached one proves nothing about now.
      */
     public function verifyConnectivity(): ConnectivityResult
     {
         try {
-            $this->client()->request();
+            $this->client()->refreshToken();
         } catch (Throwable $e) {
             return ConnectivityResult::failed($e->getMessage());
         }
