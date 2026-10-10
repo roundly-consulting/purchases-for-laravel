@@ -6,6 +6,13 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Google `callback()` and `callbackResult()` refuse a `purchaseToken` that is not a string
+  (`purchaseToken[]=x`, a number) with a `VerificationException`, before calling Google. An array
+  used to fail with a 500 ("Array to string conversion") on the host's own route, and a number was
+  looked up as a token.
+
 ## 1.1.0 - 2026-10-10
 
 ### Added

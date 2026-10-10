@@ -186,18 +186,30 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function callback(Request $request): ProductPurchase|SubscriptionPurchase
     {
-        $token = (string) $request->input('purchaseToken');
+        $token = $this->purchaseToken($request);
         $productId = $request->input('productId');
-
-        if ($token === '') {
-            throw VerificationException::because('Missing Google purchase token.');
-        }
 
         if (is_string($productId) && $productId !== '') {
             return $this->product($productId, $token);
         }
 
         return $this->subscription($token);
+    }
+
+    /**
+     * The client's purchase token. It arrives on the host's own route, so anything but a
+     * non-empty string is refused, never cast: an array would be "Array to string
+     * conversion" (a 500), and a number would be looked up as if it were a token.
+     */
+    private function purchaseToken(Request $request): string
+    {
+        $token = $request->input('purchaseToken');
+
+        if (! is_string($token) || $token === '') {
+            throw VerificationException::because('Missing or malformed Google purchase token.');
+        }
+
+        return $token;
     }
 
     /**
@@ -219,7 +231,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
     public function callbackResult(Request $request): ProviderResult
     {
         $purchase = $this->callback($request);
-        $token = (string) $request->input('purchaseToken');
+        $token = $this->purchaseToken($request);
 
         if ($purchase instanceof ProductPurchase) {
             return new GenericResult(

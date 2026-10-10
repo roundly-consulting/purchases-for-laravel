@@ -248,6 +248,26 @@ it('throws when verifying a callback without a token', function (): void {
     googleProvider()->callback(new Request);
 })->throws(VerificationException::class);
 
+it('refuses a purchase token that is not a string, before asking google', function (string $method, mixed $token, bool $withProduct): void {
+    Http::fake();
+
+    $input = ['purchaseToken' => $token] + ($withProduct ? ['productId' => 'coins.100'] : []);
+
+    // The token arrives from a client on the host's own route: anything but a non-empty
+    // string is refused, never cast ("Array to string conversion" would be a 500).
+    expect(fn () => googleProvider()->{$method}(new Request($input)))
+        ->toThrow(VerificationException::class, 'Missing or malformed Google purchase token.');
+
+    Http::assertNothingSent();
+})->with(['callback', 'callbackResult'])->with([
+    'an array' => [['x']],
+    'a keyed array' => [['token' => 'x']],
+    'an integer' => [5],
+    'a boolean' => [true],
+    'missing' => [null],
+    'empty' => [''],
+])->with(['subscription' => false, 'one-time product' => true]);
+
 it('decodes an RTDN subscription notification', function (): void {
     $payload = base64_encode((string) json_encode([
         'version' => '1.0',
