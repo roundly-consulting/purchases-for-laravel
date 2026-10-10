@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Purchases\Providers\Google;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use RoundlyConsulting\Crypto\Codec\Base64;
@@ -36,6 +37,16 @@ class Google extends BaseProvider implements VerifiesConnectivity
 {
     /** `voidedPurchaseNotification.refundType`: REFUND_TYPE_QUANTITY_BASED_PARTIAL_REFUND. */
     private const int PARTIAL_REFUND = 2;
+
+    /**
+     * Play Developer API error reasons (`error.errors[].reason`) about the host's own setup that
+     * Google answers with a 4xx a callback lookup would otherwise blame on the client's token:
+     * `applicationNotFound` (404) — no app under the configured `package_name`, or one Play
+     * cannot resolve yet (nothing uploaded to a track). No client input can cause it. Reasons
+     * about the service account (`permissionDenied`, `projectNotLinked`) or quota arrive as a
+     * 401 / 403 / 429, which StoreApi already leaves as they are.
+     */
+    private const array APP_SETUP_REASONS = ['applicationNotFound'];
 
     /** @var array<string, mixed> */
     protected readonly array $config;
@@ -147,9 +158,10 @@ class Google extends BaseProvider implements VerifiesConnectivity
     /**
      * GET a Play Developer API path and decode the answer. With $rejected — a lookup callback()
      * makes for input a client sent up — a 4xx about that input is a VerificationException
-     * with that message (see StoreApi::lookUp()). The acknowledgement after it never is. Only Google's answer to the GET is judged: the access token
-     * is fetched first, so a service account the OAuth endpoint refuses (400 invalid_grant)
-     * is never reported as a rejected token.
+     * with that message (see StoreApi::lookUp()); a 4xx about the app (see APP_SETUP_REASONS)
+     * is not. The acknowledgement after it never is. Only Google's answer to the GET is judged:
+     * the access token is fetched first, so a service account the OAuth endpoint refuses (400
+     * invalid_grant) is never reported as a rejected token.
      */
     private function get(string $path, ?string $rejected): mixed
     {
@@ -159,7 +171,29 @@ class Google extends BaseProvider implements VerifiesConnectivity
             return $request->get($path)->json();
         }
 
-        return StoreApi::lookUp(fn (): mixed => $request->get($path)->json(), $rejected);
+        return StoreApi::lookUp(fn (): mixed => $request->get($path)->json(), $rejected, self::aboutTheApp(...));
+    }
+
+    /**
+     * Whether Google's error answer names one of APP_SETUP_REASONS. Google's reason decides,
+     * not the status: a 404 means an unknown token as often as an unknown app. A body that is
+     * not Google's error envelope names no reason, so the answer stays about the input.
+     */
+    private static function aboutTheApp(Response $response): bool
+    {
+        $errors = $response->json('error.errors');
+
+        if (! is_array($errors)) {
+            return false;
+        }
+
+        foreach ($errors as $error) {
+            if (is_array($error) && in_array($error['reason'] ?? null, self::APP_SETUP_REASONS, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -241,7 +275,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
      * your own (authenticated) route, never the webhook.
      *
      * @throws VerificationException a malformed, missing or rejected token or product id
-     * @throws RequestException a Google outage, a rate limit, refused credentials or a refused acknowledgement
+     * @throws RequestException a Google outage, a rate limit, refused credentials, an app Google does not know (a wrong `package_name`) or a refused acknowledgement
      * @throws ConnectionException Google could not be reached
      */
     public function callback(Request $request): ProductPurchase|SubscriptionPurchase

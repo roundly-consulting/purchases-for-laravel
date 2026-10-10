@@ -927,6 +927,79 @@ it('leaves a google failure that is not about the token as it is', function (str
     'a project not linked' => [403],
 ]);
 
+/*
+ * A wrong `package_name` (or an app Play cannot resolve yet: nothing uploaded to a track) makes
+ * Google answer 404 with the reason `applicationNotFound`. That is the host's setup, not the
+ * client's token, and no client input can cause it: it stays the HTTP client's exception. Google's
+ * reason decides, not the status, so a 404 for an unknown token is still the client's mistake.
+ */
+it('leaves a google answer about the configured app as it is', function (string $method, array $input, string $resource, int $status): void {
+    Http::fake(["*/purchases/{$resource}/*" => Http::response(googleApiError($status, 'applicationNotFound', 'No application was found for the given package name.'), $status)]);
+
+    expect(fn () => googleProvider(packageName: 'com.example.typo')->{$method}(new Request($input)))
+        ->toThrow(function (RequestException $e) use ($status): void {
+            expect($e->response->status())->toBe($status)
+                ->and($e->response->json('error.errors.0.reason'))->toBe('applicationNotFound');
+        });
+
+    Http::assertSentCount(1);
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-1'], 'subscriptionsv2'],
+    'a one-time product' => [['purchaseToken' => 'tok-1', 'productId' => 'coins.100'], 'products'],
+])->with([
+    'not found' => [404],
+    'under another 4xx' => [400],
+]);
+
+it('finds the app reason among several google errors', function (): void {
+    $body = googleApiError(404, 'notFound');
+    $body['error']['errors'][] = ['domain' => 'androidpublisher', 'reason' => 'applicationNotFound'];
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response($body, 404)]);
+
+    expect(fn () => googleProvider()->callback(new Request(['purchaseToken' => 'tok-1'])))
+        ->toThrow(RequestException::class);
+});
+
+it('still refuses a token google does not know, whatever reason it gives', function (string $method, array $input, string $resource, string $message, int $status, string $reason): void {
+    Http::fake(["*/purchases/{$resource}/*" => Http::response(googleApiError($status, $reason), $status)]);
+
+    expect(fn () => googleProvider()->{$method}(new Request($input)))
+        ->toThrow(function (VerificationException $e) use ($message, $status): void {
+            expect($e->getMessage())->toBe($message)
+                ->and($e->getPrevious()?->response->status())->toBe($status);
+        });
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-unknown'], 'subscriptionsv2', 'Google rejected the purchase token.'],
+    'a one-time product' => [['purchaseToken' => 'tok-unknown', 'productId' => 'coins.100'], 'products', 'Google rejected the purchase token or product id.'],
+])->with([
+    'an unknown token' => [404, 'notFound'],
+    'an invalid token' => [400, 'invalid'],
+    'a token of another app' => [400, 'purchaseTokenDoesNotMatchPackageName'],
+    'a token no longer valid' => [410, 'purchaseTokenNoLongerValid'],
+]);
+
+it('refuses a token on a 404 whose body is not google\'s error envelope', function (string $method, array $input, string $resource, string $message, mixed $body): void {
+    Http::fake(["*/purchases/{$resource}/*" => Http::response($body, 404)]);
+
+    expect(fn () => googleProvider()->{$method}(new Request($input)))
+        ->toThrow(function (VerificationException $e) use ($message): void {
+            expect($e->getMessage())->toBe($message)
+                ->and($e->getPrevious()?->response->status())->toBe(404);
+        });
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-unknown'], 'subscriptionsv2', 'Google rejected the purchase token.'],
+    'a one-time product' => [['purchaseToken' => 'tok-unknown', 'productId' => 'coins.100'], 'products', 'Google rejected the purchase token or product id.'],
+])->with([
+    'html' => ['<html><body>Not Found</body></html>'],
+    'json cut short' => ['{"error": {"errors": [{"reason": "applicationNotFound"'],
+    'empty' => [''],
+    'no errors list' => [['error' => ['code' => 404, 'message' => 'Not Found', 'status' => 'NOT_FOUND']]],
+    'errors that are not a list' => [['error' => ['errors' => 'applicationNotFound']]],
+    'a reason that is not a string' => [['error' => ['errors' => [['reason' => ['applicationNotFound']]]]]],
+    'an error that is not an object' => [['error' => ['errors' => ['applicationNotFound']]]],
+    'the reason only as a message' => [['error' => ['code' => 404, 'message' => 'applicationNotFound']]],
+]);
+
 it('leaves a connection failure of a callback lookup as it is', function (string $method): void {
     Http::fake(['*' => fn () => throw new ConnectException('Connection timed out.', new Psr7Request('GET', 'https://androidpublisher.googleapis.com/'))]);
 
@@ -1080,6 +1153,25 @@ function googleSubscriptionV2(string $state, string $expiry, string $order = 'GP
         'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED',
         'lineItems' => [['productId' => 'pro', 'expiryTime' => $expiry]],
     ];
+}
+
+/**
+ * Google's error envelope for a Play Developer API answer, as it sends it.
+ *
+ * @return array<string, mixed>
+ */
+function googleApiError(int $status, string $reason, string $message = 'Error.'): array
+{
+    return ['error' => array_filter([
+        'code' => $status,
+        'message' => $message,
+        'errors' => [['message' => $message, 'domain' => 'androidpublisher', 'reason' => $reason]],
+        'status' => match ($status) {
+            400 => 'INVALID_ARGUMENT',
+            404 => 'NOT_FOUND',
+            default => null,
+        },
+    ], fn (mixed $value): bool => $value !== null)];
 }
 
 it('keeps a canceled google subscription active until it expires', function (): void {

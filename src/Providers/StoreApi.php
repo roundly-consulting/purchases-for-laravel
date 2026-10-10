@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers;
 
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 
 /**
@@ -47,21 +48,26 @@ final class StoreApi
      * unknown, 410 gone) is the client's mistake, so it is a VerificationException, like any
      * other bad callback input, with the store's answer as its previous exception. A 401 /
      * 403 / 429, a 5xx and a connection failure say nothing about the input: they stay as
-     * they are, for the host to retry or answer 500.
+     * they are, for the host to retry or answer 500. So does any other 4xx that $aboutTheHost
+     * (the store's own reading of its answer) says is about the host's setup, such as an app
+     * id the store does not know.
      *
      * @template TResult
      *
      * @param  callable(): TResult  $lookup
+     * @param  (callable(Response): bool)|null  $aboutTheHost
      * @return TResult
      *
      * @throws VerificationException
      */
-    public static function lookUp(callable $lookup, string $rejected): mixed
+    public static function lookUp(callable $lookup, string $rejected, ?callable $aboutTheHost = null): mixed
     {
         try {
             return $lookup();
         } catch (RequestException $e) {
-            if (! $e->response->clientError() || in_array($e->response->status(), self::NOT_ABOUT_THE_INPUT, true)) {
+            if (! $e->response->clientError()
+                || in_array($e->response->status(), self::NOT_ABOUT_THE_INPUT, true)
+                || ($aboutTheHost !== null && $aboutTheHost($e->response))) {
                 throw $e;
             }
 

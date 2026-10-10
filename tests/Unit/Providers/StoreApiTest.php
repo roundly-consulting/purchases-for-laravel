@@ -52,6 +52,46 @@ it('leaves an answer that is not about the input as it is', function (int $statu
         ->toThrow(fn (RequestException $e) => expect($e)->toBe($answer));
 })->with([401, 403, 429, 500, 502, 503]);
 
+it('leaves a 4xx the store says is about the host as it is', function (int $status): void {
+    $answer = storeAnswered($status);
+    $asked = [];
+    $aboutTheHost = function (Response $response) use (&$asked): bool {
+        $asked[] = $response;
+
+        return true;
+    };
+
+    expect(fn () => StoreApi::lookUp(fn () => throw $answer, 'Rejected.', $aboutTheHost))
+        ->toThrow(fn (RequestException $e) => expect($e)->toBe($answer));
+
+    expect($asked)->toBe([$answer->response]);
+})->with([400, 404, 410]);
+
+it('still refuses a 4xx the store does not say is about the host', function (): void {
+    $answer = storeAnswered(404);
+
+    expect(fn () => StoreApi::lookUp(fn () => throw $answer, 'Rejected.', fn (Response $response): bool => false))
+        ->toThrow(function (VerificationException $e) use ($answer): void {
+            expect($e->getMessage())->toBe('Rejected.')
+                ->and($e->getPrevious())->toBe($answer);
+        });
+});
+
+it('asks the store nothing about an answer it never blames on the input', function (int $status): void {
+    $answer = storeAnswered($status);
+    $asked = false;
+    $aboutTheHost = function () use (&$asked): bool {
+        $asked = true;
+
+        return false;
+    };
+
+    expect(fn () => StoreApi::lookUp(fn () => throw $answer, 'Rejected.', $aboutTheHost))
+        ->toThrow(fn (RequestException $e) => expect($e)->toBe($answer));
+
+    expect($asked)->toBeFalse();
+})->with([401, 403, 429, 500]);
+
 it('leaves any other failure as it is', function (): void {
     expect(fn () => StoreApi::lookUp(fn () => throw new RuntimeException('boom'), 'Rejected.'))
         ->toThrow(RuntimeException::class, 'boom');

@@ -6,6 +6,15 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Google `callback()` and `callbackResult()` no longer report a wrong `package_name` as "Google
+  rejected the purchase token." Google answers it with a 404 whose error reason is
+  `applicationNotFound` (also its answer for an app with nothing uploaded to a track yet). That is
+  the host's setup, not the client's token, so it now stays the HTTP client's `RequestException`,
+  like refused credentials. Google's error reason decides, not the status: a 404 for an unknown
+  token, or a 404 whose body is not Google's error envelope, is still a `VerificationException`.
+
 ## 1.1.5 - 2026-10-10
 
 Upgrade: a host that catches `RequestException` from Google `callback()` / `callbackResult()` or
