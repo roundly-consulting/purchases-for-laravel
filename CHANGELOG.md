@@ -14,6 +14,12 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- **Behaviour change:** a one-off Stripe invoice recorded from `invoice.paid` now carries the
+  PaymentIntent that paid it as its `transaction_id` (still keyed on the invoice), so its
+  `charge.refunded` and `charge.dispute.*` link to it and flip it to `Refunded`. They used to be
+  recorded unlinked and leave the purchase `Completed`. On API versions since 2025-03-31 the
+  PaymentIntent is read from Stripe's Invoice Payments API, which needs
+  `PURCHASES_STRIPE_SECRET`.
 - Google Play acknowledgements send a JSON object (`{}`) as the request body. They sent `[]`,
   which Google rejects with 400, so `product()`, `subscription()` and `callbackResult()` threw
   after a successful verification and purchases stayed unacknowledged (Google refunds those after

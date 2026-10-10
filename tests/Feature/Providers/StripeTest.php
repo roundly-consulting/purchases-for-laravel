@@ -23,6 +23,7 @@ use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\EventType;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentIntentStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
+use RoundlyConsulting\Purchases\Providers\Stripe\StripeClient;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Invoice;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\StripeEvent;
 use RoundlyConsulting\Purchases\Tests\Fixtures\User;
@@ -575,6 +576,93 @@ it('records a one-off invoice once, not again through its payment', function ():
 
     expect(Purchase::query()->sole()->provider_id)->toBe('in_once');
     Event::assertDispatchedTimes(PurchaseCompleted::class, 1);
+});
+
+/*
+ * A one-off invoice is recorded from `invoice.paid`, keyed on the invoice — but its refund
+ * and its dispute name the PaymentIntent that paid it. The purchase carries that
+ * PaymentIntent as its transaction, so they link to it.
+ */
+
+it('links a refund of a one-off invoice to its purchase', function (): void {
+    Event::fake([PurchaseRefunded::class]);
+    stripeInvoicePayments('in_once', 'pi_once');
+    $sync = app(RecordProviderResultAction::class);
+
+    // API versions since 2025-03-31: the invoice names no PaymentIntent, Invoice Payments does.
+    $sync->execute(stripeResultFor('invoice.paid', ['id' => 'in_once', 'status' => 'paid', 'amount_paid' => 4500, 'billing_reason' => 'manual', 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('payment_intent.succeeded', ['id' => 'pi_once', 'status' => 'succeeded', 'amount' => 4500, 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('charge.refunded', ['id' => 'ch_once', 'payment_intent' => 'pi_once', 'amount' => 4500, 'amount_refunded' => 4500, 'refunded' => true, 'currency' => 'eur']));
+
+    $purchase = Purchase::query()->sole();
+
+    expect($purchase->provider_id)->toBe('in_once')
+        ->and($purchase->transaction_id)->toBe('pi_once')
+        ->and($purchase->status)->toBe(Status::Refunded)
+        ->and(PurchaseRefund::query()->sole()->purchase_id)->toBe($purchase->getKey());
+    Event::assertDispatched(PurchaseRefunded::class, fn (PurchaseRefunded $event): bool => $event->refund->purchase?->is($purchase) === true);
+    Http::assertSent(fn ($request): bool => str_starts_with($request->url(), 'https://api.stripe.com/v1/invoice_payments')
+        && ($request->data()['invoice'] ?? null) === 'in_once'
+        && ($request->data()['status'] ?? null) === 'paid');
+});
+
+it('links a dispute of a one-off invoice to its purchase', function (): void {
+    Event::fake([ChargebackReceived::class]);
+    stripeInvoicePayments('in_once', 'pi_once');
+    $sync = app(RecordProviderResultAction::class);
+
+    $sync->execute(stripeResultFor('invoice.paid', ['id' => 'in_once', 'status' => 'paid', 'amount_paid' => 4500, 'billing_reason' => 'manual', 'currency' => 'eur']));
+    $sync->execute(stripeResultFor('charge.dispute.created', stripeDispute('needs_response', ['payment_intent' => 'pi_once', 'amount' => 4500])));
+
+    expect(Purchase::query()->sole()->status)->toBe(Status::Refunded)
+        ->and(PurchaseRefund::query()->sole()->purchase_id)->toBe(Purchase::query()->sole()->getKey());
+    Event::assertDispatchedTimes(ChargebackReceived::class, 1);
+});
+
+it('reads a legacy invoice\'s payment intent without asking stripe', function (): void {
+    Http::fake();
+    $sync = app(RecordProviderResultAction::class);
+
+    // Before 2025-03-31 the invoice named its PaymentIntent, and the charge its invoice.
+    $sync->execute(stripeResultFor('invoice.paid', ['id' => 'in_legacy', 'status' => 'paid', 'amount_paid' => 4500, 'billing_reason' => 'manual', 'currency' => 'eur', 'payment_intent' => 'pi_legacy']));
+    $sync->execute(stripeResultFor('charge.refunded', ['id' => 'ch_legacy', 'payment_intent' => 'pi_legacy', 'invoice' => 'in_legacy', 'amount' => 4500, 'amount_refunded' => 4500, 'refunded' => true, 'currency' => 'eur']));
+
+    expect(Purchase::query()->sole()->transaction_id)->toBe('pi_legacy')
+        ->and(Purchase::query()->sole()->status)->toBe(Status::Refunded)
+        ->and(PurchaseRefund::query()->sole()->purchase_id)->toBe(Purchase::query()->sole()->getKey());
+    Http::assertNothingSent();
+});
+
+it('keeps an invoice that no payment intent paid on the invoice', function (?string $legacy): void {
+    $object = ['id' => 'in_free', 'status' => 'paid', 'amount_paid' => 0, 'billing_reason' => 'manual', 'currency' => 'eur'];
+
+    // Paid out of band, or nothing was due: the legacy field is null, Invoice Payments lists none.
+    $result = stripeResultFor('invoice.paid', $legacy === 'legacy' ? $object + ['payment_intent' => null] : $object);
+
+    expect($result->providerId())->toBe('in_free')
+        ->and($result->transactionId())->toBe('in_free');
+})->with(['legacy' => ['legacy'], 'current' => [null]]);
+
+it('takes the default of an invoice\'s partial payments', function (bool $withDefault, string $expected): void {
+    Http::fake(['stripe.test/v1/invoice_payments*' => Http::response(['object' => 'list', 'data' => [
+        ['id' => 'inpay_1', 'status' => 'paid', 'payment' => ['type' => 'out_of_band_payment']],
+        ['id' => 'inpay_2', 'status' => 'paid', 'is_default' => false, 'payment' => ['type' => 'payment_intent', 'payment_intent' => 'pi_part']],
+        ['id' => 'inpay_3', 'status' => 'paid', 'is_default' => $withDefault, 'payment' => ['type' => 'payment_intent', 'payment_intent' => 'pi_default']],
+    ]])]);
+
+    $stripe = new Stripe(client: new StripeClient('sk_test', 'https://stripe.test/v1', Stripe::API_VERSION));
+    $payload = (string) json_encode(['id' => 'evt_part', 'type' => 'invoice.paid', 'data' => ['object' => ['id' => 'in_part', 'status' => 'paid', 'amount_paid' => 4500, 'billing_reason' => 'manual', 'currency' => 'eur']]]);
+
+    expect($stripe->result(signedWebhook($payload))->transactionId())->toBe($expected);
+})->with([
+    'a default payment' => [true, 'pi_default'],
+    'no default payment' => [false, 'pi_part'],
+]);
+
+it('reads an expanded payment intent from a legacy invoice', function (): void {
+    $result = stripeResultFor('invoice.paid', ['id' => 'in_exp', 'status' => 'paid', 'amount_paid' => 4500, 'billing_reason' => 'manual', 'currency' => 'eur', 'payment_intent' => ['id' => 'pi_exp', 'object' => 'payment_intent']]);
+
+    expect($result->transactionId())->toBe('pi_exp');
 });
 
 it('records a payment that pays no invoice as a purchase', function (): void {

@@ -182,24 +182,25 @@ function stripeSignedRequest(array $event, string $secret = 'whsec_test'): Reque
 }
 
 /**
- * Answer Stripe's Invoice Payments lookup — which invoice a PaymentIntent pays, if any —
- * for the rest of the test. Call it again to change the answer: the stub is registered
- * once per test and reads the latest one.
+ * Answer Stripe's Invoice Payments lookup — which invoice a PaymentIntent pays (and which
+ * PaymentIntent paid an invoice), if any — for the rest of the test. Call it again to change
+ * the answer: the stub is registered once per test and reads the latest one.
  */
-function stripeInvoicePayments(?string $invoice): void
+function stripeInvoicePayments(?string $invoice, ?string $paymentIntent = null): void
 {
     if (! app()->bound('tests.stripe.invoice')) {
         Http::fake(['api.stripe.com/v1/invoice_payments*' => function (): mixed {
-            $invoice = app('tests.stripe.invoice')['invoice'];
+            ['invoice' => $invoice, 'payment_intent' => $paymentIntent] = app('tests.stripe.invoice');
+            $payment = ['type' => 'payment_intent'] + (is_string($paymentIntent) ? ['payment_intent' => $paymentIntent] : []);
 
             return Http::response([
                 'object' => 'list',
-                'data' => is_string($invoice) ? [['id' => 'inpay_1', 'object' => 'invoice_payment', 'invoice' => $invoice, 'payment' => ['type' => 'payment_intent']]] : [],
+                'data' => is_string($invoice) ? [['id' => 'inpay_1', 'object' => 'invoice_payment', 'invoice' => $invoice, 'is_default' => true, 'status' => 'paid', 'payment' => $payment]] : [],
                 'has_more' => false,
             ]);
         }]);
     }
 
     // Wrapped: the container treats a bare null instance as unbound.
-    app()->instance('tests.stripe.invoice', ['invoice' => $invoice]);
+    app()->instance('tests.stripe.invoice', ['invoice' => $invoice, 'payment_intent' => $paymentIntent]);
 }

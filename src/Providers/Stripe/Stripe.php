@@ -185,7 +185,9 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             type: ResultType::Purchase,
             providerId: $key,
             status: $this->purchaseStatus($event->type, $object),
-            transactionId: $key,
+            // A one-off invoice stays keyed on the invoice, but its refund and dispute name
+            // the PaymentIntent that paid it: that is its transaction, so they link to it.
+            transactionId: $event->type === EventType::InvoicePaid ? ($this->invoicePaymentIntent($object, $id) ?? $key) : $key,
             name: null,
             productId: null,
             price: StripeMoney::fromDataSet($object, $this->purchaseAmountKey($event->type), 'currency'),
@@ -255,6 +257,48 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         return is_array($payments) && $payments !== [];
     }
 
+    /**
+     * The PaymentIntent that paid an invoice. Before API version 2025-03-31 the invoice named
+     * it in `payment_intent` (null when it was paid out of band); since then that field is
+     * gone and Stripe's Invoice Payments API is asked — which needs the secret key. With
+     * partial payments the default one wins.
+     */
+    private function invoicePaymentIntent(DataSet $object, string $invoice): ?string
+    {
+        if (array_key_exists('payment_intent', $object->raw)) {
+            $paymentIntent = $object->value('payment_intent');
+            $paymentIntent = is_array($paymentIntent) ? ($paymentIntent['id'] ?? null) : $paymentIntent;
+
+            return self::filled($paymentIntent) ? $paymentIntent : null;
+        }
+
+        $payments = $this->client()->request()->get('/invoice_payments', [
+            'invoice' => $invoice,
+            'status' => 'paid',
+        ])->json('data');
+
+        $found = null;
+
+        foreach (is_array($payments) ? $payments : [] as $payment) {
+            $paymentIntent = is_array($payment) ? data_get($payment, 'payment.payment_intent') : null;
+
+            if (! self::filled($paymentIntent)) {
+                continue;
+            }
+
+            if (($payment['is_default'] ?? false) === true) {
+                return $paymentIntent;
+            }
+
+            $found ??= $paymentIntent;
+        }
+
+        return $found;
+    }
+
+    /**
+     * @phpstan-assert-if-true non-empty-string $value
+     */
     private static function filled(mixed $value): bool
     {
         return is_string($value) && $value !== '';
