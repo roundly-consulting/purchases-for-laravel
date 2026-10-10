@@ -6,6 +6,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.3 - 2026-10-10
+
 ### Fixed
 
 - Stripe `callback()` refuses a `session_id` or `payment_intent` that is present but not a string
