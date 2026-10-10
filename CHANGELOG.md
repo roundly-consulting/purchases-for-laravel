@@ -16,6 +16,9 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- Apple's `verifyReceipt` callback retries against the sandbox when the production host answers
+  21007, as Apple prescribes, so App Review and TestFlight receipts verify on a production
+  configuration.
 - Apple's deprecated `verifyReceipt` callback refuses an invalid or malformed response with a
   `VerificationException` (status first), instead of a `TypeError` when Apple leaves out the
   optional `environment` — and a valid receipt without one takes the environment of the host that

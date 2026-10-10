@@ -239,6 +239,42 @@ it('takes a valid receipt\'s environment from the host that verified it when app
     'sandbox' => [true, Environment::Sandbox],
 ]);
 
+/*
+ * Apple: "Verify your receipt first with the production URL; then verify with the sandbox
+ * URL if you receive a 21007 status code" — how App Review and TestFlight receipts verify
+ * against a production host.
+ */
+it('verifies a sandbox receipt against the sandbox when production answers 21007', function (): void {
+    config()->set('purchases.settings.apple', ['sandbox' => false, 'password' => 'secret']);
+    Http::fake([
+        'buy.itunes.apple.com/*' => Http::response(['status' => 21007]),
+        'sandbox.itunes.apple.com/*' => Http::response(['status' => 0, 'environment' => 'Sandbox', 'latest_receipt' => 'base64-receipt']),
+    ]);
+
+    $response = (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data'));
+
+    expect($response->status->isValid())->toBeTrue()
+        ->and($response->environment)->toBe(Environment::Sandbox);
+
+    Http::assertSentCount(2);
+    Http::assertSentInOrder([
+        fn ($request): bool => $request->url() === 'https://buy.itunes.apple.com/verifyReceipt',
+        fn ($request): bool => $request->url() === 'https://sandbox.itunes.apple.com/verifyReceipt'
+            && $request['receipt-data'] === 'receipt-data'
+            && $request['password'] === 'secret',
+    ]);
+});
+
+it('does not retry a receipt the sandbox refuses', function (): void {
+    config()->set('purchases.settings.apple', ['sandbox' => true, 'password' => 'secret']);
+    Http::fake(['*' => Http::response(['status' => 21008])]);
+
+    expect(fn () => (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data')))
+        ->toThrow(VerificationException::class, '[21008]');
+
+    Http::assertSentCount(1);
+});
+
 it('maps a renewal notification into a unified subscription result', function (): void {
     $jws = fakeJwsMapping([
         'token' => [

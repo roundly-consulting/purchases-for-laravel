@@ -45,6 +45,9 @@ class Apple extends BaseProvider implements VerifiesConnectivity
 
     private const string FAMILY_REVOKE = 'FAMILY_REVOKE';
 
+    /** verifyReceipt status 21007: a sandbox receipt sent to the production host. */
+    private const int SANDBOX_RECEIPT = 21007;
+
     /** @var array<string, mixed> */
     protected readonly array $config;
 
@@ -94,13 +97,23 @@ class Apple extends BaseProvider implements VerifiesConnectivity
      */
     public function callback(Request $request): mixed
     {
-        $response = $this->client()->asJson()->post('/verifyReceipt', [
+        $body = [
             'receipt-data' => $request->getContent(),
             'password' => $this->config['password'],
             'exclude-old-transactions' => false,
-        ]);
+        ];
 
-        return $this->receipt($response->json(), $this->sandbox());
+        $raw = $this->client()->asJson()->post('/verifyReceipt', $body)->json();
+        $sandbox = $this->sandbox();
+
+        // Apple: verify with production first, then with the sandbox on 21007 — a sandbox
+        // receipt (App Review, TestFlight) sent to production.
+        if (! $sandbox && is_array($raw) && ($raw['status'] ?? null) === self::SANDBOX_RECEIPT) {
+            $raw = $this->client()->baseUrl($this->receiptHost(sandbox: true))->asJson()->post('/verifyReceipt', $body)->json();
+            $sandbox = true;
+        }
+
+        return $this->receipt($raw, $sandbox);
     }
 
     /**
