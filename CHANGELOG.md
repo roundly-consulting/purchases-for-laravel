@@ -6,6 +6,16 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Stripe `session()`, `paymentIntent()`, `subscription()` and `invoice()`, and so `callback()`,
+  percent-encode the id they put into the API path (`rawurlencode`, as Google and Apple already
+  do). A client's `session_id=cs_1?expand[]=customer` used to add a query string to the request
+  sent to Stripe, and `../` walked the path to another endpoint. An empty, `.` or `..` id is
+  refused with a `VerificationException` ("Malformed Stripe id.") before Stripe is called: no
+  encoding keeps it one path segment, so it would land on a list or parent endpoint. A valid id
+  (`cs_test_a1B2`) is sent unchanged.
+
 ## 1.1.3 - 2026-10-10
 
 ### Fixed

@@ -196,6 +196,80 @@ it('pins the configured api version', function (): void {
     Http::assertSent(fn ($request) => $request->hasHeader('Stripe-Version', '2026-05-27.dahlia'));
 });
 
+/*
+ * An id goes into the request path, and a callback id comes from a client: unescaped, `?`
+ * would add a query string (`?expand[]=customer`), `#` would cut the path short, and `/`
+ * would walk it (`../`) to another endpoint.
+ */
+it('escapes the id it puts into a stripe api path', function (string $method, string $resource): void {
+    Http::fake(['*' => Http::response(['id' => 'x'])]);
+
+    (new Stripe)->{$method}('cs_1?expand[]=customer#/../../balance');
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn ($request): bool => $request->url() === "https://api.stripe.com/v1/{$resource}/cs_1%3Fexpand%5B%5D%3Dcustomer%23%2F..%2F..%2Fbalance");
+})->with([
+    'a checkout session' => ['session', 'checkout/sessions'],
+    'a payment intent' => ['paymentIntent', 'payment_intents'],
+    'a subscription' => ['subscription', 'subscriptions'],
+    'an invoice' => ['invoice', 'invoices'],
+]);
+
+it('escapes a callback id into the stripe api path', function (string $key, string $resource): void {
+    Http::fake(['*' => Http::response(['id' => 'x'])]);
+
+    (new Stripe)->callback(new Request([$key => 'cs_1?expand[]=customer']));
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn ($request): bool => $request->url() === "https://api.stripe.com/v1/{$resource}/cs_1%3Fexpand%5B%5D%3Dcustomer");
+})->with([
+    'a session id' => ['session_id', 'checkout/sessions'],
+    'a payment intent id' => ['payment_intent', 'payment_intents'],
+]);
+
+it('sends a valid stripe id unchanged', function (string $method, string $resource, string $id): void {
+    Http::fake(['*' => Http::response(['id' => $id])]);
+
+    (new Stripe)->{$method}($id);
+
+    Http::assertSent(fn ($request): bool => $request->url() === "https://api.stripe.com/v1/{$resource}/{$id}");
+})->with([
+    'a checkout session' => ['session', 'checkout/sessions', 'cs_test_a1B2'],
+    'a payment intent' => ['paymentIntent', 'payment_intents', 'pi_3MtwBwLkdIwHu7ix28a3tqPa'],
+    'a subscription' => ['subscription', 'subscriptions', 'sub_1MowQVLkdIwHu7ixeRlqHVzs'],
+    'an invoice' => ['invoice', 'invoices', 'in_1MtHbELkdIwHu7ixl4OzzPMv'],
+]);
+
+/*
+ * No escaping keeps `.` or `..` a segment of its own: the HTTP client resolves it, so
+ * `session('.')` would read the checkout session LIST and `..` the parent path. An empty
+ * id lands on the list too.
+ */
+it('refuses an id that cannot stay one path segment, before asking stripe', function (string $method, string $id): void {
+    Http::fake();
+
+    expect(fn () => (new Stripe)->{$method}($id))
+        ->toThrow(VerificationException::class, 'Malformed Stripe id.');
+
+    Http::assertNothingSent();
+})->with(['session', 'paymentIntent', 'subscription', 'invoice'])->with([
+    'empty' => [''],
+    'a dot' => ['.'],
+    'two dots' => ['..'],
+]);
+
+it('refuses a callback id that cannot stay one path segment, before asking stripe', function (string $key, string $id): void {
+    Http::fake();
+
+    expect(fn () => (new Stripe)->callback(new Request([$key => $id])))
+        ->toThrow(VerificationException::class, 'Malformed Stripe id.');
+
+    Http::assertNothingSent();
+})->with(['session_id', 'payment_intent'])->with([
+    'a dot' => ['.'],
+    'two dots' => ['..'],
+]);
+
 it('verifies a callback by session id', function (): void {
     Http::fake(['*/checkout/sessions/cs_1' => Http::response(['id' => 'cs_1', 'payment_status' => 'paid'])]);
 

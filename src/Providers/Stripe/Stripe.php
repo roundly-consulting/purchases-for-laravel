@@ -74,22 +74,39 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
 
     public function paymentIntent(string $id): PaymentIntent
     {
-        return PaymentIntent::fromRaw($this->client()->request()->get("/payment_intents/{$id}")->json());
+        return PaymentIntent::fromRaw($this->client()->request()->get($this->path('payment_intents', $id))->json());
     }
 
     public function subscription(string $id): Subscription
     {
-        return Subscription::fromRaw($this->client()->request()->get("/subscriptions/{$id}")->json());
+        return Subscription::fromRaw($this->client()->request()->get($this->path('subscriptions', $id))->json());
     }
 
     public function session(string $id): CheckoutSession
     {
-        return CheckoutSession::fromRaw($this->client()->request()->get("/checkout/sessions/{$id}")->json());
+        return CheckoutSession::fromRaw($this->client()->request()->get($this->path('checkout', 'sessions', $id))->json());
     }
 
     public function invoice(string $id): Invoice
     {
-        return Invoice::fromRaw($this->client()->request()->get("/invoices/{$id}")->json());
+        return Invoice::fromRaw($this->client()->request()->get($this->path('invoices', $id))->json());
+    }
+
+    /**
+     * A Stripe API path. Every segment is percent-encoded: an id may come from a client, and
+     * unescaped it could add a query string (`?expand[]=…`), cut the path short (`#`) or walk
+     * it (`../`) to another endpoint. An empty, `.` or `..` segment is refused: no escaping
+     * keeps it a segment of its own — the HTTP client resolves it, onto a list or a parent.
+     */
+    private function path(string ...$segments): string
+    {
+        foreach ($segments as $segment) {
+            if (in_array($segment, ['', '.', '..'], true)) {
+                throw VerificationException::because('Malformed Stripe id.');
+            }
+        }
+
+        return '/'.implode('/', array_map(rawurlencode(...), $segments));
     }
 
     /**
