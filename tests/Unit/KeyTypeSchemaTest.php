@@ -8,13 +8,13 @@ use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
-function dropPurchasesTable(string $table): void
+function dropPurchasesTable(): void
 {
-    // The child *_items tables carry a FK to these, so a plain drop is refused on a strict
-    // engine — cascade past them (the suite re-migrates everything between tests anyway).
-    DriverMatrix::driver() === 'pgsql'
-        ? DB::statement('drop table if exists '.$table.' cascade')
-        : Schema::dropIfExists($table);
+    // purchase_items carries a FK to purchases, so a strict engine refuses to drop the parent
+    // while the child is there (MySQL 3730, Postgres 2BP01). Dropping the child first works on
+    // every engine; the suite re-migrates everything between tests anyway.
+    Schema::dropIfExists('purchase_items');
+    Schema::dropIfExists('purchases');
 }
 
 function runPurchasesMigration(string $file): void
@@ -86,7 +86,7 @@ it('emits a bigint owner morph byte-identical to raw nullableMorphs()', function
 it('renders each configured key type as a distinct real column type', function (string $keyType, string $expected): void {
     config()->set('purchases.key_type', $keyType);
 
-    dropPurchasesTable('purchases');
+    dropPurchasesTable();
     runPurchasesMigration('2024_01_01_000001_create_purchases_table.php');
 
     expect(purchasesPgColumn('purchases', 'owner_id'))->toBe(['type' => $expected, 'nullable' => 'YES'])
@@ -100,7 +100,7 @@ it('renders each configured key type as a distinct real column type', function (
 it('refuses to migrate on an unrecognized key type instead of falling back to bigint', function (): void {
     config()->set('purchases.key_type', 'nonsense');
 
-    dropPurchasesTable('purchases');
+    dropPurchasesTable();
 
     // A typo in a host's config must stop the migration, never silently build bigint
     // columns for a uuid/ulid-keyed host.
