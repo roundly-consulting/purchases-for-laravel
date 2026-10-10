@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Google;
 
 use Carbon\CarbonInterface;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -57,21 +58,41 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function product(string $productId, string $token): ProductPurchase
     {
-        $path = $this->path('purchases', 'products', $productId, 'tokens', $token);
+        return $this->acceptProduct($productId, $token, $this->readProduct($productId, $token));
+    }
+
+    /**
+     * Read a one-time product purchase — verifying, refusing and acknowledging nothing.
+     */
+    private function readProduct(string $productId, string $token): ProductPurchase
+    {
+        $path = $this->productPath($productId, $token);
 
         $response = $this->client()->request()->get($path);
 
-        $purchase = ProductPurchase::fromRaw($response->json());
+        return ProductPurchase::fromRaw($response->json());
+    }
 
+    /**
+     * Refuse a product purchase that is not purchased, and acknowledge it when `acknowledge`
+     * is on.
+     */
+    private function acceptProduct(string $productId, string $token, ProductPurchase $purchase): ProductPurchase
+    {
         if (! $purchase->isPurchased()) {
             throw VerificationException::because('Google product purchase is not in a purchased state.');
         }
 
         if ($this->shouldAcknowledge() && ! $purchase->isAcknowledged()) {
-            $this->acknowledge("{$path}:acknowledge");
+            $this->acknowledge($this->productPath($productId, $token).':acknowledge');
         }
 
         return $purchase;
+    }
+
+    private function productPath(string $productId, string $token): string
+    {
+        return $this->path('purchases', 'products', $productId, 'tokens', $token);
     }
 
     /**
@@ -79,8 +100,14 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function subscription(string $token): SubscriptionPurchase
     {
-        $purchase = $this->readSubscription($token);
+        return $this->acceptSubscription($token, $this->readSubscription($token));
+    }
 
+    /**
+     * Refuse a subscription that is over, and acknowledge it when `acknowledge` is on.
+     */
+    private function acceptSubscription(string $token, SubscriptionPurchase $purchase): SubscriptionPurchase
+    {
         // A canceled subscription with paid time left is still the customer's: only one that
         // has run out (or that Google reports no state for) is refused.
         if ($purchase->subscriptionState === null
@@ -185,8 +212,14 @@ class Google extends BaseProvider implements VerifiesConnectivity
     /**
      * Verify a purchase token your app sent up. Pass productId for one-time products;
      * subscriptions are looked up directly from the token. Both must be strings — anything
-     * else is refused before Google is called. Nothing about the request is
-     * authenticated — call it from your own (authenticated) route, never the webhook.
+     * else is refused before Google is called. A token Google rejects is refused too (see
+     * StoreApi::lookUp()); an acknowledgement Google refuses afterwards is not about the token
+     * and stays a RequestException. Nothing about the request is authenticated — call it from
+     * your own (authenticated) route, never the webhook.
+     *
+     * @throws VerificationException a malformed, missing or rejected token or product id
+     * @throws RequestException a Google outage, a rate limit, refused credentials or a refused acknowledgement
+     * @throws ConnectionException Google could not be reached
      */
     public function callback(Request $request): ProductPurchase|SubscriptionPurchase
     {
@@ -194,10 +227,16 @@ class Google extends BaseProvider implements VerifiesConnectivity
         $productId = $this->productId($request);
 
         if ($productId !== null) {
-            return $this->product($productId, $token);
+            return $this->acceptProduct($productId, $token, StoreApi::lookUp(
+                fn (): ProductPurchase => $this->readProduct($productId, $token),
+                'Google rejected the purchase token or product id.',
+            ));
         }
 
-        return $this->subscription($token);
+        return $this->acceptSubscription($token, StoreApi::lookUp(
+            fn (): SubscriptionPurchase => $this->readSubscription($token),
+            'Google rejected the purchase token.',
+        ));
     }
 
     /**

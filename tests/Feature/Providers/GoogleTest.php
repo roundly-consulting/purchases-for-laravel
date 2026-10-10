@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Psr7\Request as Psr7Request;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -839,6 +842,105 @@ it('refuses an rtdn token that cannot stay one path segment, before asking googl
 
     Http::assertNothingSent();
 })->with(['a dot' => ['.'], 'two dots' => ['..']]);
+
+/*
+ * Google answering 4xx to a callback lookup (400 for an unknown or malformed token, 410 for
+ * one that is no longer valid) is the client's mistake: it is a VerificationException, as
+ * every other bad callback input is, so a host that catches only that answers it instead of
+ * failing with a 500.
+ */
+it('refuses a callback token google rejects, keeping google\'s answer', function (string $method, array $input, string $resource, string $message, int $status): void {
+    Http::fake(["*/purchases/{$resource}/*" => Http::response(['error' => ['code' => $status, 'message' => 'Invalid Value']], $status)]);
+
+    expect(fn () => googleProvider()->{$method}(new Request($input)))
+        ->toThrow(function (VerificationException $e) use ($message, $status): void {
+            expect($e->getMessage())->toBe($message)
+                ->and($e->getPrevious())->toBeInstanceOf(RequestException::class)
+                ->and($e->getPrevious()?->response->status())->toBe($status);
+        });
+
+    Http::assertSentCount(1);
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-unknown'], 'subscriptionsv2', 'Google rejected the purchase token.'],
+    'a one-time product' => [['purchaseToken' => 'tok-unknown', 'productId' => 'coins.100'], 'products', 'Google rejected the purchase token or product id.'],
+])->with([
+    'invalid value' => [400],
+    'not found' => [404],
+    'no longer valid' => [410],
+]);
+
+/*
+ * An outage, a rate limit and refused service-account credentials say nothing about the
+ * token: they stay the HTTP client's exception, so the host retries them or answers 500.
+ */
+it('leaves a google failure that is not about the token as it is', function (string $method, array $input, string $resource, int $status): void {
+    Http::fake(["*/purchases/{$resource}/*" => Http::response(['error' => ['code' => $status]], $status)]);
+
+    expect(fn () => googleProvider()->{$method}(new Request($input)))
+        ->toThrow(function (RequestException $e) use ($status): void {
+            expect($e->response->status())->toBe($status);
+        });
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription' => [['purchaseToken' => 'tok-1'], 'subscriptionsv2'],
+    'a one-time product' => [['purchaseToken' => 'tok-1', 'productId' => 'coins.100'], 'products'],
+])->with([
+    'a server error' => [500],
+    'unavailable' => [503],
+    'rate limited' => [429],
+    'credentials without permission' => [401],
+    'a project not linked' => [403],
+]);
+
+it('leaves a connection failure of a callback lookup as it is', function (string $method): void {
+    Http::fake(['*' => fn () => throw new ConnectException('Connection timed out.', new Psr7Request('GET', 'https://androidpublisher.googleapis.com/'))]);
+
+    expect(fn () => googleProvider()->{$method}(new Request(['purchaseToken' => 'tok-1'])))
+        ->toThrow(ConnectionException::class);
+})->with(['callback', 'callbackResult']);
+
+/*
+ * The acknowledgement follows a lookup Google answered: the token is good, so a refused
+ * acknowledgement is not the client's mistake. It stays the HTTP client's exception, and the
+ * client retries a purchase it really made instead of being told it was rejected.
+ */
+it('leaves an acknowledgement google refuses after a callback lookup as it is', function (array $input, array $lookup): void {
+    Http::fake([
+        '*:acknowledge' => Http::response(['error' => ['code' => 400]], 400),
+        '*' => Http::response($lookup),
+    ]);
+
+    expect(fn () => googleProvider()->callback(new Request($input)))
+        ->toThrow(fn (RequestException $e) => expect($e->response->status())->toBe(400));
+
+    Http::assertSentCount(2);
+})->with([
+    'a subscription' => [['purchaseToken' => 'tok-1'], [
+        'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+        'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_PENDING',
+        'lineItems' => [['productId' => 'pro', 'expiryTime' => '2099-01-01T00:00:00Z']],
+    ]],
+    'a one-time product' => [['purchaseToken' => 'tok-1', 'productId' => 'coins.100'], [
+        'purchaseState' => 0,
+        'acknowledgementState' => 0,
+        'productId' => 'coins.100',
+    ]],
+]);
+
+it('leaves a google 4xx from a direct lookup as the http client\'s exception', function (Closure $call): void {
+    Http::fake(['*' => Http::response(['error' => ['code' => 404]], 404)]);
+
+    expect(fn () => $call(googleProvider()))->toThrow(RequestException::class);
+})->with([
+    'a product' => [fn (Google $google) => $google->product('coins.100', 'tok-unknown')],
+    'a subscription' => [fn (Google $google) => $google->subscription('tok-unknown')],
+]);
+
+it('leaves a google 4xx during a webhook read as the http client\'s exception', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(['error' => ['code' => 404]], 404)]);
+
+    expect(fn () => googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => 'tok-404', 'subscriptionId' => 'pro']])))
+        ->toThrow(RequestException::class);
+});
 
 /**
  * A subscriptionsv2 resource in the given state, paid up to the given expiry.

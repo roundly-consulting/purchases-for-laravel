@@ -15,6 +15,16 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
   1.1.4. The id was already percent-encoded, but no encoding keeps a dot segment one path segment:
   the HTTP client resolved a token `..` onto `/purchases/products/<product>`, another endpoint
   than the purchase. A valid id is sent unchanged.
+- Google `callback()` and `callbackResult()` throw a `VerificationException` ("Google rejected the
+  purchase token." / "Google rejected the purchase token or product id.") when Google answers the
+  lookup with a 4xx about the input, such as a 400 for an unknown token or a 410 for one that is no
+  longer valid. Google's `RequestException` is kept as its previous exception. It used to escape as
+  the `RequestException`, so a host catching only `VerificationException` answered a client's bad
+  token with a 500. A 5xx, a 429, a 401 / 403 (the service account is refused), a connection
+  failure and an acknowledgement Google refuses after a good lookup are not about the token: they
+  still throw the HTTP client's `RequestException` / `ConnectionException`. Upgrade: catch
+  `VerificationException` where you caught `RequestException` for a bad token. Direct `product()`
+  and `subscription()` calls and webhook reads still throw the `RequestException`.
 
 ## 1.1.4 - 2026-10-10
 
