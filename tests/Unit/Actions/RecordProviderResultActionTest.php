@@ -127,6 +127,41 @@ it('fires renewed when a held subscription recovers', function (): void {
     Event::assertDispatchedTimes(SubscriptionRenewed::class, 1);
 });
 
+/*
+ * A subscription can be created before it is paid for — Stripe `incomplete` (3DS, the
+ * `default_incomplete` Payment Element flow), Google `SUBSCRIPTION_STATE_PENDING` — and only
+ * activates later. That first activation is the start, not a renewal: SubscriptionStarted is
+ * the event hosts link the owner in.
+ */
+
+it('fires subscription started when a never-active subscription first activates', function (Status $before): void {
+    Event::fake();
+    $action = app(RecordProviderResultAction::class);
+
+    $action->execute(subscriptionResult($before, 'GPA.P', '2026-02-01'));
+    Event::assertNotDispatched(SubscriptionStarted::class);
+
+    $action->execute(subscriptionResult(Status::Completed, 'GPA.P', '2026-02-01'));
+    $action->execute(subscriptionResult(Status::Completed, 'GPA.P', '2026-02-01'));
+
+    Event::assertDispatchedTimes(SubscriptionStarted::class, 1);
+    Event::assertNotDispatched(SubscriptionRenewed::class);
+})->with([
+    'pending' => [Status::Pending],
+    'new' => [Status::New],
+]);
+
+it('fires renewed, not started, when a paused subscription resumes', function (): void {
+    // Google maps SUBSCRIPTION_STATE_PAUSED to Processing: it was active before the pause.
+    app(RecordProviderResultAction::class)->execute(subscriptionResult(Status::Processing, endsAt: '2026-02-01'));
+
+    Event::fake();
+    app(RecordProviderResultAction::class)->execute(subscriptionResult(Status::Completed, endsAt: '2026-02-01'));
+
+    Event::assertDispatchedTimes(SubscriptionRenewed::class, 1);
+    Event::assertNotDispatched(SubscriptionStarted::class);
+});
+
 it('fires a refund event once per refunded amount', function (): void {
     Event::fake();
     $refund = fn (int $minor): GenericResult => new GenericResult('stripe', ResultType::Refund, 'pi_r', Status::Completed, transactionId: 'pi_r', price: Money::ofMinor($minor, 'EUR'));

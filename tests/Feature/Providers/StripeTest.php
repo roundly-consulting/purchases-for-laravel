@@ -14,6 +14,8 @@ use RoundlyConsulting\Purchases\Events\ChargebackReceived;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
+use RoundlyConsulting\Purchases\Events\SubscriptionRenewed;
+use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
@@ -491,6 +493,23 @@ it('keeps a won dispute it cannot tie to a payment on the dispute alone', functi
         ->and(Purchase::query()->count())->toBe(0)
         ->and(PurchaseRefund::query()->sole()->provider_id)->toBe('dp_1');
     Event::assertNothingDispatched();
+});
+
+it('starts a subscription created incomplete once its first payment succeeds', function (): void {
+    Event::fake([SubscriptionStarted::class, SubscriptionRenewed::class]);
+    $sync = app(RecordProviderResultAction::class);
+
+    // payment_behavior=default_incomplete, or a 3DS payment: created incomplete, then activated.
+    $sync->execute(stripeResultFor('customer.subscription.created', stripeSubscriptionObject('incomplete')));
+
+    expect(Subscription::query()->sole()->status)->toBe(Status::Pending);
+    Event::assertNotDispatched(SubscriptionStarted::class);
+
+    $sync->execute(stripeResultFor('customer.subscription.updated', stripeSubscriptionObject('active')));
+
+    expect(Subscription::query()->sole()->status)->toBe(Status::Completed);
+    Event::assertDispatchedTimes(SubscriptionStarted::class, 1);
+    Event::assertNotDispatched(SubscriptionRenewed::class);
 });
 
 it('holds an unpaid or paused stripe subscription instead of expiring it', function (string $status): void {

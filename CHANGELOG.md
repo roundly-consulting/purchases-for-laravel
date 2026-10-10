@@ -6,6 +6,14 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- **Behaviour change:** a subscription created before it was paid for (Stripe `incomplete`,
+  Google `SUBSCRIPTION_STATE_PENDING`) now fires `SubscriptionStarted` when it first becomes
+  active, instead of `SubscriptionRenewed` — so the owner-linking listener runs for 3D Secure and
+  `default_incomplete` Stripe subscriptions. A paused Google subscription that resumes still
+  fires `SubscriptionRenewed`.
+
 ## 1.0.0 - 2026-10-03
 
 Initial public release.

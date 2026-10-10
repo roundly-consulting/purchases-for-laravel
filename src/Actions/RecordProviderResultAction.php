@@ -93,7 +93,7 @@ final readonly class RecordProviderResultAction
 
         match ($result->status()) {
             Status::Completed => match (true) {
-                $subscription->wasRecentlyCreated => SubscriptionStarted::dispatch($subscription, $result),
+                $subscription->wasRecentlyCreated || self::firstActivated($subscription) => SubscriptionStarted::dispatch($subscription, $result),
                 // A renewal moves the paid period forward — or brings a held subscription back.
                 $changed || $subscription->wasChanged('ends_at') => SubscriptionRenewed::dispatch($subscription, $result),
                 default => null,
@@ -105,6 +105,24 @@ final readonly class RecordProviderResultAction
         };
 
         return $subscription;
+    }
+
+    /**
+     * Whether a subscription that was never active — created awaiting its first payment
+     * (Stripe `incomplete`, Google `SUBSCRIPTION_STATE_PENDING`) — has just activated: that
+     * is its start, not a renewal. A paused Google subscription (Processing) was active
+     * before the pause, so its resumption stays a renewal.
+     */
+    private static function firstActivated(Subscription $subscription): bool
+    {
+        if (! $subscription->wasChanged('status')) {
+            return false;
+        }
+
+        $previous = $subscription->getPrevious()['status'] ?? null;
+        $previous = $previous instanceof Status ? $previous : Status::tryFrom(is_string($previous) ? $previous : '');
+
+        return $previous === Status::New || $previous === Status::Pending;
     }
 
     /**
