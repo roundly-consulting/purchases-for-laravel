@@ -41,7 +41,7 @@
         "pestphp/pest-plugin-laravel": "^4.0",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan-deprecation-rules": "^2.0",
-        "roundly-consulting/testing-for-laravel": "^1.0"
+        "roundly-consulting/testing-for-laravel": "^1.2"
     },
     "autoload": {
         "psr-4": {
