@@ -14,6 +14,10 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- Two first deliveries of the same purchase, subscription or refund arriving at once no longer
+  fail one of them on MySQL. Its key lock takes a gap lock on a row that does not exist yet, so
+  both inserts deadlocked (error 1213) and one webhook — or queued job — failed until the store
+  redelivered it or you ran `purchases:replay`. The recording transaction is now retried.
 - `purchases:providers` reports Stripe as configured only when both `PURCHASES_STRIPE_SECRET` and
   `PURCHASES_STRIPE_WEBHOOK_SECRET` are set, and the README names both. With the webhook secret
   alone, every `payment_intent.*` webhook on a current API version was refused (the secret key

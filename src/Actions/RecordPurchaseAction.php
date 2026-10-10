@@ -23,6 +23,13 @@ use RoundlyConsulting\Purchases\Support\PurchaseModel;
  */
 final readonly class RecordPurchaseAction
 {
+    /**
+     * On MySQL the lock-read of a key that does not exist yet takes a gap lock, so two first
+     * deliveries of one key can deadlock on their inserts; the loser is retried, and then
+     * finds the winner's row.
+     */
+    private const int ATTEMPTS = 3;
+
     public function execute(RecordPurchaseData $data): Purchase
     {
         $keys = ['provider' => $data->provider, 'provider_id' => $data->providerId];
@@ -54,7 +61,7 @@ final readonly class RecordPurchaseAction
             $this->syncItems($purchase, $data);
 
             return $purchase->refresh();
-        });
+        }, attempts: self::ATTEMPTS);
     }
 
     /**
