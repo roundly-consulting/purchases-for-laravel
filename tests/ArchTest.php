@@ -338,27 +338,21 @@ it('calls no openssl function anywhere in src', function (): void {
 });
 
 /*
- * Each vendor is named by its real PSR-4 root(s). Pest resolves a name only through an
- * autoload root at or above it, so a bare `ParagonIE` (whose packages are rooted at
- * `ParagonIE\ConstantTime\`, `ParagonIE\Sodium\`, …) matched nothing even with the vendor
- * installed — measured with a simulated install, the rule stayed green on
- * `ParagonIE\ConstantTime\Base64`. None of these vendors is in the graph today; this bites
- * the day one arrives, transitively or otherwise.
+ * Builds on crypto-for-laravel rather than a third-party crypto vendor. A source-token scan,
+ * not `->not->toUse()`: Pest resolves a name only through an installed PSR-4 root at or above
+ * it, so a bare vendor prefix missed its sibling packages (`ParagonIE\ConstantTime\Base64`
+ * stayed green under `ParagonIE`; web-token's split packages under `Jose\Component\Core\`
+ * slipped past `Jose\Component`) and an uninstalled vendor matched nothing. None of these
+ * vendors is in the graph today; this bites the day one arrives, transitively or otherwise.
  */
-it('builds on crypto-for-laravel rather than a third-party crypto vendor')
-    ->expect('RoundlyConsulting\Purchases')
-    ->not->toUse([
-        'Firebase\JWT',
-        'Lcobucci\JWT',
-        'Jose\Component',
-        'ParagonIE\ConstantTime',
-        'ParagonIE\Sodium',
-        'ParagonIE\Halite',
-        'ParagonIE\Paseto',
-        'ParagonIE\CipherSweet',
-        'phpseclib3',
-        'phpseclib4',
-    ]);
+ArchPresets::noVendorNamespace([
+    'Firebase\JWT',
+    'Lcobucci\JWT',
+    'Jose\Component',
+    'ParagonIE',
+    'phpseclib3',
+    'phpseclib4',
+], __DIR__.'/../src');
 
 it('does not import a crypto class marked @internal', function (): void {
     $internal = [];
