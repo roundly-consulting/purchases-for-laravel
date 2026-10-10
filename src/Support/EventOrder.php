@@ -73,8 +73,6 @@ final class EventOrder
 
     private static function second(?CarbonInterface $at): ?CarbonImmutable
     {
-        return $at === null
-            ? null
-            : CarbonImmutable::instance($at)->setTimezone(date_default_timezone_get())->startOfSecond();
+        return AppTime::of($at)?->startOfSecond();
     }
 }

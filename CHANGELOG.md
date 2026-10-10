@@ -14,6 +14,9 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- Provider dates (`active_from`, `trial_ends_at`, `ends_at`, `refunded_at`) are stored on their
+  real instant when `app.timezone` is not UTC. They used to shift by the timezone offset, so on a
+  Central European host a subscription expired an hour or two early (and west of UTC, late).
 - **Behaviour change:** `Purchases::assertSubscriptionStarted()` now passes only when the
   recording pipeline really fired `SubscriptionStarted` (with or without `Event::fake()`). It
   used to pass for any subscription result — a canceled one or a renewal included. Tests that

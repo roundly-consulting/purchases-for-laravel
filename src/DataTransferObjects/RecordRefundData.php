@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Support\AppTime;
 
 final readonly class RecordRefundData
 {
@@ -27,6 +28,10 @@ final readonly class RecordRefundData
         public ?CarbonInterface $occurredAt = null,
     ) {}
 
+    /**
+     * Provider dates arrive in UTC; they are moved into the application's timezone, the one
+     * Eloquent reads them back in, so they keep their instant.
+     */
     public static function fromResult(ProviderResult $result): self
     {
         return new self(
@@ -36,10 +41,10 @@ final readonly class RecordRefundData
             transactionId: $result->transactionId(),
             reason: $result->refundReason(),
             price: $result->price(),
-            refundedAt: $result->endsAt() ?? $result->activeFrom(),
+            refundedAt: AppTime::of($result->endsAt() ?? $result->activeFrom()),
             meta: $result->raw(),
             status: $result->status(),
-            occurredAt: $result->occurredAt(),
+            occurredAt: AppTime::of($result->occurredAt()),
         );
     }
 }

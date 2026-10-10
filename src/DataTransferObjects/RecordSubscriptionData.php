@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Support\AppTime;
 
 final readonly class RecordSubscriptionData
 {
@@ -36,6 +37,10 @@ final readonly class RecordSubscriptionData
         public ?string $productId = null,
     ) {}
 
+    /**
+     * Provider dates arrive in UTC; they are moved into the application's timezone, the one
+     * Eloquent reads them back in, so they keep their instant.
+     */
     public static function fromResult(ProviderResult $result): self
     {
         return new self(
@@ -45,12 +50,12 @@ final readonly class RecordSubscriptionData
             name: $result->name(),
             transactionId: $result->transactionId(),
             price: $result->price(),
-            activeFrom: $result->activeFrom(),
-            trialEndsAt: $result->trialEndsAt(),
-            endsAt: $result->endsAt(),
+            activeFrom: AppTime::of($result->activeFrom()),
+            trialEndsAt: AppTime::of($result->trialEndsAt()),
+            endsAt: AppTime::of($result->endsAt()),
             items: $result->items(),
             meta: $result->raw(),
-            occurredAt: $result->occurredAt(),
+            occurredAt: AppTime::of($result->occurredAt()),
             productId: $result->productId(),
         );
     }
