@@ -6,6 +6,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.2 - 2026-10-10
+
 ### Fixed
 
 - Google `callback()` and `callbackResult()` refuse a `productId` that is present but not a
