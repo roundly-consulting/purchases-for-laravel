@@ -6,6 +6,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-10
+
 ### Added
 
 - `Purchases::assertSubscriptionRecorded()` on the fake: a subscription result arrived through
@@ -13,6 +15,13 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
   check.
 - `FakeResult::purchase()`, `subscription()` and `refund()` take an optional `occurredAt`, so a
   test can order fake deliveries.
+
+### Changed
+
+- Maintenance: `composer.json` `homepage` and `support.docs` point at the package documentation
+  on roundly-consulting.com.
+- Documentation: the README hero image loads from an absolute URL, so it renders on Packagist and
+  other sites.
 
 ### Fixed
 
