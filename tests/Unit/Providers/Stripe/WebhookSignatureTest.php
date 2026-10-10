@@ -67,7 +67,13 @@ it('rejects a signature bound to a different timestamp', function (): void {
     (new WebhookSignature)->verify($payload, "t={$now},v1={$signature}", 'whsec_test');
 })->throws(VerificationException::class, 'Stripe webhook signature mismatch.');
 
+/*
+ * The tolerance tests sit one second either side of the window's edge, and the timestamp is read
+ * twice: once to sign, once to verify. The clock is frozen so a second ticking between the two
+ * reads cannot move the edge.
+ */
 it('rejects a replayed event outside the tolerance window', function (): void {
+    Carbon::setTestNow(Carbon::createFromTimestamp(1_700_000_000));
     $payload = '{"id":"evt_1"}';
     $header = signStripe($payload, 'whsec_test', Carbon::now()->getTimestamp() - 301);
 
@@ -75,13 +81,23 @@ it('rejects a replayed event outside the tolerance window', function (): void {
 })->throws(VerificationException::class, 'Stripe webhook timestamp is outside the tolerance zone.');
 
 it('accepts an event on the edge of the tolerance window', function (): void {
+    Carbon::setTestNow(Carbon::createFromTimestamp(1_700_000_000));
     $payload = '{"id":"evt_1"}';
     $header = signStripe($payload, 'whsec_test', Carbon::now()->getTimestamp() - 300);
 
     (new WebhookSignature)->verify($payload, $header, 'whsec_test', 300);
 })->throwsNoExceptions();
 
+it('accepts a future timestamp on the edge of the tolerance window', function (): void {
+    Carbon::setTestNow(Carbon::createFromTimestamp(1_700_000_000));
+    $payload = '{"id":"evt_1"}';
+    $header = signStripe($payload, 'whsec_test', Carbon::now()->getTimestamp() + 300);
+
+    (new WebhookSignature)->verify($payload, $header, 'whsec_test', 300);
+})->throwsNoExceptions();
+
 it('rejects a future timestamp outside the tolerance window', function (): void {
+    Carbon::setTestNow(Carbon::createFromTimestamp(1_700_000_000));
     $payload = '{"id":"evt_1"}';
     $header = signStripe($payload, 'whsec_test', Carbon::now()->getTimestamp() + 301);
 

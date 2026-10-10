@@ -48,7 +48,9 @@ it('keeps the 300-second stripe replay window when the tolerance is blank (stric
     config()->set('purchases.settings.stripe.webhook_secret', 'whsec_test');
     config()->set('purchases.settings.stripe.tolerance', $blank);
 
-    $signedAt = Carbon::now();
+    // Frozen while signing: the request is signed at exactly $signedAt, not a second later.
+    $signedAt = Carbon::createFromTimestamp(1_700_000_000);
+    Carbon::setTestNow($signedAt);
     $request = stripeSignedRequest(['id' => 'evt_1', 'type' => 'charge.succeeded']);
 
     Carbon::setTestNow($signedAt->copy()->addSeconds(299));
