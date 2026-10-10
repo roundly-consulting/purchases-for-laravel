@@ -6,6 +6,16 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Google `product()`, `subscription()`, `acknowledgeSubscription()`, `callback()`,
+  `callbackResult()` and the subscription read behind a webhook refuse an empty, `.` or `..` id
+  (purchase token, product id, subscription id, and the configured package name) with a
+  `VerificationException` ("Malformed Google id.") before Google is called, as Stripe does since
+  1.1.4. The id was already percent-encoded, but no encoding keeps a dot segment one path segment:
+  the HTTP client resolved a token `..` onto `/purchases/products/<product>`, another endpoint
+  than the purchase. A valid id is sent unchanged.
+
 ## 1.1.4 - 2026-10-10
 
 ### Fixed

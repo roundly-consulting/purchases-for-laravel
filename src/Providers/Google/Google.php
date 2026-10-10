@@ -26,6 +26,7 @@ use RoundlyConsulting\Purchases\Providers\Google\Enums\SubscriptionState;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\DeveloperNotification;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\ProductPurchase;
 use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurchase;
+use RoundlyConsulting\Purchases\Providers\StoreApi;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use Throwable;
@@ -104,7 +105,9 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     private function readSubscription(string $token): SubscriptionPurchase
     {
-        $response = $this->client()->request()->get($this->path('purchases', 'subscriptionsv2', 'tokens', $token));
+        $path = $this->path('purchases', 'subscriptionsv2', 'tokens', $token);
+
+        $response = $this->client()->request()->get($path);
 
         return SubscriptionPurchase::fromRaw($response->json());
     }
@@ -433,11 +436,12 @@ class Google extends BaseProvider implements VerifiesConnectivity
     /**
      * A Play Developer API path under this app. Every segment is percent-encoded: a token or
      * product id comes from a client, and unescaped it could walk the path (`../`) to another
-     * endpoint, or cut it short with `?` or `#`.
+     * endpoint, or cut it short with `?` or `#`. An empty, `.` or `..` segment is refused
+     * before Google is called (see StoreApi::segments()).
      */
     private function path(string ...$segments): string
     {
-        return '/androidpublisher/v3/applications/'.implode('/', array_map(rawurlencode(...), [$this->packageName(), ...$segments]));
+        return '/androidpublisher/v3/applications/'.StoreApi::segments('Malformed Google id.', $this->packageName(), ...$segments);
     }
 
     private function packageName(): string

@@ -30,12 +30,12 @@ use RoundlyConsulting\Purchases\Providers\Google\ValueObjects\SubscriptionPurcha
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Testing\PayloadFactory;
 
-function googleProvider(bool|string $acknowledge = true): Google
+function googleProvider(bool|string $acknowledge = true, string $packageName = 'com.example.app'): Google
 {
     Cache::flush();
 
     config()->set('purchases.settings.google', [
-        'package_name' => 'com.example.app',
+        'package_name' => $packageName,
         'service_account' => [
             'client_email' => 'svc@example.iam.gserviceaccount.com',
             'private_key' => testRsaKey(),
@@ -779,6 +779,66 @@ it('escapes the token of a subscription lookup and its acknowledgement', functio
     Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/purchases/subscriptionsv2/tokens/a%2F..%2Fb'));
     Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/purchases/subscriptions/pro%2Fx/tokens/a%2F..%2Fb:acknowledge'));
 });
+
+/*
+ * No escaping keeps `.` or `..` a segment of its own: the HTTP client resolves it, so a
+ * token `..` would ask `/purchases/products/coins` instead of one purchase, and a product
+ * id `.` would drop the product from the path. An empty id leaves an empty segment.
+ */
+it('refuses an id that cannot stay one path segment, before asking google', function (Closure $call): void {
+    Http::fake();
+
+    expect(fn () => $call(googleProvider()))
+        ->toThrow(VerificationException::class, 'Malformed Google id.');
+
+    Http::assertNothingSent();
+})->with(function (): array {
+    $calls = [];
+
+    foreach (['empty' => '', 'a dot' => '.', 'two dots' => '..'] as $name => $id) {
+        $calls["a product id, {$name}"] = [fn (Google $google) => $google->product($id, 'token-1')];
+        $calls["a product token, {$name}"] = [fn (Google $google) => $google->product('coins.100', $id)];
+        $calls["a subscription token, {$name}"] = [fn (Google $google) => $google->subscription($id)];
+        $calls["an acknowledged token, {$name}"] = [fn (Google $google) => $google->acknowledgeSubscription($id, 'pro')];
+        $calls["an acknowledged subscription id, {$name}"] = [fn (Google $google) => $google->acknowledgeSubscription('token-1', $id)];
+    }
+
+    return $calls;
+});
+
+it('refuses a callback id that cannot stay one path segment, before asking google', function (string $method, array $input): void {
+    Http::fake();
+
+    expect(fn () => googleProvider()->{$method}(new Request($input)))
+        ->toThrow(VerificationException::class, 'Malformed Google id.');
+
+    Http::assertNothingSent();
+})->with(['callback', 'callbackResult'])->with([
+    'a subscription token, a dot' => [['purchaseToken' => '.']],
+    'a subscription token, two dots' => [['purchaseToken' => '..']],
+    'a product token, a dot' => [['purchaseToken' => '.', 'productId' => 'coins.100']],
+    'a product token, two dots' => [['purchaseToken' => '..', 'productId' => 'coins.100']],
+    'a product id, a dot' => [['purchaseToken' => 'token-1', 'productId' => '.']],
+    'a product id, two dots' => [['purchaseToken' => 'token-1', 'productId' => '..']],
+]);
+
+it('refuses a configured package name that cannot stay one path segment', function (string $packageName): void {
+    Http::fake();
+
+    expect(fn () => googleProvider(packageName: $packageName)->subscription('token-1'))
+        ->toThrow(VerificationException::class, 'Malformed Google id.');
+
+    Http::assertNothingSent();
+})->with(['a dot' => ['.'], 'two dots' => ['..']]);
+
+it('refuses an rtdn token that cannot stay one path segment, before asking google', function (string $token): void {
+    Http::fake();
+
+    expect(fn () => googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => $token, 'subscriptionId' => 'pro']])))
+        ->toThrow(VerificationException::class, 'Malformed Google id.');
+
+    Http::assertNothingSent();
+})->with(['a dot' => ['.'], 'two dots' => ['..']]);
 
 /**
  * A subscriptionsv2 resource in the given state, paid up to the given expiry.
