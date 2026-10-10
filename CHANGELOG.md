@@ -6,6 +6,13 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.5 - 2026-10-10
+
+Upgrade: a host that catches `RequestException` from Google `callback()` / `callbackResult()` or
+Apple `callback()` to handle a bad purchase token or receipt now gets a `VerificationException`
+instead, the same as Stripe `callback()` since 1.1.4. Catch that (the `RequestException` is its
+`getPrevious()`).
+
 ### Fixed
 
 - Google `product()`, `subscription()`, `acknowledgeSubscription()`, `callback()`,
