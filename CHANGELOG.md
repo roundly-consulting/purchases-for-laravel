@@ -25,6 +25,10 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
   still throw the HTTP client's `RequestException` / `ConnectionException`. Upgrade: catch
   `VerificationException` where you caught `RequestException` for a bad token. Direct `product()`
   and `subscription()` calls and webhook reads still throw the `RequestException`.
+- Apple `AppStoreServerApi::transaction()` refuses an empty, `.` or `..` transaction id with a
+  `VerificationException` ("Malformed Apple transaction id.") before Apple is called. The id was
+  already percent-encoded, but the HTTP client resolved `..` onto `/inApps/v1/`, another endpoint
+  than the transaction. A valid id is sent unchanged.
 
 ## 1.1.4 - 2026-10-10
 

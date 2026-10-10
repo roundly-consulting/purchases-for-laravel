@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Codec\Base64Url;
 use RoundlyConsulting\Crypto\Jose\Jws;
@@ -140,6 +141,38 @@ it('escapes the transaction id into the request path', function (): void {
 
     Http::assertSent(fn ($request) => str_ends_with($request->url(), '/inApps/v1/transactions/..%2F..%2Fv1%2Fnotifications%2Ftest'));
 });
+
+/*
+ * No escaping keeps `.` or `..` a segment of its own: the HTTP client resolves it, so
+ * `transaction('..')` would ask `/inApps/v1/` instead of one transaction. An empty id lands
+ * on `/inApps/v1/transactions/`.
+ */
+it('refuses a transaction id that cannot stay one path segment, before asking apple', function (string $id): void {
+    configureAppleApi();
+    Http::fake();
+
+    expect(fn () => (new AppStoreServerApi(fakeJws(['bundleId' => 'com.example.app', 'environment' => 'Sandbox'])))->transaction($id))
+        ->toThrow(VerificationException::class, 'Malformed Apple transaction id.');
+
+    Http::assertNothingSent();
+})->with(['empty' => [''], 'a dot' => ['.'], 'two dots' => ['..']]);
+
+it('sends a valid transaction id unchanged', function (): void {
+    configureAppleApi();
+    Http::fake(['*' => Http::response(['signedTransactionInfo' => 'signed.jws'])]);
+
+    (new AppStoreServerApi(fakeJws(['bundleId' => 'com.example.app', 'environment' => 'Sandbox'])))->transaction('2000000123456789');
+
+    Http::assertSent(fn ($request): bool => $request->url() === 'https://api.storekit-sandbox.itunes.apple.com/inApps/v1/transactions/2000000123456789');
+});
+
+it('leaves an apple 4xx from a direct transaction lookup as the http client\'s exception', function (int $status): void {
+    configureAppleApi();
+    Http::fake(['*' => Http::response(['errorCode' => 4040010, 'errorMessage' => 'Transaction id not found.'], $status)]);
+
+    expect(fn () => (new AppStoreServerApi(fakeJws([])))->transaction('2000000000000000'))
+        ->toThrow(fn (RequestException $e) => expect($e->response->status())->toBe($status));
+})->with(['invalid' => [400], 'not found' => [404]]);
 
 it('targets the live url outside sandbox', function (): void {
     configureAppleApi(sandbox: false);

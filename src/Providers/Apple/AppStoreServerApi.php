@@ -11,6 +11,7 @@ use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\Apple\Auth\AppStoreJwtFactory;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
+use RoundlyConsulting\Purchases\Providers\StoreApi;
 use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 
 /**
@@ -52,11 +53,16 @@ final class AppStoreServerApi
 
     /**
      * Look up a single transaction by id and decode its signed JWS payload — verified, and
-     * refused unless it belongs to the configured app and environment.
+     * refused unless it belongs to the configured app and environment. The id is
+     * path-encoded, and an empty, `.` or `..` one is refused before Apple is called (see
+     * StoreApi::segments()). An error answer from Apple stays the HTTP client's
+     * RequestException.
      */
     public function transaction(string $transactionId): TransactionInfo
     {
-        $response = $this->client()->get('/inApps/v1/transactions/'.rawurlencode($transactionId));
+        $path = '/inApps/v1/transactions/'.StoreApi::segments('Malformed Apple transaction id.', $transactionId);
+
+        $response = $this->client()->get($path);
 
         $signed = $response->json('signedTransactionInfo');
 
