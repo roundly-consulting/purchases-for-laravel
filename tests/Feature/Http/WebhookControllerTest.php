@@ -6,7 +6,11 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseNotification;
+use RoundlyConsulting\Purchases\Models\PurchaseRefund;
+use RoundlyConsulting\Purchases\Providers\Google\Google;
 use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
+use RoundlyConsulting\Purchases\Testing\PayloadFactory;
 
 beforeEach(function (): void {
     config()->set('purchases.routes', [
@@ -76,4 +80,22 @@ it('does not register routes when disabled', function (): void {
     config()->set('purchases.routes.enabled', false);
 
     expect(config('purchases.routes.enabled'))->toBeFalse();
+});
+
+it('answers 2xx to another app\'s google notification, recording nothing', function (): void {
+    config()->set('purchases.providers', [Google::class]);
+    config()->set('purchases.settings.google.package_name', 'com.example.app');
+    config()->set('purchases.settings.google.push', ['authenticate' => false]);
+
+    $response = $this->postJson('/purchases/webhooks/google', PayloadFactory::googleEnvelope([
+        'version' => '1.0',
+        'packageName' => 'com.other.app',
+        'eventTimeMillis' => '1700000000000',
+        'voidedPurchaseNotification' => ['purchaseToken' => 'tok-other', 'orderId' => 'GPA.OTHER-1', 'refundType' => 1],
+    ]));
+
+    $response->assertNoContent();
+
+    expect(PurchaseRefund::query()->count())->toBe(0)
+        ->and(PurchaseNotification::query()->sole()->type)->toBe('notification');
 });

@@ -16,6 +16,12 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- **Behaviour change:** a Google Real-time Developer Notification for another app (its
+  `packageName` is not `purchases.settings.google.package_name`, as on a shared Pub/Sub topic) is
+  audited as information and answered 2xx — never applied. Another app's voided purchase used to
+  be recorded as a refund here, and its subscription RTDNs were looked up under this app and failed
+  with a 500 that Pub/Sub redelivered for days. `PayloadFactory`'s Google RTDNs now name the
+  configured package.
 - **Behaviour change:** `FakeResult` builds results the way the real providers do — one id as
   both the provider and the transaction id (they were two different `uniqid()`s), and an
   `occurredAt` (now, unless given), so event ordering applies to faked deliveries too.

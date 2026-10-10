@@ -71,7 +71,7 @@ final class PayloadFactory
     }
 
     /**
-     * A Google subscription RTDN (notificationType 1-20).
+     * A Google subscription RTDN (notificationType 1-20), for the configured app.
      *
      * @return array<string, mixed>
      */
@@ -79,7 +79,7 @@ final class PayloadFactory
     {
         return [
             'version' => '1.0',
-            'packageName' => 'com.example.app',
+            'packageName' => self::googlePackageName(),
             'eventTimeMillis' => '1700000000000',
             'subscriptionNotification' => [
                 'version' => '1.0',
@@ -91,7 +91,7 @@ final class PayloadFactory
     }
 
     /**
-     * A Google voided-purchase RTDN (refunds).
+     * A Google voided-purchase RTDN (refunds), for the configured app.
      *
      * @return array<string, mixed>
      */
@@ -99,7 +99,7 @@ final class PayloadFactory
     {
         return [
             'version' => '1.0',
-            'packageName' => 'com.example.app',
+            'packageName' => self::googlePackageName(),
             'eventTimeMillis' => '1700000000000',
             'voidedPurchaseNotification' => [
                 'purchaseToken' => $token,
@@ -108,6 +108,17 @@ final class PayloadFactory
                 'refundType' => 1,
             ],
         ];
+    }
+
+    /**
+     * The app the Google RTDNs are for: the configured package — another app's RTDN is
+     * audited, never applied — or the example app when none is configured.
+     */
+    private static function googlePackageName(): string
+    {
+        $packageName = config('purchases.settings.google.package_name');
+
+        return is_string($packageName) && trim($packageName) !== '' ? $packageName : 'com.example.app';
     }
 
     /**

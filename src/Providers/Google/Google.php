@@ -284,6 +284,24 @@ class Google extends BaseProvider implements VerifiesConnectivity
     {
         $notification = $this->notification($request);
 
+        // Push auth proves Google sent it, not that it is about this app: a Pub/Sub topic can
+        // be shared. Another app's notification is audited, never applied — and answered 2xx,
+        // or Pub/Sub would redeliver it until its retention runs out.
+        if ($notification->packageName !== $this->packageName()) {
+            return new GenericResult(
+                provider: $this->id(),
+                type: ResultType::Notification,
+                providerId: $notification->subscriptionNotification->purchaseToken
+                    ?? $notification->voidedPurchaseNotification->orderId
+                    ?? $notification->voidedPurchaseNotification->purchaseToken
+                    ?? $notification->oneTimeProductNotification->purchaseToken
+                    ?? '',
+                status: Status::Processing,
+                raw: $notification->raw,
+                occurredAt: $notification->eventTime,
+            );
+        }
+
         $voided = $notification->voidedPurchaseNotification;
 
         if ($voided !== null) {

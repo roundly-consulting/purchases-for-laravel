@@ -17,6 +17,7 @@ use RoundlyConsulting\Purchases\Events\SubscriptionCanceled;
 use RoundlyConsulting\Purchases\Events\SubscriptionRenewed;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Models\Purchase;
+use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\AccessTokenFactory;
 use RoundlyConsulting\Purchases\Providers\Google\Auth\ServiceAccountCredentials;
@@ -779,3 +780,55 @@ it('fails an rtdn whose subscription state cannot be read, so pub/sub redelivers
 
     googleProvider()->result(googleRtdn(['subscriptionNotification' => ['version' => '1.0', 'notificationType' => 2, 'purchaseToken' => 'tok-503', 'subscriptionId' => 'pro']]));
 })->throws(RequestException::class);
+
+/*
+ * A Pub/Sub topic can be shared by several apps. Push auth proves Google sent a message, not
+ * that it is about this app: another package's RTDN is audited as information and answered
+ * 2xx (a 4xx would make Pub/Sub redeliver it until its retention runs out).
+ */
+
+it('records nothing for another app\'s voided purchase', function (): void {
+    Http::fake();
+
+    $result = googleProvider()->result(googleRtdn([
+        'packageName' => 'com.other.app',
+        'voidedPurchaseNotification' => ['purchaseToken' => 'tok-other', 'orderId' => 'GPA.OTHER-1', 'productType' => 2, 'refundType' => 1],
+    ]));
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and($result->providerId())->toBe('GPA.OTHER-1')
+        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
+        ->and(PurchaseRefund::query()->count())->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('never queries another app\'s subscription under this app', function (): void {
+    Http::fake();
+
+    $result = googleProvider()->result(googleRtdn([
+        'packageName' => 'com.other.app',
+        'subscriptionNotification' => ['version' => '1.0', 'notificationType' => 4, 'purchaseToken' => 'tok-other', 'subscriptionId' => 'pro'],
+    ]));
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and($result->providerId())->toBe('tok-other')
+        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
+        ->and(Subscription::query()->count())->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('treats an rtdn that names no app as another app\'s', function (): void {
+    $payload = ['version' => '1.0', 'eventTimeMillis' => '1700000000000', 'voidedPurchaseNotification' => ['purchaseToken' => 'tok-x', 'orderId' => 'GPA.X-1', 'refundType' => 1]];
+
+    $result = googleProvider()->result(new Request(['message' => ['data' => base64_encode((string) json_encode($payload))]]));
+
+    expect($result->type())->toBe(ResultType::Notification);
+});
+
+it('builds test rtdns for the configured app', function (): void {
+    googleProvider();
+    config()->set('purchases.settings.google.package_name', 'com.acme.app');
+
+    expect(PayloadFactory::googleVoidedNotification()['packageName'])->toBe('com.acme.app')
+        ->and(PayloadFactory::googleSubscriptionNotification()['packageName'])->toBe('com.acme.app');
+});
