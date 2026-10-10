@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Psr7\Request as Psr7Request;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
@@ -273,6 +277,63 @@ it('does not retry a receipt the sandbox refuses', function (): void {
         ->toThrow(VerificationException::class, '[21008]');
 
     Http::assertSentCount(1);
+});
+
+/*
+ * Apple reports a bad receipt as a 200 with a `status`. Should verifyReceipt ever answer a
+ * 4xx about the receipt instead, it is the client's mistake: a VerificationException, as
+ * every other bad receipt is, so a host that catches only that answers it instead of failing
+ * with a 500. That holds on the sandbox retry too.
+ */
+it('refuses a receipt apple rejects, keeping apple\'s answer', function (bool $retry, int $status): void {
+    config()->set('purchases.settings.apple', ['sandbox' => false, 'password' => 'secret']);
+    Http::fake([
+        'buy.itunes.apple.com/*' => $retry ? Http::response(['status' => 21007]) : Http::response('Bad Request', $status),
+        'sandbox.itunes.apple.com/*' => Http::response('Bad Request', $status),
+    ]);
+
+    expect(fn () => (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data')))
+        ->toThrow(function (VerificationException $e) use ($status): void {
+            expect($e->getMessage())->toBe('Apple rejected the receipt.')
+                ->and($e->getPrevious())->toBeInstanceOf(RequestException::class)
+                ->and($e->getPrevious()?->response->status())->toBe($status);
+        });
+
+    Http::assertSentCount($retry ? 2 : 1);
+})->with([
+    'production' => [false],
+    'the sandbox retry' => [true],
+])->with([
+    'bad request' => [400],
+    'not found' => [404],
+]);
+
+it('leaves an apple failure that is not about the receipt as it is', function (bool $retry, int $status): void {
+    config()->set('purchases.settings.apple', ['sandbox' => false, 'password' => 'secret']);
+    Http::fake([
+        'buy.itunes.apple.com/*' => $retry ? Http::response(['status' => 21007]) : Http::response('unavailable', $status),
+        'sandbox.itunes.apple.com/*' => Http::response('unavailable', $status),
+    ]);
+
+    expect(fn () => (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data')))
+        ->toThrow(fn (RequestException $e) => expect($e->response->status())->toBe($status));
+})->with([
+    'production' => [false],
+    'the sandbox retry' => [true],
+])->with([
+    'a server error' => [500],
+    'unavailable' => [503],
+    'rate limited' => [429],
+    'unauthorized' => [401],
+    'forbidden' => [403],
+]);
+
+it('leaves a connection failure of a receipt verification as it is', function (): void {
+    config()->set('purchases.settings.apple', ['sandbox' => false, 'password' => 'secret']);
+    Http::fake(['*' => fn () => throw new ConnectException('Connection timed out.', new Psr7Request('POST', 'https://buy.itunes.apple.com/verifyReceipt'))]);
+
+    expect(fn () => (new Apple)->callback(Request::create('/callback', 'POST', content: 'receipt-data')))
+        ->toThrow(ConnectionException::class);
 });
 
 it('maps a renewal notification into a unified subscription result', function (): void {

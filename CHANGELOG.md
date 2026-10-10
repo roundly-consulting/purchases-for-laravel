@@ -29,6 +29,15 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
   `VerificationException` ("Malformed Apple transaction id.") before Apple is called. The id was
   already percent-encoded, but the HTTP client resolved `..` onto `/inApps/v1/`, another endpoint
   than the transaction. A valid id is sent unchanged.
+- Apple `callback()` throws a `VerificationException` ("Apple rejected the receipt.") when
+  verifyReceipt answers with an HTTP 4xx about the receipt, such as a 400 or a 404, on the
+  production host or the sandbox retry. Apple's `RequestException` is kept as its previous
+  exception. Apple documents a bad receipt as a 200 with a `status` (already a
+  `VerificationException`), so this is a guard: such an answer used to escape as the
+  `RequestException`, and a host catching only `VerificationException` answered it with a 500. A
+  5xx, a 429, a 401 / 403 and a connection failure still throw the HTTP client's
+  `RequestException` / `ConnectionException`. `AppStoreServerApi::transaction()` still throws the
+  `RequestException` for a 404 (an unknown transaction id).
 
 ## 1.1.4 - 2026-10-10
 

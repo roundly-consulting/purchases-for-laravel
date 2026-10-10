@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Providers\Apple;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
@@ -29,6 +31,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptStatus;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
+use RoundlyConsulting\Purchases\Providers\StoreApi;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use Throwable;
@@ -97,8 +100,16 @@ class Apple extends BaseProvider implements VerifiesConnectivity
     }
 
     /**
+     * Verify a receipt with verifyReceipt. Apple reports a bad receipt as a 200 whose `status`
+     * says why (a VerificationException). Should it answer a 4xx about the receipt instead,
+     * that is a VerificationException too (see StoreApi::lookUp()).
+     *
      * @deprecated Apple's verifyReceipt endpoint is deprecated. Prefer the
      *             App Store Server API via AppStoreServerApi::transaction().
+     *
+     * @throws VerificationException an invalid, malformed or rejected receipt
+     * @throws RequestException an Apple outage, a rate limit or a refused request (401, 403)
+     * @throws ConnectionException Apple could not be reached
      */
     public function callback(Request $request): mixed
     {
@@ -108,13 +119,18 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             'exclude-old-transactions' => false,
         ];
 
-        $raw = $this->client()->asJson()->post('/verifyReceipt', $body)->json();
+        $verify = fn (PendingRequest $client): mixed => StoreApi::lookUp(
+            fn (): mixed => $client->asJson()->post('/verifyReceipt', $body)->json(),
+            'Apple rejected the receipt.',
+        );
+
+        $raw = $verify($this->client());
         $sandbox = $this->sandbox();
 
         // Apple: verify with production first, then with the sandbox on 21007 — a sandbox
         // receipt (App Review, TestFlight) sent to production.
         if (! $sandbox && is_array($raw) && ($raw['status'] ?? null) === self::SANDBOX_RECEIPT) {
-            $raw = $this->client()->baseUrl($this->receiptHost(sandbox: true))->asJson()->post('/verifyReceipt', $body)->json();
+            $raw = $verify($this->client()->baseUrl($this->receiptHost(sandbox: true)));
             $sandbox = true;
         }
 
