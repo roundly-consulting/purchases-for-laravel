@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
@@ -14,6 +16,8 @@ use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Providers\Google\Google;
+use RoundlyConsulting\Purchases\Providers\Stripe\Stripe;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 
 it('records a refund and flips the related purchase status', function (): void {
@@ -115,3 +119,52 @@ it('revokes a subscription only when its current period is refunded', function (
     'the latest order' => ['GPA.1..1', Status::Refunded],
     'an earlier renewal order' => ['GPA.1..0', Status::Completed],
 ]);
+
+/*
+ * A refund's date: Apple names it (`revocationDate`); Stripe and Google say only when the
+ * refund event happened, which is when the refund happened.
+ */
+
+it('dates a stripe refund by its event', function (): void {
+    config()->set('purchases.settings.stripe.webhook_secret', 'whsec_test');
+
+    $result = (new Stripe)->result(stripeSignedRequest([
+        'id' => 'evt_refunded',
+        'type' => 'charge.refunded',
+        'created' => 1_700_000_500,
+        'data' => ['object' => ['id' => 'ch_1', 'payment_intent' => 'pi_1', 'amount' => 999, 'amount_refunded' => 999, 'refunded' => true, 'currency' => 'eur']],
+    ]));
+
+    app(RecordProviderResultAction::class)->execute($result);
+
+    expect(PurchaseRefund::query()->sole()->refunded_at?->getTimestamp())->toBe(1_700_000_500);
+});
+
+it('dates a voided google purchase by its notification', function (): void {
+    config()->set('purchases.settings.google.package_name', 'com.example.app');
+    config()->set('purchases.settings.google.push', ['authenticate' => false]);
+
+    $result = (new Google)->result(new Request(['message' => ['data' => base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.example.app',
+        'eventTimeMillis' => '1700000600000',
+        'voidedPurchaseNotification' => ['purchaseToken' => 'tok-v', 'orderId' => 'GPA.V-1', 'productType' => 2, 'refundType' => 1],
+    ]))]]));
+
+    app(RecordProviderResultAction::class)->execute($result);
+
+    expect(PurchaseRefund::query()->sole()->refunded_at?->getTimestamp())->toBe(1_700_000_600);
+});
+
+it('keeps the date a provider gives the refund itself', function (): void {
+    app(RecordProviderResultAction::class)->execute(new GenericResult(
+        provider: 'apple',
+        type: ResultType::Refund,
+        providerId: 'txn-1',
+        status: Status::Refunded,
+        endsAt: Carbon::createFromTimestamp(1_700_000_100),
+        occurredAt: Carbon::createFromTimestamp(1_700_000_900),
+    ));
+
+    expect(PurchaseRefund::query()->sole()->refunded_at?->getTimestamp())->toBe(1_700_000_100);
+});

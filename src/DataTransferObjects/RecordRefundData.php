@@ -41,7 +41,8 @@ final readonly class RecordRefundData
             transactionId: $result->transactionId(),
             reason: $result->refundReason(),
             price: $result->price(),
-            refundedAt: AppTime::of($result->endsAt() ?? $result->activeFrom()),
+            // Apple names the refund's date; Stripe and Google say only when the event happened.
+            refundedAt: AppTime::of($result->endsAt() ?? $result->activeFrom() ?? $result->occurredAt()),
             meta: $result->raw(),
             status: $result->status(),
             occurredAt: AppTime::of($result->occurredAt()),

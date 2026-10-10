@@ -14,6 +14,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ### Fixed
 
+- Stripe and Google refunds record a `refunded_at`: when the provider names no refund date (only
+  Apple does), it is the time of the refund event. It was always `NULL` for them.
 - Two first deliveries of the same purchase, subscription or refund arriving at once no longer
   fail one of them on MySQL. Its key lock takes a gap lock on a row that does not exist yet, so
   both inserts deadlocked (error 1213) and one webhook — or queued job — failed until the store
