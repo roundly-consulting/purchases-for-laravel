@@ -67,7 +67,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
         }
 
         if ($this->shouldAcknowledge() && ! $purchase->isAcknowledged()) {
-            $this->client()->request()->post("{$path}:acknowledge");
+            $this->acknowledge("{$path}:acknowledge");
         }
 
         return $purchase;
@@ -116,7 +116,17 @@ class Google extends BaseProvider implements VerifiesConnectivity
      */
     public function acknowledgeSubscription(string $token, string $subscriptionId): void
     {
-        $this->client()->request()->post($this->path('purchases', 'subscriptions', $subscriptionId, 'tokens', $token).':acknowledge');
+        $this->acknowledge($this->path('purchases', 'subscriptions', $subscriptionId, 'tokens', $token).':acknowledge');
+    }
+
+    /**
+     * An acknowledge request is a message (`developerPayload` is its only, optional, field):
+     * Google refuses a JSON root that is not an object with 400 "Root element must be a
+     * message" — and an empty PHP array encodes to `[]` — so the body is sent as `{}`.
+     */
+    private function acknowledge(string $path): void
+    {
+        $this->client()->request()->withBody('{}', 'application/json')->post($path);
     }
 
     /**

@@ -352,6 +352,31 @@ it('acknowledges a pending subscription with a mixed line-item set', function ()
     Http::assertNotSent(fn ($request) => str_contains($request->url(), 'subscriptionsv2/tokens/sub-token:acknowledge'));
 });
 
+/*
+ * Both acknowledge requests are messages (`ProductPurchasesAcknowledgeRequest`,
+ * `SubscriptionPurchasesAcknowledgeRequest`): Google rejects a JSON root that is not an
+ * object — `[]`, what an empty PHP array encodes to — with 400 "Root element must be a message".
+ */
+it('acknowledges with a json object body, never an empty array', function (string $kind): void {
+    Http::fake([
+        '*:acknowledge' => Http::response([], 200),
+        '*/purchases/products/*' => Http::response(['purchaseState' => 0, 'acknowledgementState' => 0, 'orderId' => 'GPA.1', 'productId' => 'coins.100']),
+        '*/purchases/subscriptionsv2/*' => Http::response([
+            'subscriptionState' => 'SUBSCRIPTION_STATE_ACTIVE',
+            'acknowledgementState' => 'ACKNOWLEDGEMENT_STATE_PENDING',
+            'lineItems' => [['productId' => 'pro.monthly', 'expiryTime' => '2026-02-01T00:00:00Z']],
+        ]),
+    ]);
+
+    $kind === 'product'
+        ? googleProvider()->product('coins.100', 'tok-p')
+        : googleProvider()->subscription('tok-s');
+
+    Http::assertSent(fn ($request): bool => str_ends_with($request->url(), ':acknowledge')
+        && $request->body() === '{}'
+        && $request->hasHeader('Content-Type', 'application/json'));
+})->with(['product', 'subscription']);
+
 it('refuses to acknowledge a subscription it cannot name', function (): void {
     Http::fake([
         '*/purchases/subscriptionsv2/*' => Http::response([
