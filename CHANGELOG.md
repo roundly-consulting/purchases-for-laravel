@@ -6,6 +6,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.7 - 2026-10-11
+
 ### Changed
 
 - Maintenance: requires the latest roundly packages — crypto `^1.1.2`, enums `^1.1.0`, money
