@@ -57,6 +57,15 @@ abstract class HostTestCase extends TestCase
         return [];
     }
 
+    /**
+     * Nothing to keep: every test here builds its schema with `purchases:install`, so this
+     * case keeps the drop-per-test reset.
+     */
+    protected function keepsMigratedSchema(): bool
+    {
+        return false;
+    }
+
     protected function getApplicationBasePath(): string
     {
         if ($this->sandbox === '') {

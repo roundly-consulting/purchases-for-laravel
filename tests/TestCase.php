@@ -44,4 +44,14 @@ abstract class TestCase extends PackageTestCase
             PurchasesServiceProvider::class,
         ];
     }
+
+    /**
+     * Migrate once per worker and reset only the data between tests. The migrations read
+     * config alone (table names, key type, money's currency length), which the schema
+     * signature already covers.
+     */
+    protected function keepsMigratedSchema(): bool
+    {
+        return true;
+    }
 }
