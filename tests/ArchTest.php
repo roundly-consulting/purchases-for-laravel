@@ -264,6 +264,8 @@ ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support', [
     'purchases.models.subscription-item',
 ]);
 
+ArchPresets::factoriesResolveThroughSeam(__DIR__.'/../database/factories', __DIR__.'/../src', 'Support');
+
 /**
  * The morph-key seam, guarded. Purchases' `owner` column on both `purchases` and
  * `subscriptions` migrated off raw `$table->morphs()` onto `morphKey('owner',

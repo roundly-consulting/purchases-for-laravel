@@ -6,6 +6,10 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Factories build the configured model when a host swaps it.
+
 ## 1.1.7 - 2026-10-11
 
 ### Changed

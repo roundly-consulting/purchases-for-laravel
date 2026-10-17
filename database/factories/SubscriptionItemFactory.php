@@ -8,11 +8,24 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
+use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
 
 /** @extends Factory<SubscriptionItem> */
 final class SubscriptionItemFactory extends Factory
 {
     protected $model = SubscriptionItem::class;
+
+    /**
+     * Build the model the host configured in `purchases.models.subscription-item`, not the
+     * packaged one, so a host subclass comes out of the factory with its own events, observers and
+     * table.
+     *
+     * @return class-string<SubscriptionItem>
+     */
+    public function modelName(): string
+    {
+        return SubscriptionItemModel::class();
+    }
 
     /** @return array<string, mixed> */
     public function definition(): array
