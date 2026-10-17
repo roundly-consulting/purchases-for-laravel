@@ -152,12 +152,14 @@ it('records nothing and fires nothing for an informational result', function (Re
 
     $model = app(RecordProviderResultAction::class)->execute(informationalResult($type));
 
+    // Asserted before the counts below: their queries boot the models, and Eloquent's own
+    // boot events are not the action's.
+    Event::assertNothingDispatched();
+
     expect($model)->toBeNull()
         ->and(Purchase::query()->count())->toBe(0)
         ->and(Subscription::query()->count())->toBe(0)
         ->and(PurchaseRefund::query()->count())->toBe(0);
-
-    Event::assertNothingDispatched();
 })->with([ResultType::Notification, ResultType::Unknown]);
 
 it('returns the processed audit notification when handling an informational result', function (): void {
