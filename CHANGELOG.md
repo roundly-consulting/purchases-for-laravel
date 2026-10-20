@@ -6,6 +6,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.9 - 2026-10-20
+
 ### Changed
 
 - Maintenance: requires package-toolkit `^1.4.0`.
