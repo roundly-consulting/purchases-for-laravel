@@ -30,7 +30,9 @@ final class PurchasesServiceProvider extends PackageServiceProvider
             ->name('purchases')
             ->hasConfigFile()
             ->hasMigrations()
-            ->hasRoutes('purchases.php', 'purchases.routes.enabled')
+            // Opt-in: a switch that is not set (missing from a published config whose `routes`
+            // merge is shallow, `null`, blank, a bare `env()` unset) keeps the webhooks off.
+            ->hasRoutes('purchases.php', 'purchases.routes.enabled', enabledByDefault: false)
             ->hasCommands([
                 InstallCommand::class,
                 ProvidersCommand::class,

@@ -6,6 +6,15 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Changed
+
+- Maintenance: requires package-toolkit `^1.4.0`.
+
+### Fixed
+
+- The opt-in API stays off when its switch is not set (missing from a published config, `null`,
+  or an unset env var); it used to load.
+
 ## 1.1.8 - 2026-10-17
 
 ### Fixed

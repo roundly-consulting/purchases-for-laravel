@@ -19,6 +19,7 @@ use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
 use RoundlyConsulting\Purchases\Tests\Fixtures\SwappedModelsTestCase;
+use RoundlyConsulting\Purchases\Tests\Fixtures\TrimmedRoutesConfigTestCase;
 use RoundlyConsulting\Purchases\Tests\HostTestCase;
 use RoundlyConsulting\Purchases\Tests\TestCase;
 
@@ -40,6 +41,12 @@ uses(HostTestCase::class)->in(__DIR__.'/Host');
  * their own base case and their own directory.
  */
 uses(SwappedModelsTestCase::class)->in(__DIR__.'/ModelSwap');
+
+/*
+ * A host whose published config overrides only part of `routes`: the merge is shallow, so the
+ * switch is missing before the providers boot. Its own base case, so its own directory.
+ */
+uses(TrimmedRoutesConfigTestCase::class)->in(__DIR__.'/RoutesSwitch');
 
 /**
  * A committed Apple-shaped fixture (tests/Fixtures/apple).
