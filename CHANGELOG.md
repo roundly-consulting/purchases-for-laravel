@@ -6,6 +6,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.2.0 - 2026-11-07
+
 Upgrade: republish and run the migrations (`php artisan vendor:publish --tag=purchases-migrations`,
 then `php artisan migrate`). Three additive migrations add the `billing_customers` table,
 `subscriptions.cancel_at_period_end`, and `subscription_items.price_id` + `quantity`.
