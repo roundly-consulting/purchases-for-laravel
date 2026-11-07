@@ -6,6 +6,7 @@ use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Psr7\Request as Psr7Request;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -635,18 +636,57 @@ it('records a payment checkout and its payment intent as one purchase', function
         ->and(Purchase::query()->sole()->provider_id)->toBe('pi_pay');
 });
 
-it('leaves subscription invoices and their payments to the subscription', function (string $type, array $object): void {
+it('leaves subscription billing that names no subscription to the subscription', function (string $type, array $object): void {
     $result = stripeResultFor($type, $object + ['currency' => 'eur']);
 
     expect($result->type())->toBe(ResultType::Notification)
         ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
         ->and(Purchase::query()->count())->toBe(0);
 })->with([
+    'subscription billing reason only' => ['invoice.paid', ['id' => 'in_4', 'status' => 'paid', 'amount_paid' => 999, 'billing_reason' => 'subscription_create']],
+    'invoice payment intent (legacy invoice field)' => ['payment_intent.succeeded', ['id' => 'pi_inv', 'status' => 'succeeded', 'amount' => 999, 'invoice' => 'in_3']],
+]);
+
+/**
+ * Without a secret key the subscription cannot be read, so a subscription invoice stays the
+ * informational event it was before outbound billing — a webhook-only host keeps working.
+ */
+it('leaves subscription invoices informational without a secret key', function (string $type, array $object): void {
+    config()->set('purchases.settings.stripe.secret', null);
+    Http::fake(['api.stripe.com/v1/subscriptions/*' => Http::response([], 500)]);
+
+    $result = stripeResultFor($type, $object + ['currency' => 'eur']);
+
+    expect($result->type())->toBe(ResultType::Notification)
+        ->and(app(RecordProviderResultAction::class)->execute($result))->toBeNull()
+        ->and(Purchase::query()->count())->toBe(0);
+    Http::assertNotSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/subscriptions/'));
+})->with([
     'renewal invoice paid (parent)' => ['invoice.paid', ['id' => 'in_1', 'status' => 'paid', 'amount_paid' => 999, 'billing_reason' => 'subscription_cycle', 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]]],
     'renewal invoice failed (parent)' => ['invoice.payment_failed', ['id' => 'in_2', 'status' => 'open', 'amount_due' => 999, 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]]],
     'first invoice (legacy subscription field)' => ['invoice.paid', ['id' => 'in_3', 'status' => 'paid', 'amount_paid' => 999, 'subscription' => 'sub_1']],
-    'subscription billing reason only' => ['invoice.paid', ['id' => 'in_4', 'status' => 'paid', 'amount_paid' => 999, 'billing_reason' => 'subscription_create']],
-    'invoice payment intent (legacy invoice field)' => ['payment_intent.succeeded', ['id' => 'pi_inv', 'status' => 'succeeded', 'amount' => 999, 'invoice' => 'in_3']],
+]);
+
+/**
+ * With a secret key, a paid or failed subscription invoice syncs its subscription — status,
+ * period, quantities, prices — from Stripe's current state, and never records a purchase.
+ */
+it('syncs the subscription a paid or failed invoice belongs to', function (string $type, array $object, string $status, Status $expected): void {
+    Http::fake(['api.stripe.com/v1/subscriptions/sub_1' => Http::response(stripeBillingSubscription(['status' => $status]))]);
+
+    $result = stripeResultFor($type, $object + ['currency' => 'eur']);
+    $subscription = app(RecordProviderResultAction::class)->execute($result);
+
+    expect($result->type())->toBe(ResultType::Subscription)
+        ->and($result->providerId())->toBe('sub_1')
+        ->and($result->status())->toBe($expected)
+        ->and($subscription)->toBeInstanceOf(Subscription::class)
+        ->and(Purchase::query()->count())->toBe(0);
+    Http::assertSent(fn (HttpRequest $request): bool => $request->method() === 'GET' && $request->url() === 'https://api.stripe.com/v1/subscriptions/sub_1');
+})->with([
+    'renewal invoice paid (parent)' => ['invoice.paid', ['id' => 'in_1', 'status' => 'paid', 'amount_paid' => 999, 'billing_reason' => 'subscription_cycle', 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]], 'active', Status::Completed],
+    'renewal invoice failed (parent)' => ['invoice.payment_failed', ['id' => 'in_2', 'status' => 'open', 'amount_due' => 999, 'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]], 'past_due', Status::InGracePeriod],
+    'first invoice (legacy subscription field)' => ['invoice.paid', ['id' => 'in_3', 'status' => 'paid', 'amount_paid' => 999, 'subscription' => 'sub_1'], 'active', Status::Completed],
 ]);
 
 it('still records a one-off invoice as a purchase', function (): void {

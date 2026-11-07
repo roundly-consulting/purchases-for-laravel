@@ -12,8 +12,10 @@ use RoundlyConsulting\Purchases\Commands\InstallCommand;
 use RoundlyConsulting\Purchases\Commands\ProvidersCommand;
 use RoundlyConsulting\Purchases\Commands\ReplayCommand;
 use RoundlyConsulting\Purchases\Commands\VerifyCommand;
+use RoundlyConsulting\Purchases\Contracts\BillingCustomers;
 use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Purchases\Providers\Resolver;
+use RoundlyConsulting\Purchases\Support\DatabaseBillingCustomers;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
 use RoundlyConsulting\Purchases\Support\PurchaseRefundModel;
@@ -71,6 +73,10 @@ final class PurchasesServiceProvider extends PackageServiceProvider
 
         $this->app->scoped(Resolver::class);
         $this->app->singleton(PurchasesManager::class);
+
+        // Where each owner's Stripe customer id lives. A host that already stores it binds
+        // its own BillingCustomers after this.
+        $this->app->singletonIf(BillingCustomers::class, DatabaseBillingCustomers::class);
     }
 
     public function boot(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Actions;
 
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Purchases\Contracts\BillingCustomers;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordPurchaseData;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordRefundData;
@@ -21,9 +22,11 @@ use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
 use RoundlyConsulting\Purchases\Events\SubscriptionInGracePeriod;
 use RoundlyConsulting\Purchases\Events\SubscriptionRenewed;
 use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
+use RoundlyConsulting\Purchases\Events\SubscriptionUpdated;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
+use RoundlyConsulting\Purchases\Results\GenericResult;
 
 /**
  * Turns a unified provider result into a persisted model and dispatches the
@@ -38,6 +41,10 @@ use RoundlyConsulting\Purchases\Models\Subscription;
  * this package does not map. It is recorded nowhere, fires nothing, and yields null, so
  * it can never overwrite a subscription's status.
  *
+ * A purchase or subscription no owner is linked to yet is linked to the owner of the billing
+ * customer the result names (a Stripe `customer`, see BillingCustomers), or to the owner the
+ * caller hands in; an owner already linked is never replaced.
+ *
  * The shared core of `Purchases::handle()`, `sync()`, `replay()` and the queued job. It
  * touches no audit row — each caller owns that step — so reach it through the facade.
  *
@@ -49,21 +56,37 @@ final readonly class RecordProviderResultAction
         private RecordPurchaseAction $recordPurchase,
         private RecordSubscriptionAction $recordSubscription,
         private RecordRefundAction $recordRefund,
+        private BillingCustomers $customers,
     ) {}
 
-    public function execute(ProviderResult $result): ?Model
+    public function execute(ProviderResult $result, ?Model $owner = null): ?Model
     {
         return match ($result->type()) {
             ResultType::Refund => $this->refund($result),
-            ResultType::Purchase => $this->purchase($result),
-            ResultType::Subscription => $this->subscription($result),
+            ResultType::Purchase => $this->purchase($result, $owner),
+            ResultType::Subscription => $this->subscription($result, $owner),
             ResultType::Notification, ResultType::Unknown => null,
         };
     }
 
-    private function purchase(ProviderResult $result): Purchase
+    /**
+     * The owner a recorded row should be linked to: the caller's, or the owner of the billing
+     * customer the result names.
+     */
+    private function owner(ProviderResult $result, ?Model $owner): ?Model
     {
-        $purchase = $this->recordPurchase->execute(RecordPurchaseData::fromResult($result));
+        if ($owner !== null) {
+            return $owner;
+        }
+
+        $customer = $result instanceof GenericResult ? $result->customerId() : null;
+
+        return $customer !== null ? $this->customers->owner($result->provider(), $customer) : null;
+    }
+
+    private function purchase(ProviderResult $result, ?Model $owner): Purchase
+    {
+        $purchase = $this->recordPurchase->execute(RecordPurchaseData::fromResult($result, $this->owner($result, $owner)));
 
         PurchaseRecorded::dispatch($purchase, $result);
 
@@ -80,9 +103,10 @@ final readonly class RecordProviderResultAction
         return $purchase;
     }
 
-    private function subscription(ProviderResult $result): Subscription
+    private function subscription(ProviderResult $result, ?Model $owner): Subscription
     {
-        $subscription = $this->recordSubscription->execute(RecordSubscriptionData::fromResult($result));
+        $recorded = $this->recordSubscription->record(RecordSubscriptionData::fromResult($result, $this->owner($result, $owner)));
+        $subscription = $recorded->subscription;
 
         // A row the host soft-deleted is kept up to date, but announces nothing.
         if ($subscription->trashed()) {
@@ -103,6 +127,11 @@ final readonly class RecordProviderResultAction
             Status::Failed => $changed ? SubscriptionExpired::dispatch($subscription, $result) : null,
             default => null,
         };
+
+        // A seat count, a swapped price, an item added or removed.
+        if ($recorded->itemsChanged && ! $subscription->wasRecentlyCreated) {
+            SubscriptionUpdated::dispatch($subscription, $result);
+        }
 
         return $subscription;
     }

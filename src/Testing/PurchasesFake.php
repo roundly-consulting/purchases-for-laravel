@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Testing;
 
+use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
@@ -34,6 +35,11 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  * SubscriptionStarted, for `assertSubscriptionStarted()`). Results pushed with
  * `push()` skip signature verification; a faked `handle()` also skips the audit log and
  * the queue and records synchronously.
+ *
+ * Every Stripe billing write made through `stripe()` — `customers()->sync()`,
+ * `subscriptions()->create()`, `->updateQuantity()`, `meters()->report()`, `portal()`, … — is
+ * logged under its name (`subscriptions.updateQuantity`) for `assertBilled()`, and still
+ * runs: stub Stripe with `Http::fake()`.
  */
 final class PurchasesFake extends PurchasesManager
 {
@@ -51,6 +57,9 @@ final class PurchasesFake extends PurchasesManager
 
     /** @var list<SubscriptionStarted> */
     private array $started = [];
+
+    /** @var list<array{operation: string, arguments: list<mixed>}> */
+    private array $billed = [];
 
     public function __construct(Container $container, Resolver $resolver)
     {
@@ -115,6 +124,54 @@ final class PurchasesFake extends PurchasesManager
         }
 
         return $model;
+    }
+
+    /**
+     * @return Closure(string, list<mixed>): void
+     */
+    protected function billingRecorder(): Closure
+    {
+        return function (string $operation, array $arguments): void {
+            $this->billed[] = ['operation' => $operation, 'arguments' => array_values($arguments)];
+        };
+    }
+
+    /**
+     * The billing writes made so far, oldest first: each its operation name and arguments.
+     *
+     * @return Collection<int, array{operation: string, arguments: list<mixed>}>
+     */
+    public function billingCalls(): Collection
+    {
+        return collect($this->billed);
+    }
+
+    /**
+     * A billing write was made — `subscriptions.updateQuantity`, `meters.report`, … — and,
+     * with a callback, one whose arguments it accepts (the callback receives them spread).
+     */
+    public function assertBilled(string $operation, ?Closure $callback = null): void
+    {
+        Assert::assertTrue(
+            $this->billingCalls()->contains(
+                fn (array $call): bool => $call['operation'] === $operation
+                    && ($callback === null || $callback(...$call['arguments']) === true),
+            ),
+            "Expected the billing call [{$operation}]".($callback !== null ? ' matching the callback' : '').'.',
+        );
+    }
+
+    public function assertNotBilled(string $operation): void
+    {
+        Assert::assertFalse(
+            $this->billingCalls()->contains(fn (array $call): bool => $call['operation'] === $operation),
+            "Expected no billing call [{$operation}].",
+        );
+    }
+
+    public function assertNothingBilled(): void
+    {
+        Assert::assertCount(0, $this->billed, 'Expected no billing calls.');
     }
 
     /** @return Collection<int, ProviderResult> */

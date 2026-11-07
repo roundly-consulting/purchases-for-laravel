@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -13,6 +14,7 @@ use RoundlyConsulting\Crypto\Signature\Es;
 use RoundlyConsulting\Crypto\Signature\Key\EcKey;
 use RoundlyConsulting\Crypto\Testing\TestKeys;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Facades\Purchases;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\Subscription;
@@ -20,6 +22,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsVerifier;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
 use RoundlyConsulting\Purchases\Tests\Fixtures\SwappedModelsTestCase;
 use RoundlyConsulting\Purchases\Tests\Fixtures\TrimmedRoutesConfigTestCase;
+use RoundlyConsulting\Purchases\Tests\Fixtures\UlidOwnersTestCase;
 use RoundlyConsulting\Purchases\Tests\HostTestCase;
 use RoundlyConsulting\Purchases\Tests\TestCase;
 
@@ -47,6 +50,12 @@ uses(SwappedModelsTestCase::class)->in(__DIR__.'/ModelSwap');
  * switch is missing before the providers boot. Its own base case, so its own directory.
  */
 uses(TrimmedRoutesConfigTestCase::class)->in(__DIR__.'/RoutesSwitch');
+
+/*
+ * A host with ULID-keyed owners: `purchases.key_type` set before the migrations run, so
+ * every owner column is a ULID column. Its own base case, so its own directory.
+ */
+uses(UlidOwnersTestCase::class)->in(__DIR__.'/UlidOwners');
 
 /**
  * A committed Apple-shaped fixture (tests/Fixtures/apple).
@@ -210,4 +219,94 @@ function stripeInvoicePayments(?string $invoice, ?string $paymentIntent = null):
 
     // Wrapped: the container treats a bare null instance as unbound.
     app()->instance('tests.stripe.invoice', ['invoice' => $invoice, 'payment_intent' => $paymentIntent]);
+}
+
+/**
+ * A Stripe Subscription object in the current API shape (periods on the items): a per-seat
+ * item (`si_seats`, quantity 10) and a metered storage item (`si_storage`). Top-level keys
+ * are overridden as given.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function stripeBillingSubscription(array $overrides = []): array
+{
+    return $overrides + [
+        'id' => 'sub_1',
+        'object' => 'subscription',
+        'customer' => 'cus_1',
+        'status' => 'active',
+        'cancel_at_period_end' => false,
+        'cancel_at' => null,
+        'canceled_at' => null,
+        'trial_end' => null,
+        'metadata' => [],
+        'items' => [
+            'object' => 'list',
+            'data' => [
+                stripeBillingItem('si_seats', 'price_seats', 10),
+                stripeBillingItem('si_storage', 'price_storage', null),
+            ],
+            'has_more' => false,
+        ],
+    ];
+}
+
+/**
+ * One subscription item: a licensed price with a quantity, or (quantity null) a metered
+ * price, which Stripe sends without one.
+ *
+ * @return array<string, mixed>
+ */
+function stripeBillingItem(string $id, string $price, ?int $quantity, int $unitAmount = 1200, string $start = '2026-11-01', string $end = '2026-12-01'): array
+{
+    $item = [
+        'id' => $id,
+        'object' => 'subscription_item',
+        'current_period_start' => Carbon::parse($start, 'UTC')->getTimestamp(),
+        'current_period_end' => Carbon::parse($end, 'UTC')->getTimestamp(),
+        'price' => [
+            'id' => $price,
+            'object' => 'price',
+            'nickname' => null,
+            'lookup_key' => null,
+            'product' => 'prod_'.$price,
+            'currency' => 'eur',
+            'unit_amount' => $unitAmount,
+            'recurring' => ['interval' => 'month', 'usage_type' => $quantity === null ? 'metered' : 'licensed'],
+        ],
+    ];
+
+    return $quantity === null ? $item : $item + ['quantity' => $quantity];
+}
+
+/**
+ * A Stripe webhook event for an object, created at the given time, through the real
+ * signature check and recording pipeline (`Purchases::handle()`).
+ *
+ * @param  array<string, mixed>  $object
+ */
+function stripeWebhook(string $type, array $object, int|Carbon $created): Model
+{
+    $created = $created instanceof Carbon ? $created->getTimestamp() : $created;
+
+    return Purchases::handle('stripe', stripeSignedRequest([
+        'id' => 'evt_'.$type.'_'.$created,
+        'type' => $type,
+        'created' => $created,
+        'data' => ['object' => $object],
+    ]));
+}
+
+/**
+ * A Stripe request's form body exactly as sent on the wire — every value a string, a
+ * boolean the word `true` / `false` — rather than the PHP data the fake keeps.
+ *
+ * @return array<array-key, mixed>
+ */
+function stripeForm(HttpRequest $request): array
+{
+    parse_str($request->body(), $form);
+
+    return $form;
 }

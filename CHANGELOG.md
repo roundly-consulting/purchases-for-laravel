@@ -6,6 +6,69 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+Upgrade: republish and run the migrations (`php artisan vendor:publish --tag=purchases-migrations`,
+then `php artisan migrate`). Three additive migrations add the `billing_customers` table,
+`subscriptions.cancel_at_period_end`, and `subscription_items.price_id` + `quantity`.
+
+### Added
+
+- Outbound Stripe billing through `Purchases::stripe()`, with no SDK. It uses the same raw HTTP
+  as the inbound side, and the same API three ways: facade, injected `PurchasesManager`, and
+  the `Actions\Stripe\*` actions.
+  - `customers()->sync($owner, CustomerData)`: one Stripe customer per owner model (a company,
+    a team, a user), with name, email, address, metadata and tax ids (`eu_vat`, …) reconciled.
+    `customers()->id($owner)` / `->owner($customerId)` read the link.
+  - `subscriptions()->create($owner, CreateSubscriptionData)`: one or more prices, each with an
+    optional quantity (none for a metered price). Optional trial days, automatic tax, collection
+    method, payment behaviour and metadata. `->checkout()` opens a Checkout Session in
+    subscription mode instead.
+  - `subscriptions()->updateQuantity()`, `->swap()`, `->addItem()`, `->removeItem()` and
+    `->change()`, with `ProrationBehavior` `create_prorations`, `always_invoice` or `none`.
+  - `subscriptions()->cancel()` (immediately, optionally invoicing pending usage or prorating),
+    `->cancelAtPeriodEnd()` and `->resume()`.
+  - `subscriptions()->preview($subscription, ?SubscriptionChange)`: the next invoice with a
+    planned change applied (`POST /v1/invoices/create_preview`), as `InvoicePreview` with
+    `Money` amounts and proration lines.
+  - `meters()->create()` / `->find()` / `->findOrCreate()` for Billing Meters, exposing the
+    meter's `MeterAggregation` (`count`, `sum`, `last`).
+  - `meters()->report()` sends usage events (customer, value, timestamp, identifier).
+    `meters()->queue()` sends them through the `ReportStripeMeterEvent` job on the package's
+    queue settings.
+  - `portal($owner, $returnUrl)`: a Customer Portal session URL.
+- Every billing write sends an `Idempotency-Key`: the one given, or a generated UUID. Failures
+  throw typed `Exceptions\Stripe\StripeException`s: `StripeCardException`,
+  `StripeInvalidRequestException`, `StripeAuthenticationException`, `StripeRateLimitException`,
+  `StripeIdempotencyException`, `StripeApiException` and `StripeConnectionException`. Each
+  carries the HTTP status, Stripe's error type and code, the request id and the idempotency key.
+  The secret key is never in a message or in a stack-trace frame of the package.
+- `Purchases::canBill($id)`, and the `Contracts\SupportsBilling` capability that only the Stripe
+  provider implements. Calling `Purchases::stripe()` without one throws
+  `UnsupportedCapabilityException`.
+- `Contracts\BillingCustomers`, kept in the new `BillingCustomer` model (`billing_customers`,
+  swappable at `purchases.models.billing-customer`, keyed by `purchases.key_type`). Bind your own
+  implementation to keep the customer id elsewhere.
+- A Stripe subscription or one-off payment recorded without an owner is linked to the owner of
+  its Stripe customer, so webhook listeners no longer have to link it themselves. An owner that
+  is already linked is never replaced.
+- Subscription items now record their Stripe item id, price id, unit price and `quantity` (null
+  for a metered price). They are kept in sync from `customer.subscription.*` webhooks and from
+  every billing call. `Subscription::itemFor($priceId)` finds an item, and
+  `subscriptions.cancel_at_period_end` is kept in sync as well.
+- A `SubscriptionUpdated` event, fired when stored items change what a subscription bills: a
+  quantity, a price, or an item added or removed.
+- `ResultItem` takes `metered` and `priceId`, `GenericResult` takes `customerId` and
+  `cancelAtPeriodEnd`, `CheckoutSession` exposes `url`, and audit snapshots keep the items, the
+  customer and the cancellation flag, so a replay restores them.
+
+### Changed
+
+- With `PURCHASES_STRIPE_SECRET` set, an `invoice.paid` / `invoice.payment_failed` of a
+  subscription invoice now syncs that subscription from Stripe (`GET /v1/subscriptions/{id}`).
+  A renewal moves its period, and a failed payment moves it into the grace period. Before, the
+  event was only informational. Without the secret it still is.
+- Subscription items are updated in place by their provider id instead of being deleted and
+  recreated on each sync.
+
 ## 1.1.9 - 2026-10-20
 
 ### Changed

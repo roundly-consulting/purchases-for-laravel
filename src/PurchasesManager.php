@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases;
 
+use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -11,8 +12,11 @@ use Illuminate\Support\Collection;
 use RoundlyConsulting\Purchases\Actions\HandleProviderResultAction;
 use RoundlyConsulting\Purchases\Actions\ReplayProviderNotificationAction;
 use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
+use RoundlyConsulting\Purchases\Billing\StripeBilling;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Contracts\SupportsBilling;
 use RoundlyConsulting\Purchases\Exceptions\UnknownProviderException;
+use RoundlyConsulting\Purchases\Exceptions\UnsupportedCapabilityException;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Providers\Provider;
 use RoundlyConsulting\Purchases\Providers\Resolver;
@@ -112,5 +116,40 @@ class PurchasesManager
     public function for(Model $owner): OwnerPurchases
     {
         return new OwnerPurchases($owner);
+    }
+
+    /**
+     * Whether a registered provider can bill — create and change customers, subscriptions
+     * and usage at its store. Only Stripe can; Apple and Google sell in their own storefronts.
+     */
+    public function canBill(string $id): bool
+    {
+        return $this->resolver->resolve($id) instanceof SupportsBilling;
+    }
+
+    /**
+     * Outbound Stripe billing: `customers()`, `subscriptions()`, `meters()` and `portal()`.
+     *
+     * @throws UnsupportedCapabilityException when no billing-capable `stripe` provider is registered
+     */
+    public function stripe(): StripeBilling
+    {
+        if (! $this->canBill('stripe')) {
+            throw UnsupportedCapabilityException::billing('stripe');
+        }
+
+        return new StripeBilling($this->container, $this->billingRecorder());
+    }
+
+    /**
+     * What hears every billing write before it runs — nothing here; the fake's call log.
+     *
+     * @internal
+     *
+     * @return (Closure(string, list<mixed>): void)|null
+     */
+    protected function billingRecorder(): ?Closure
+    {
+        return null;
     }
 }

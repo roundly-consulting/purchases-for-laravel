@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Purchases\Models\BillingCustomer;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
+use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomBillingCustomer;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchase;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchaseItem;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchaseNotification;
@@ -45,4 +47,8 @@ it('builds the configured subscription from the factory', function (): void {
 
 it('builds the configured subscription item from the factory', function (): void {
     expect(SubscriptionItem::factory()->create()::class)->toBe(CustomSubscriptionItem::class);
+});
+
+it('builds the configured billing customer from the factory', function (): void {
+    expect(BillingCustomer::factory()->create()::class)->toBe(CustomBillingCustomer::class);
 });

@@ -3,12 +3,14 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
+use RoundlyConsulting\Purchases\Models\BillingCustomer;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
+use RoundlyConsulting\Purchases\Support\BillingCustomerModel;
 use RoundlyConsulting\Purchases\Support\PurchaseItemModel;
 use RoundlyConsulting\Purchases\Support\PurchaseModel;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
@@ -32,6 +34,7 @@ dataset('configurable models', [
     'purchase notification' => ['purchases.models.purchase-notification', PurchaseNotificationModel::class, PurchaseNotification::class],
     'subscription' => ['purchases.models.subscription', SubscriptionModel::class, Subscription::class],
     'subscription item' => ['purchases.models.subscription-item', SubscriptionItemModel::class, SubscriptionItem::class],
+    'billing customer' => ['purchases.models.billing-customer', BillingCustomerModel::class, BillingCustomer::class],
 ]);
 
 it('resolves the packaged model by default', function (string $key, string $resolver, string $packaged): void {

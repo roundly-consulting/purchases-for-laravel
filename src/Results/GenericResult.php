@@ -38,6 +38,8 @@ final readonly class GenericResult implements ProviderResult
         private ?string $refundReason = null,
         private bool $chargeback = false,
         private ?CarbonInterface $occurredAt = null,
+        private ?string $customerId = null,
+        private ?bool $cancelAtPeriodEnd = null,
     ) {}
 
     public function provider(): string
@@ -118,5 +120,23 @@ final readonly class GenericResult implements ProviderResult
     public function raw(): array
     {
         return $this->raw;
+    }
+
+    /**
+     * The provider's customer the result belongs to (a Stripe `cus_…`), when it names one. A
+     * billing customer linked to it makes its owner the owner of the recorded row.
+     */
+    public function customerId(): ?string
+    {
+        return $this->customerId;
+    }
+
+    /**
+     * Whether a subscription is set to cancel at the end of its period, or null when the
+     * provider does not say (Apple, Google).
+     */
+    public function cancelAtPeriodEnd(): ?bool
+    {
+        return $this->cancelAtPeriodEnd;
     }
 }

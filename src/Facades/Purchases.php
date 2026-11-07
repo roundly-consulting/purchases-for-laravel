@@ -18,6 +18,8 @@ use RoundlyConsulting\Purchases\Testing\PurchasesFake;
  * @method static \Illuminate\Database\Eloquent\Model|null sync(\RoundlyConsulting\Purchases\Contracts\ProviderResult $result)
  * @method static \Illuminate\Database\Eloquent\Model|null replay(\RoundlyConsulting\Purchases\Models\PurchaseNotification|int $notification)
  * @method static \RoundlyConsulting\Purchases\OwnerPurchases for(\Illuminate\Database\Eloquent\Model $owner)
+ * @method static bool canBill(string $id)
+ * @method static \RoundlyConsulting\Purchases\Billing\StripeBilling stripe()
  * @method static PurchasesFake push(string $provider, \RoundlyConsulting\Purchases\Contracts\ProviderResult $result)
  * @method static void assertHandled(string $provider)
  * @method static void assertHandledCount(int $count)
@@ -30,6 +32,9 @@ use RoundlyConsulting\Purchases\Testing\PurchasesFake;
  * @method static void assertSubscriptionStarted(?string $provider = null)
  * @method static void assertSubscriptionRecorded(?string $provider = null)
  * @method static void assertRefundRecorded(?string $provider = null)
+ * @method static void assertBilled(string $operation, ?\Closure $callback = null)
+ * @method static void assertNotBilled(string $operation)
+ * @method static void assertNothingBilled()
  *
  * @see PurchasesManager
  */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Tests\Fixtures;
 
+use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomBillingCustomer;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchase;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchaseItem;
 use RoundlyConsulting\Purchases\Tests\Fixtures\Models\CustomPurchaseNotification;
@@ -45,6 +46,7 @@ abstract class SwappedModelsTestCase extends TestCase
             'purchases.models.purchase-notification' => CustomPurchaseNotification::class,
             'purchases.models.subscription' => CustomSubscription::class,
             'purchases.models.subscription-item' => CustomSubscriptionItem::class,
+            'purchases.models.billing-customer' => CustomBillingCustomer::class,
         ]);
     }
 }

@@ -80,6 +80,12 @@ final readonly class RecordPurchaseAction
             $attributes['price'] = $data->price;
         }
 
+        // The billing customer's owner, for a purchase no owner is linked to yet.
+        if ($data->owner !== null && $purchase?->getAttribute('owner_type') === null) {
+            $attributes['owner_type'] = $data->owner->getMorphClass();
+            $attributes['owner_id'] = $data->owner->getKey();
+        }
+
         return $attributes;
     }
 

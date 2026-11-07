@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use RoundlyConsulting\Money\Exceptions\MoneyException;
 use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Status;
@@ -43,6 +44,16 @@ final class NotificationResultFactory
             'refund_reason' => $result->refundReason(),
             'chargeback' => $result->isChargeback(),
             'occurred_at' => $result->occurredAt()?->toIso8601String(),
+            'customer_id' => $result instanceof GenericResult ? $result->customerId() : null,
+            'cancel_at_period_end' => $result instanceof GenericResult ? $result->cancelAtPeriodEnd() : null,
+            'items' => array_map(static fn (ResultItem $item): array => [
+                'name' => $item->name,
+                'provider_id' => $item->providerId,
+                'price' => $item->price?->toArray(),
+                'quantity' => $item->quantity,
+                'metered' => $item->metered,
+                'price_id' => $item->priceId,
+            ], $result->items()),
             'raw' => $result->raw(),
         ];
     }
@@ -88,6 +99,7 @@ final class NotificationResultFactory
         // without the price would record a purchase that silently lost its amount.
         try {
             $price = self::money($data['price'] ?? null);
+            $items = self::items($data['items'] ?? null);
         } catch (MoneyException) {
             return null;
         }
@@ -104,12 +116,44 @@ final class NotificationResultFactory
             activeFrom: self::date($data['active_from'] ?? null),
             trialEndsAt: self::date($data['trial_ends_at'] ?? null),
             endsAt: self::date($data['ends_at'] ?? null),
-            items: [],
+            items: $items,
             raw: $raw,
             refundReason: self::string($data['refund_reason'] ?? null),
             chargeback: (bool) ($data['chargeback'] ?? false),
             occurredAt: self::date($data['occurred_at'] ?? null),
+            customerId: self::string($data['customer_id'] ?? null),
+            cancelAtPeriodEnd: is_bool($data['cancel_at_period_end'] ?? null) ? $data['cancel_at_period_end'] : null,
         );
+    }
+
+    /**
+     * The snapshot's line items. A snapshot written before items were stored has none, and
+     * replays as before: an item-less result leaves the stored items alone.
+     *
+     * @return list<ResultItem>
+     *
+     * @throws MoneyException for an item price money refuses
+     */
+    private static function items(mixed $value): array
+    {
+        $items = [];
+
+        foreach (is_array($value) ? $value : [] as $item) {
+            if (! is_array($item) || ! is_string($item['name'] ?? null)) {
+                continue;
+            }
+
+            $items[] = new ResultItem(
+                name: $item['name'],
+                providerId: self::string($item['provider_id'] ?? null),
+                price: self::money($item['price'] ?? null),
+                quantity: is_int($item['quantity'] ?? null) ? $item['quantity'] : 1,
+                metered: ($item['metered'] ?? false) === true,
+                priceId: self::string($item['price_id'] ?? null),
+            );
+        }
+
+        return $items;
     }
 
     private static function string(mixed $value): ?string

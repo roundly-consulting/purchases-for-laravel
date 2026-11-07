@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use RoundlyConsulting\Purchases\Models\BillingCustomer;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
@@ -28,6 +29,8 @@ return [
         'purchase-notification' => PurchaseNotification::class,
         'subscription' => Subscription::class,
         'subscription-item' => SubscriptionItem::class,
+        // Links an owner model to its Stripe customer (see Purchases::stripe()->customers()).
+        'billing-customer' => BillingCustomer::class,
     ],
 
     'providers' => [

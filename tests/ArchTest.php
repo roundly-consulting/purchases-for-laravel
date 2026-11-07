@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Purchases\Exceptions\Exception as PurchasesException;
+use RoundlyConsulting\Purchases\Models\BillingCustomer;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseItem;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
@@ -71,7 +72,7 @@ ArchPresets::strictTypes('RoundlyConsulting\Purchases');
  * @var list<class-string>
  */
 const FINALITY_EXEMPTIONS = [
-    // 1. The six documented model seams. `purchases.models.*` invites a host to
+    // 1. The seven documented model seams. `purchases.models.*` invites a host to
     //    subclass each one ("swap any of these for your own subclass" —
     //    docs/technical/configuration.md); `final` here is the 7x-shipped fatal.
     //    Pinned by swappableModelsAreNotFinal below, which is the counter-weight.
@@ -81,6 +82,7 @@ const FINALITY_EXEMPTIONS = [
     PurchaseNotification::class,
     Subscription::class,
     SubscriptionItem::class,
+    BillingCustomer::class,
 
     // 2. The exception BASE — and only the base. Six leaves extend it, so `final` here
     //    is not a policy call but a PHP fatal; it is also the documented catch-all
@@ -245,6 +247,7 @@ ArchPresets::swappableModelsAreNotFinal([
     PurchaseNotification::class => 'purchases.models.purchase-notification',
     Subscription::class => 'purchases.models.subscription',
     SubscriptionItem::class => 'purchases.models.subscription-item',
+    BillingCustomer::class => 'purchases.models.billing-customer',
 ]);
 
 /**
@@ -262,6 +265,7 @@ ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support', [
     'purchases.models.purchase-notification',
     'purchases.models.subscription',
     'purchases.models.subscription-item',
+    'purchases.models.billing-customer',
 ]);
 
 ArchPresets::factoriesResolveThroughSeam(__DIR__.'/../database/factories', __DIR__.'/../src', 'Support');

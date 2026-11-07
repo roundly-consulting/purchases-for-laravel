@@ -19,6 +19,8 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
  * @property int $subscription_id
  * @property string|null $provider_id
  * @property string $name
+ * @property string|null $price_id
+ * @property int|null $quantity
  * @property Money|null $price
  * @property string|null $price_currency
  * @property CarbonInterface|null $created_at
@@ -39,6 +41,7 @@ class SubscriptionItem extends Model
     {
         return [
             'price' => AsMoney::class,
+            'quantity' => 'integer',
         ];
     }
 

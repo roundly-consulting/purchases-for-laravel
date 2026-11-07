@@ -7,7 +7,9 @@ namespace RoundlyConsulting\Purchases\Providers\Stripe;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
+use RoundlyConsulting\Purchases\Contracts\SupportsBilling;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
 use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
@@ -28,7 +30,12 @@ use RoundlyConsulting\Purchases\Support\DataSet;
 use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 use Throwable;
 
-class Stripe extends BaseProvider implements VerifiesConnectivity
+/**
+ * Verifies Stripe webhooks into purchase, subscription and refund results, and — the only
+ * provider that can — bills: customers, subscriptions, meters and portal sessions through
+ * `Purchases::stripe()`.
+ */
+class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivity
 {
     /** @var array<string, mixed> */
     protected readonly array $config;
@@ -175,26 +182,7 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         }
 
         if ($event->type->resultType() === ResultType::Subscription) {
-            $subscription = Subscription::fromRaw($event->object);
-
-            return new GenericResult(
-                provider: $this->id(),
-                type: ResultType::Subscription,
-                providerId: $subscription->id ?? (string) $event->id,
-                status: $subscription->status?->status() ?? Status::Processing,
-                transactionId: $subscription->id,
-                // Stripe names no plan: the product only names a subscription when it is first
-                // recorded, so a name the host gives it later is never overwritten.
-                name: null,
-                productId: $subscription->productId,
-                price: null,
-                activeFrom: $subscription->currentPeriodStart,
-                trialEndsAt: $subscription->trialEnd,
-                endsAt: $subscription->currentPeriodEnd,
-                items: [],
-                raw: $event->object,
-                occurredAt: $event->created,
-            );
+            return SubscriptionResults::fromObject($event->object, $event->created, $this->id(), fallbackId: (string) $event->id);
         }
 
         $id = $object->value('id');
@@ -205,6 +193,12 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
         // payment of any invoice belongs to that invoice — recording either as a one-off
         // Purchase would fire PurchaseCompleted for every renewal, or twice for one invoice.
         if ($this->isSubscriptionBilling($event->type, $object) || $this->paysAnInvoice($event->type, $object, $id)) {
+            $subscription = $this->invoicedSubscription($event, $object);
+
+            if ($subscription !== null) {
+                return $subscription;
+            }
+
             return new GenericResult(
                 provider: $this->id(),
                 type: ResultType::Notification,
@@ -238,7 +232,20 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
             items: [],
             raw: $event->object,
             occurredAt: $event->created,
+            // A billing customer linked to it makes its owner the purchase's owner.
+            customerId: self::customerOf($object),
         );
+    }
+
+    /**
+     * The customer an object names — its id, or the id of an expanded customer.
+     */
+    private static function customerOf(DataSet $object): ?string
+    {
+        $customer = $object->value('customer');
+        $customer = is_array($customer) ? ($customer['id'] ?? null) : $customer;
+
+        return self::filled($customer) ? $customer : null;
     }
 
     /**
@@ -271,6 +278,51 @@ class Stripe extends BaseProvider implements VerifiesConnectivity
                 || str_starts_with(is_string($reason = $object->value('billing_reason')) ? $reason : '', 'subscription'),
             default => false,
         };
+    }
+
+    /**
+     * A subscription invoice that was paid, or whose payment failed, moves its subscription
+     * (a renewal, a past-due); its quantity, price, period and status are read from the
+     * subscription itself, fetched now — the invoice describes only what it billed. The
+     * fetch is Stripe's current state, so it is ordered at Stripe's answer time (or, without
+     * one, the event's). Without a secret key nothing is fetched and the event stays
+     * informational, as it always was.
+     */
+    private function invoicedSubscription(StripeEvent $event, DataSet $object): ?GenericResult
+    {
+        if ($event->type !== EventType::InvoicePaid && $event->type !== EventType::InvoicePaymentFailed) {
+            return null;
+        }
+
+        $subscription = $object->value('parent.subscription_details.subscription') ?? $object->value('subscription');
+        $subscription = is_array($subscription) ? ($subscription['id'] ?? null) : $subscription;
+
+        if (! self::filled($subscription) || ($this->client === null && PurchasesConfig::blank($this->config['secret'] ?? null))) {
+            return null;
+        }
+
+        $response = $this->client()->request()->get($this->path('subscriptions', $subscription));
+        $fetched = $response->json();
+
+        if (! is_array($fetched)) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $fetched */
+        return SubscriptionResults::fromObject($fetched, self::answeredAt($response->header('Date')) ?? $event->created, $this->id());
+    }
+
+    private static function answeredAt(string $date): ?Carbon
+    {
+        if ($date === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($date);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**

@@ -32,6 +32,7 @@ use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
  * @property CarbonInterface|null $active_from
  * @property CarbonInterface|null $trial_ends_at
  * @property CarbonInterface|null $ends_at
+ * @property bool $cancel_at_period_end
  * @property Collection<array-key, mixed>|null $meta
  * @property CarbonInterface|null $last_event_at
  * @property CarbonInterface|null $created_at
@@ -59,6 +60,7 @@ class Subscription extends Model
             'active_from' => 'datetime',
             'trial_ends_at' => 'datetime',
             'ends_at' => 'datetime',
+            'cancel_at_period_end' => 'boolean',
         ];
     }
 
@@ -140,6 +142,15 @@ class Subscription extends Model
         }
 
         return $this->ends_at->isBetween(Carbon::now(), Carbon::now()->addDays($days));
+    }
+
+    /**
+     * The item billing a provider price (a Stripe `price_…`), e.g. the seat item whose
+     * quantity follows the member count.
+     */
+    public function itemFor(string $priceId): ?SubscriptionItem
+    {
+        return $this->items()->where('price_id', $priceId)->first();
     }
 
     /** @return MorphTo<Model, $this> */

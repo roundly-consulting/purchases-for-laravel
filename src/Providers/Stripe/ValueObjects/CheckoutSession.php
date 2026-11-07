@@ -21,6 +21,7 @@ final class CheckoutSession implements FromRaw
         public readonly ?string $subscription,
         public readonly ?string $paymentIntent,
         public readonly array $raw,
+        public readonly ?string $url = null,
     ) {}
 
     /**
@@ -38,6 +39,8 @@ final class CheckoutSession implements FromRaw
             subscription: $dataset->value('subscription'),
             paymentIntent: $dataset->value('payment_intent'),
             raw: $raw,
+            // Where to send the customer for a hosted Checkout page.
+            url: $dataset->value('url'),
         );
     }
 }
