@@ -26,7 +26,7 @@ subscriptions, invoice previews, the customer portal), all with no third-party S
 
 ## Installation
 
-Requires PHP 8.4 (`ext-bcmath`) and Laravel 12 or 13.
+Requires PHP 8.4 (`ext-bcmath`) and Laravel 13.
 
 ```bash
 composer require roundly-consulting/purchases-for-laravel
