@@ -21,7 +21,8 @@
 
 One API for Apple App Store, Google Play and Stripe purchases and subscriptions. It verifies
 every store's webhooks natively, records purchases, subscriptions and refunds as Eloquent
-models, and fires lifecycle events, with no third-party SDKs.
+models, fires lifecycle events, and bills through Stripe (customers, per-seat and metered
+subscriptions, invoice previews, the customer portal), all with no third-party SDKs.
 
 ## Installation
 
@@ -49,27 +50,33 @@ use RoundlyConsulting\Purchases\Facades\Purchases;
 $model = Purchases::handle('stripe', $request);   // verify the signature, record, fire events
 ```
 
-A store never says which of your users paid, so link the owner in a listener:
+Bill a company through Stripe. The subscription is recorded for it right away, and every
+webhook that follows keeps it in sync:
 
 ```php
-use App\Models\User;
-use Illuminate\Support\Facades\Event;
-use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
+use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\{CreateSubscriptionData, CustomerData, SubscriptionPrice, TaxIdData};
 
-Event::listen(function (SubscriptionStarted $event): void {
-    $customer = $event->result->raw()['customer'];          // the Stripe customer id
+Purchases::stripe()->customers()->sync($company, new CustomerData(
+    name: 'Acme s.r.o.',
+    email: 'billing@acme.test',
+    taxIds: [new TaxIdData('eu_vat', 'SK2020123456')],
+));
 
-    $event->subscription->owner()->associate(User::firstWhere('stripe_id', $customer));
-    $event->subscription->name = 'pro';                      // Stripe names no plan
-    $event->subscription->save();
-});
+$subscription = Purchases::stripe()->subscriptions()->create($company, new CreateSubscriptionData(
+    prices: [SubscriptionPrice::licensed('price_seats', 10), SubscriptionPrice::metered('price_storage')],
+    name: 'team',
+    trialDays: 7,
+));
+
+Purchases::stripe()->subscriptions()->updateQuantity($subscription->itemFor('price_seats'), 11);
+Purchases::stripe()->meters()->report($company, 'storage_gb_days', 12.5);
 ```
 
 Then gate features on it:
 
 ```php
-Purchases::for($user)->subscribedTo('pro');          // true
-Purchases::for($user)->activeSubscription('pro');    // ?Subscription
+Purchases::for($company)->subscribedTo('team');          // true
+Purchases::for($company)->activeSubscription('team');    // ?Subscription
 ```
 
 <!-- roundly-docs:start -->
