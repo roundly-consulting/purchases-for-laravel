@@ -25,6 +25,8 @@ use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
  * @property bool $signature_verified
  * @property Collection<array-key, mixed> $payload
  * @property CarbonInterface|null $processed_at
+ * @property string|null $event_id
+ * @property CarbonInterface|null $claimed_at
  * @property CarbonInterface|null $created_at
  * @property CarbonInterface|null $updated_at
  * @property CarbonInterface|null $deleted_at
@@ -45,6 +47,7 @@ class PurchaseNotification extends Model
             'signature_verified' => 'bool',
             'payload' => 'collection',
             'processed_at' => 'datetime',
+            'claimed_at' => 'datetime',
         ];
     }
 
@@ -76,6 +79,17 @@ class PurchaseNotification extends Model
         $origin = $this->payload->get('origin');
 
         return (is_string($origin) ? NotificationOrigin::tryFrom($origin) : null) ?? NotificationOrigin::Provider;
+    }
+
+    /**
+     * The provider's id of the event this notification recorded — the `event_id` column when
+     * deduplication stored it, else the snapshot's — or null when there was no event.
+     */
+    public function eventId(): ?string
+    {
+        $id = $this->getAttribute('event_id') ?? $this->payload->get('event_id');
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     protected static function newFactory(): PurchaseNotificationFactory

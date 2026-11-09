@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Signal;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Results\GenericResult;
@@ -113,4 +114,28 @@ it('round-trips when the provider says the event happened', function (): void {
         ->and(NotificationResultFactory::fromNotification($notification)?->occurredAt()?->getTimestamp())->toBe(1_700_000_123)
         // A result that cannot say when it happened snapshots none.
         ->and(NotificationResultFactory::snapshot(new GenericResult('stripe', ResultType::Purchase, 'pi_undated', Status::Completed))['occurred_at'])->toBeNull();
+});
+
+it('round-trips the event, its signal and the subscription it is about', function (): void {
+    $original = new GenericResult('stripe', ResultType::Notification, 'in_1', Status::Pending, eventId: 'evt_1', signal: Signal::PaymentActionRequired, subscriptionId: 'sub_1');
+
+    $notification = PurchaseNotification::factory()->create(['payload' => NotificationResultFactory::snapshot($original)]);
+    $rebuilt = NotificationResultFactory::fromNotification($notification);
+
+    expect($rebuilt?->eventId())->toBe('evt_1')
+        ->and($rebuilt?->signal())->toBe(Signal::PaymentActionRequired)
+        ->and($rebuilt?->subscriptionId())->toBe('sub_1')
+        ->and($notification->eventId())->toBe('evt_1');
+});
+
+it('rebuilds an older snapshot, or one with a signal it does not know, without one', function (): void {
+    $payload = NotificationResultFactory::snapshot(new GenericResult('stripe', ResultType::Purchase, 'pi_1', Status::Completed));
+    unset($payload['event_id'], $payload['signal'], $payload['subscription_id']);
+    $older = PurchaseNotification::factory()->create(['payload' => $payload]);
+    $unknown = PurchaseNotification::factory()->create(['payload' => ['signal' => 'meteor_strike'] + $payload]);
+
+    expect(NotificationResultFactory::fromNotification($older)?->signal())->toBeNull()
+        ->and(NotificationResultFactory::fromNotification($older)?->eventId())->toBeNull()
+        ->and($older->eventId())->toBeNull()
+        ->and(NotificationResultFactory::fromNotification($unknown)?->signal())->toBeNull();
 });

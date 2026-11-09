@@ -199,6 +199,8 @@ class Apple extends BaseProvider implements VerifiesConnectivity
             chargeback: false,
             // When Apple signed the notification — what orders redeliveries and replays.
             occurredAt: $payload->signedDate,
+            // Apple resends a notification under the same UUID.
+            eventId: $payload->uuid,
         );
     }
 

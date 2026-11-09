@@ -56,6 +56,37 @@ return [
      */
     'audit' => [
         'enabled' => env('PURCHASES_AUDIT_ENABLED', true),
+
+        /*
+         | Process each provider event once. Stores deliver at least once, so a Stripe event,
+         | an Apple notification or a Google Pub/Sub message can arrive twice; with this on,
+         | handle() stores the event id on its audit row (unique per provider, so racing
+         | deliveries store it once) and answers a repeat with that row, recording and firing
+         | nothing. A redelivery that arrives while the first is still processing throws
+         | EventInProgressException (the webhook route answers 409) so the store retries it;
+         | once a claim is older than claim_timeout SECONDS — its delivery failed or died — a
+         | redelivery takes the event over. Needs the audit log, and the migration that adds
+         | the event_id column. Off by default; on in the next major.
+         */
+        'deduplicate' => env('PURCHASES_AUDIT_DEDUPLICATE', false),
+        'claim_timeout' => env('PURCHASES_AUDIT_CLAIM_TIMEOUT', 300),
+    ],
+
+    /*
+     | Allow an owner one subscription at a time. With one_per_owner on, starting a Stripe
+     | subscription — Purchases::stripe()->subscriptions()->create() or ->checkout() — is
+     | refused with a BillingException while the owner holds one that is not over (pending,
+     | active, in grace or on hold, of any provider). The check and the start run under an
+     | atomic lock per owner on the lock store (blank: the default cache store), waiting up to
+     | `wait` seconds for a start already running. The lock is atomic only across servers that
+     | share it: use redis, memcached, database or dynamodb.
+     */
+    'subscriptions' => [
+        'one_per_owner' => env('PURCHASES_ONE_SUBSCRIPTION_PER_OWNER', false),
+        'lock' => [
+            'store' => env('PURCHASES_SUBSCRIPTION_LOCK_STORE'),
+            'wait' => env('PURCHASES_SUBSCRIPTION_LOCK_WAIT', 10),
+        ],
     ],
 
     /*
@@ -172,6 +203,24 @@ return [
             'api_version' => env('PURCHASES_STRIPE_API_VERSION', '2026-05-27.dahlia'),
             'base_url' => env('PURCHASES_STRIPE_BASE_URL', 'https://api.stripe.com/v1'),
             'tolerance' => env('PURCHASES_STRIPE_TOLERANCE', 300),
+
+            /*
+             | Defaults for a new subscription that does not set its own. billing_mode:
+             | "flexible" (mixed intervals on one subscription; needs API version
+             | 2025-06-30.basil or later) or "classic"; blank sends none, so Stripe's default
+             | for the API version applies (flexible from 2025-09-30.clover). missing_payment_method,
+             | for a trial that ends without one: "cancel", "pause" or "create_invoice"; blank
+             | sends none (Stripe's default, create_invoice).
+             */
+            'billing_mode' => env('PURCHASES_STRIPE_BILLING_MODE'),
+            'missing_payment_method' => env('PURCHASES_STRIPE_MISSING_PAYMENT_METHOD'),
+
+            /*
+             | How a past_due subscription is recorded: "in_grace" keeps access while Stripe
+             | retries the payment (SubscriptionInGracePeriod); "on_hold" takes it away at once
+             | (SubscriptionOnHold). unpaid and paused are always on hold.
+             */
+            'past_due' => env('PURCHASES_STRIPE_PAST_DUE', 'in_grace'),
         ],
     ],
 ];

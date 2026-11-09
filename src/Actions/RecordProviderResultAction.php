@@ -11,8 +11,10 @@ use RoundlyConsulting\Purchases\DataTransferObjects\RecordPurchaseData;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordRefundData;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordSubscriptionData;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Signal;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\ChargebackReceived;
+use RoundlyConsulting\Purchases\Events\PaymentActionRequired;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Events\PurchaseFailed;
 use RoundlyConsulting\Purchases\Events\PurchaseRecorded;
@@ -20,13 +22,17 @@ use RoundlyConsulting\Purchases\Events\PurchaseRefunded;
 use RoundlyConsulting\Purchases\Events\SubscriptionCanceled;
 use RoundlyConsulting\Purchases\Events\SubscriptionExpired;
 use RoundlyConsulting\Purchases\Events\SubscriptionInGracePeriod;
+use RoundlyConsulting\Purchases\Events\SubscriptionOnHold;
 use RoundlyConsulting\Purchases\Events\SubscriptionRenewed;
+use RoundlyConsulting\Purchases\Events\SubscriptionResumed;
 use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
+use RoundlyConsulting\Purchases\Events\SubscriptionTrialWillEnd;
 use RoundlyConsulting\Purchases\Events\SubscriptionUpdated;
 use RoundlyConsulting\Purchases\Models\Purchase;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Results\GenericResult;
+use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
 /**
  * Turns a unified provider result into a persisted model and dispatches the
@@ -39,7 +45,13 @@ use RoundlyConsulting\Purchases\Results\GenericResult;
  * A Notification or Unknown result is informational — a store event that changes no
  * entitlement (a renewal preference, a price increase, a declined refund, a test) or one
  * this package does not map. It is recorded nowhere, fires nothing, and yields null, so
- * it can never overwrite a subscription's status.
+ * it can never overwrite a subscription's status. A notification may still carry a signal
+ * (a payment waiting for the customer), which fires its own event.
+ *
+ * Signals — SubscriptionTrialWillEnd, PaymentActionRequired — say that something happened
+ * rather than that a status moved, so a repeat cannot be told from the first delivery: they fire
+ * whenever `$signals` is on, which every caller but the replay of an already processed
+ * notification leaves it.
  *
  * A purchase or subscription no owner is linked to yet is linked to the owner of the billing
  * customer the result names (a Stripe `customer`, see BillingCustomers), or to the owner the
@@ -59,14 +71,40 @@ final readonly class RecordProviderResultAction
         private BillingCustomers $customers,
     ) {}
 
-    public function execute(ProviderResult $result, ?Model $owner = null): ?Model
+    public function execute(ProviderResult $result, ?Model $owner = null, bool $signals = true): ?Model
     {
         return match ($result->type()) {
             ResultType::Refund => $this->refund($result),
             ResultType::Purchase => $this->purchase($result, $owner),
-            ResultType::Subscription => $this->subscription($result, $owner),
-            ResultType::Notification, ResultType::Unknown => null,
+            ResultType::Subscription => $this->subscription($result, $owner, $signals),
+            ResultType::Notification, ResultType::Unknown => $this->notification($result, $owner, $signals),
         };
+    }
+
+    /**
+     * An informational result records nothing; one that signals a payment waiting for the
+     * customer announces it, with the subscription it bills and its owner when they are known.
+     */
+    private function notification(ProviderResult $result, ?Model $owner, bool $signals): null
+    {
+        if (! $signals || ! $result instanceof GenericResult || $result->signal() !== Signal::PaymentActionRequired) {
+            return null;
+        }
+
+        $subscription = $result->subscriptionId() !== null
+            ? SubscriptionModel::query()->where('provider', $result->provider())->where('provider_id', $result->subscriptionId())->first()
+            : null;
+
+        $url = $result->raw()['hosted_invoice_url'] ?? null;
+
+        PaymentActionRequired::dispatch(
+            $result,
+            $subscription,
+            $owner ?? $subscription->owner ?? $this->owner($result, null),
+            is_string($url) && $url !== '' ? $url : null,
+        );
+
+        return null;
     }
 
     /**
@@ -103,7 +141,7 @@ final readonly class RecordProviderResultAction
         return $purchase;
     }
 
-    private function subscription(ProviderResult $result, ?Model $owner): Subscription
+    private function subscription(ProviderResult $result, ?Model $owner, bool $signals): Subscription
     {
         $recorded = $this->recordSubscription->record(RecordSubscriptionData::fromResult($result, $this->owner($result, $owner)));
         $subscription = $recorded->subscription;
@@ -123,10 +161,20 @@ final readonly class RecordProviderResultAction
                 default => null,
             },
             Status::InGracePeriod => $changed ? SubscriptionInGracePeriod::dispatch($subscription, $result) : null,
+            Status::OnHold => $changed ? SubscriptionOnHold::dispatch($subscription, $result) : null,
             Status::Canceled => $changed ? SubscriptionCanceled::dispatch($subscription, $result) : null,
             Status::Failed => $changed ? SubscriptionExpired::dispatch($subscription, $result) : null,
             default => null,
         };
+
+        // Back from a hold — announced next to the renewal it always was.
+        if ($result->status() === Status::Completed && self::previousStatus($subscription) === Status::OnHold) {
+            SubscriptionResumed::dispatch($subscription, $result);
+        }
+
+        if ($signals && $result instanceof GenericResult && $result->signal() === Signal::TrialWillEnd) {
+            SubscriptionTrialWillEnd::dispatch($subscription, $result);
+        }
 
         // A seat count, a swapped price, an item added or removed.
         if ($recorded->itemsChanged && ! $subscription->wasRecentlyCreated) {
@@ -144,14 +192,24 @@ final readonly class RecordProviderResultAction
      */
     private static function firstActivated(Subscription $subscription): bool
     {
+        $previous = self::previousStatus($subscription);
+
+        return $previous === Status::New || $previous === Status::Pending;
+    }
+
+    /**
+     * The status this recording moved the subscription away from, or null when it did not
+     * move it.
+     */
+    private static function previousStatus(Subscription $subscription): ?Status
+    {
         if (! $subscription->wasChanged('status')) {
-            return false;
+            return null;
         }
 
         $previous = $subscription->getPrevious()['status'] ?? null;
-        $previous = $previous instanceof Status ? $previous : Status::tryFrom(is_string($previous) ? $previous : '');
 
-        return $previous === Status::New || $previous === Status::Pending;
+        return $previous instanceof Status ? $previous : Status::tryFrom(is_string($previous) ? $previous : '');
     }
 
     /**

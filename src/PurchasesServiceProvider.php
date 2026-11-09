@@ -62,6 +62,8 @@ final class PurchasesServiceProvider extends PackageServiceProvider
                 'Stripe tolerance' => self::seconds('purchases.settings.stripe.tolerance', 300),
                 'Provider endpoints' => self::endpoints(),
                 'Audit log' => Config::boolean('purchases.audit.enabled', true) ? 'ON' : 'OFF',
+                'Event deduplication' => Config::boolean('purchases.audit.deduplicate') ? 'ON' : 'OFF',
+                'One subscription per owner' => Config::boolean('purchases.subscriptions.one_per_owner') ? 'ON' : 'OFF',
                 'Queue processing' => self::queue(),
                 'Webhook routes' => self::routes(),
             ]);

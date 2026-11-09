@@ -63,6 +63,27 @@ it('records a purchase from a valid signed webhook', function (): void {
     Event::assertDispatched(PurchaseCompleted::class);
 });
 
+it('answers 409 to a redelivery of an event another delivery is still processing', function (): void {
+    config()->set('purchases.audit.deduplicate', true);
+    PurchaseNotification::factory()->create([
+        'provider' => 'stripe',
+        'type' => 'subscription',
+        'event_id' => 'evt_busy',
+        'claimed_at' => Carbon::now(),
+        'processed_at' => null,
+    ]);
+
+    $payload = (string) json_encode([
+        'id' => 'evt_busy',
+        'type' => 'customer.subscription.updated',
+        'data' => ['object' => stripeBillingSubscription()],
+    ]);
+
+    $response = $this->call('POST', '/purchases/webhooks/stripe', [], [], [], $this->transformHeadersToServerVars(stripeWebhookHeaders($payload)), $payload);
+
+    $response->assertStatus(409);
+});
+
 it('rejects a webhook with an invalid signature', function (): void {
     $payload = '{"id":"evt_1","type":"payment_intent.succeeded","data":{"object":{}}}';
 

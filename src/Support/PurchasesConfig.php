@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Support;
 
+use BackedEnum;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use RoundlyConsulting\PackageToolkit\Support\ConfigValidator;
 use RoundlyConsulting\Purchases\Exceptions\InvalidConfigurationException;
@@ -38,6 +39,39 @@ final class PurchasesConfig
     public static function optionalString(mixed $value, string $key): ?string
     {
         return self::blank($value) ? null : self::validator($key, $value)->requireString($key);
+    }
+
+    /**
+     * A value from a fixed vocabulary: `$default` when not set (absent, null or blank); anything
+     * outside `$allowed` throws, listing it.
+     *
+     * @param  non-empty-list<string>  $allowed
+     */
+    public static function oneOf(mixed $value, string $key, array $allowed, string $default): string
+    {
+        return self::validator($key, $value)->oneOf($key, $allowed, $default);
+    }
+
+    /**
+     * An optional enum case: null when not set (absent, null or blank); a value that is no case
+     * of `$enum` throws, naming the key.
+     *
+     * @template TEnum of BackedEnum
+     *
+     * @param  class-string<TEnum>  $enum
+     * @return TEnum|null
+     */
+    public static function optionalEnum(mixed $value, string $key, string $enum): ?BackedEnum
+    {
+        if (self::blank($value)) {
+            return null;
+        }
+
+        if ($value instanceof $enum) {
+            return $value;
+        }
+
+        return self::validator($key, $value)->enum($key, $enum);
     }
 
     /**

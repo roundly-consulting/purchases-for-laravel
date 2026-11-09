@@ -18,8 +18,12 @@ enum EventType: string
     case SubscriptionCreated = 'customer.subscription.created';
     case SubscriptionUpdated = 'customer.subscription.updated';
     case SubscriptionDeleted = 'customer.subscription.deleted';
+    case SubscriptionPaused = 'customer.subscription.paused';
+    case SubscriptionResumed = 'customer.subscription.resumed';
+    case SubscriptionTrialWillEnd = 'customer.subscription.trial_will_end';
     case InvoicePaid = 'invoice.paid';
     case InvoicePaymentFailed = 'invoice.payment_failed';
+    case InvoicePaymentActionRequired = 'invoice.payment_action_required';
     case ChargeRefunded = 'charge.refunded';
     case ChargeDisputeCreated = 'charge.dispute.created';
     case ChargeDisputeClosed = 'charge.dispute.closed';
@@ -36,7 +40,10 @@ enum EventType: string
         return match ($this) {
             self::SubscriptionCreated,
             self::SubscriptionUpdated,
-            self::SubscriptionDeleted => ResultType::Subscription,
+            self::SubscriptionDeleted,
+            self::SubscriptionPaused,
+            self::SubscriptionResumed,
+            self::SubscriptionTrialWillEnd => ResultType::Subscription,
             self::ChargeRefunded,
             self::ChargeDisputeCreated,
             self::ChargeDisputeClosed,
@@ -46,6 +53,8 @@ enum EventType: string
             self::CheckoutSessionCompleted,
             self::InvoicePaid,
             self::InvoicePaymentFailed => ResultType::Purchase,
+            // Announces, records nothing: the invoice's subscription moves by its own events.
+            self::InvoicePaymentActionRequired => ResultType::Notification,
             self::Unknown => ResultType::Unknown,
         };
     }

@@ -10,12 +10,17 @@ use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\CreateSubscriptionDat
 use RoundlyConsulting\Purchases\Exceptions\BillingException;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Stripe\Billing\BillingApi;
+use RoundlyConsulting\Purchases\Providers\Stripe\Billing\BillingDefaults;
 use RoundlyConsulting\Purchases\Support\IdempotencyKey;
+use RoundlyConsulting\Purchases\Support\SubscriptionLimit;
 
 /**
  * Starts a Stripe subscription for an owner's customer — one or more prices, each with an
  * optional quantity — and records it locally, owned by that owner and named as given. Its
  * lifecycle events fire as for a webhook: SubscriptionStarted for an active or trialing one.
+ *
+ * Under `purchases.subscriptions.one_per_owner` an owner who still holds a subscription that is
+ * not over is refused, race-free (see SubscriptionLimit).
  */
 final readonly class CreateStripeSubscriptionAction
 {
@@ -23,14 +28,21 @@ final readonly class CreateStripeSubscriptionAction
         private BillingApi $api,
         private BillingCustomers $customers,
         private RecordStripeSubscriptionAction $record,
+        private SubscriptionLimit $limit,
     ) {}
 
     public function execute(Model $owner, CreateSubscriptionData $data, ?string $idempotencyKey = null): Subscription
     {
         $customer = $this->customers->customerId($owner, 'stripe') ?? throw BillingException::noCustomer($owner);
+        $mode = $data->billingMode ?? BillingDefaults::billingMode();
+        BillingDefaults::assertSupports($mode);
+        $params = $data->toParams($customer, $mode, BillingDefaults::trialEndBehavior());
+        $key = IdempotencyKey::resolve($idempotencyKey);
 
-        $response = $this->api->post('/subscriptions', $data->toParams($customer), IdempotencyKey::resolve($idempotencyKey));
-
-        return $this->record->execute($response, $owner, $data->name);
+        return $this->limit->guard($owner, fn (): Subscription => $this->record->execute(
+            $this->api->post('/subscriptions', $params, $key),
+            $owner,
+            $data->name,
+        ));
     }
 }

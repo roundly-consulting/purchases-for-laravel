@@ -6,6 +6,60 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+Upgrade: to use event deduplication, republish and run the migrations
+(`php artisan vendor:publish --tag=purchases-migrations`, then `php artisan migrate`). One
+additive migration adds `purchase_notifications.event_id` (unique per provider) and
+`claimed_at`. Nothing writes them until `purchases.audit.deduplicate` is on.
+
+### Added
+
+- Opt-in event deduplication (`purchases.audit.deduplicate`, `PURCHASES_AUDIT_DEDUPLICATE`):
+  `Purchases::handle()` processes each provider event once. The event id (a Stripe `evt_…`, an
+  Apple `notificationUUID`, a Google Pub/Sub `messageId`) is stored on its audit row under a
+  unique index, so racing deliveries store it once. A repeat returns the first audit row and
+  records and fires nothing. A redelivery that arrives while the first is still processing
+  throws `EventInProgressException`, which the webhook route answers with 409 so the store
+  retries. A claim older than `purchases.audit.claim_timeout` seconds (default 300), or one a
+  failed delivery released, is taken over by the next delivery. Needs the audit log.
+- `GenericResult::eventId()`, set by all three providers, and kept in audit snapshots
+  (`PurchaseNotification::eventId()`) whether or not deduplication is on.
+- Opt-in limit of one subscription per owner (`purchases.subscriptions.one_per_owner`):
+  `Purchases::stripe()->subscriptions()->create()` and `->checkout()` throw a `BillingException`
+  while the owner holds a subscription that is not over (pending, active, in grace, on hold, of
+  any provider). The check and the start run under an atomic cache lock per owner
+  (`purchases.subscriptions.lock.store`, `lock.wait`), so two concurrent starts cannot both pass.
+  `Subscription::ongoing()` and `Purchases::for($owner)->hasOngoingSubscription()` expose the same
+  check.
+- Stripe flexible billing mode: `CreateSubscriptionData` and `CheckoutSubscriptionData` take
+  `billingMode: BillingMode::Flexible|Classic` (`billing_mode[type]`), with a default in
+  `purchases.settings.stripe.billing_mode`. Flexible mode lets an annual licensed price and a
+  monthly metered price share one subscription. A billing mode on an API version older than
+  2025-06-30.basil is refused before Stripe is called.
+- Free trials without a payment method: `trialEndBehavior: MissingPaymentMethod::Cancel|Pause|CreateInvoice`
+  on both DTOs (`trial_settings[end_behavior][missing_payment_method]`), defaulting to
+  `purchases.settings.stripe.missing_payment_method`, and
+  `paymentMethodCollection: PaymentMethodCollection::IfRequired` on Checkout
+  (`payment_method_collection=if_required`).
+- `SubscriptionOnHold` event, for every provider: a subscription moved to on hold (Stripe
+  `unpaid` or `paused`, Apple's billing retry after its grace period, Google's account hold).
+- `SubscriptionResumed` event: a subscription on hold is active again. `SubscriptionRenewed`
+  still fires with it.
+- `purchases.settings.stripe.past_due`: `in_grace` (default, access kept) or `on_hold`
+  (a `past_due` subscription loses access at once and fires `SubscriptionOnHold`).
+- Stripe `customer.subscription.trial_will_end`, `customer.subscription.paused` and
+  `customer.subscription.resumed` are now recorded as subscription updates (they were only
+  audited), and `trial_will_end` fires the new `SubscriptionTrialWillEnd` event.
+- Stripe `invoice.payment_action_required` fires the new `PaymentActionRequired` event, with the
+  stored subscription the invoice bills, its owner and the invoice's `hosted_invoice_url`. It
+  records nothing.
+- `Enum\Signal`, and `GenericResult::signal()` / `subscriptionId()`, for results that announce
+  something besides the state they record. A replay of an already processed notification does
+  not fire its signal again.
+
+### Planned for the next major
+
+- `purchases.audit.deduplicate` will default to on.
+
 ## 2.0.0 - 2026-11-07
 
 ### Changed

@@ -53,6 +53,15 @@ final readonly class OwnerPurchases
     }
 
     /**
+     * Whether the owner holds a subscription that is not over yet — pending, active, in grace
+     * or on hold, of any provider (see Subscription::scopeOngoing()).
+     */
+    public function hasOngoingSubscription(): bool
+    {
+        return $this->subscriptions()->ongoing()->exists();
+    }
+
+    /**
      * Whether the owner has an active subscription to the given plan name.
      */
     public function subscribedTo(string $name): bool

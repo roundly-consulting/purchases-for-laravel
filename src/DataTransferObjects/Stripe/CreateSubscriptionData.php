@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\DataTransferObjects\Stripe;
 
 use RoundlyConsulting\Purchases\Exceptions\BillingException;
+use RoundlyConsulting\Purchases\Providers\Stripe\Enums\BillingMode;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\CollectionMethod;
+use RoundlyConsulting\Purchases\Providers\Stripe\Enums\MissingPaymentMethod;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentBehavior;
 
 /**
@@ -14,6 +16,13 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentBehavior;
  * Null options are not sent, so Stripe's defaults apply: no trial, automatic tax as the
  * account sets it, `charge_automatically`, `allow_incomplete`. `name` names the local
  * subscription row (what `subscribedTo()` checks); Stripe itself names no plan.
+ *
+ * `billingMode` Flexible lets prices of different intervals share the subscription — an
+ * annual licensed price next to a monthly metered one; each interval must be a multiple of the
+ * shortest (Stripe checks). A trial needs no payment method; `trialEndBehavior` says what
+ * happens when it ends without one. Unset, they fall back to the `billing_mode` and
+ * `missing_payment_method` settings under `purchases.settings.stripe`, then to Stripe's
+ * defaults (flexible on the pinned API version; `create_invoice`).
  */
 final readonly class CreateSubscriptionData
 {
@@ -30,6 +39,8 @@ final readonly class CreateSubscriptionData
         public ?int $daysUntilDue = null,
         public ?PaymentBehavior $paymentBehavior = null,
         public array $metadata = [],
+        public ?BillingMode $billingMode = null,
+        public ?MissingPaymentMethod $trialEndBehavior = null,
     ) {
         if ($prices === []) {
             throw BillingException::invalid('A subscription needs at least one price.');
@@ -39,16 +50,26 @@ final readonly class CreateSubscriptionData
             throw BillingException::invalid('A trial must last at least one day.');
         }
 
+        if ($trialEndBehavior !== null && $trialDays === null) {
+            throw BillingException::invalid('A trial end behaviour needs a trial.');
+        }
+
         if ($daysUntilDue !== null && $collectionMethod !== CollectionMethod::SendInvoice) {
             throw BillingException::invalid('Days until due apply only to the send_invoice collection method.');
         }
     }
 
     /**
+     * The defaults apply only where the data leaves a value unset — a trial end behaviour only
+     * to a subscription with a trial.
+     *
      * @return array<string, mixed>
      */
-    public function toParams(string $customer): array
+    public function toParams(string $customer, ?BillingMode $defaultBillingMode = null, ?MissingPaymentMethod $defaultTrialEndBehavior = null): array
     {
+        $billingMode = $this->billingMode ?? $defaultBillingMode;
+        $trialEnd = $this->trialDays === null ? null : $this->trialEndBehavior ?? $defaultTrialEndBehavior;
+
         return [
             'customer' => $customer,
             'items' => array_map(static fn (SubscriptionPrice $price): array => $price->toParams(), $this->prices),
@@ -58,6 +79,8 @@ final readonly class CreateSubscriptionData
             'days_until_due' => $this->daysUntilDue,
             'payment_behavior' => $this->paymentBehavior?->value,
             'metadata' => $this->metadata === [] ? null : $this->metadata,
+            'billing_mode' => $billingMode !== null ? ['type' => $billingMode->value] : null,
+            'trial_settings' => $trialEnd !== null ? ['end_behavior' => ['missing_payment_method' => $trialEnd->value]] : null,
         ];
     }
 }

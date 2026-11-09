@@ -387,7 +387,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
      *
      * @param  array<string, mixed>|null  $notification
      */
-    private function subscriptionResult(string $token, SubscriptionPurchase $purchase, ?array $notification = null, ?CarbonInterface $eventTime = null): GenericResult
+    private function subscriptionResult(string $token, SubscriptionPurchase $purchase, ?array $notification = null, ?CarbonInterface $eventTime = null, ?string $eventId = null): GenericResult
     {
         return new GenericResult(
             provider: $this->id(),
@@ -407,6 +407,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
             raw: $notification === null ? $purchase->raw : $notification + ['subscriptionPurchase' => $purchase->raw],
             // An RTDN orders by its event time; a callback by when the API reported the state.
             occurredAt: $eventTime ?? Carbon::now(),
+            eventId: $eventId,
         );
     }
 
@@ -417,6 +418,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
     private function notificationResult(Request $request): ProviderResult
     {
         $notification = $this->notification($request);
+        $eventId = self::messageId($request);
 
         // Push auth proves Google sent it, not that it is about this app: a Pub/Sub topic can
         // be shared. Another app's notification is audited, never applied — and answered 2xx,
@@ -433,6 +435,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
                 status: Status::Processing,
                 raw: $notification->raw,
                 occurredAt: $notification->eventTime,
+                eventId: $eventId,
             );
         }
 
@@ -451,6 +454,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
                 refundReason: $voided->refundType !== null ? (string) $voided->refundType : null,
                 chargeback: false,
                 occurredAt: $notification->eventTime,
+                eventId: $eventId,
             );
         }
 
@@ -465,7 +469,7 @@ class Google extends BaseProvider implements VerifiesConnectivity
         // `ends_at` forward instead of leaving the subscription to lapse.
         if ($resultType === ResultType::Subscription && is_string($token) && $token !== '') {
             try {
-                return $this->subscriptionResult($token, $this->readSubscription($token), $notification->raw, $notification->eventTime);
+                return $this->subscriptionResult($token, $this->readSubscription($token), $notification->raw, $notification->eventTime, $eventId);
             } catch (RequestException $e) {
                 // 410 Gone: expired too long ago for Google to keep — the RTDN is all there is.
                 if ($e->response->status() !== 410) {
@@ -485,7 +489,25 @@ class Google extends BaseProvider implements VerifiesConnectivity
             raw: $notification->raw,
             refundReason: $type?->isRefund() === true ? $type->name : null,
             occurredAt: $notification->eventTime,
+            eventId: $eventId,
         );
+    }
+
+    /**
+     * The Pub/Sub message id of a push (`message.messageId`, or the `message_id` spelling it
+     * also carries) — Pub/Sub redelivers a message under the same id.
+     */
+    private static function messageId(Request $request): ?string
+    {
+        foreach (['message.messageId', 'message.message_id'] as $key) {
+            $id = $request->input($key);
+
+            if (is_string($id) && $id !== '') {
+                return $id;
+            }
+        }
+
+        return null;
     }
 
     /**

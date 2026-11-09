@@ -103,6 +103,18 @@ class Subscription extends Model
     }
 
     /**
+     * Subscriptions that are not over: every status but canceled, failed (expired) and
+     * refunded — pending, active, in grace, on hold (unpaid, paused) or in flux. What
+     * `purchases.subscriptions.one_per_owner` counts.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeOngoing(Builder $query): void
+    {
+        $query->whereNotIn('status', [Status::Canceled->value, Status::Failed->value, Status::Refunded->value]);
+    }
+
+    /**
      * Subscriptions the customer has canceled.
      *
      * @param  Builder<self>  $query

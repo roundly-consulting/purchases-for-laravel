@@ -9,6 +9,7 @@ use RoundlyConsulting\Money\Money;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Signal;
 use RoundlyConsulting\Purchases\Enum\Status;
 
 /**
@@ -40,6 +41,9 @@ final readonly class GenericResult implements ProviderResult
         private ?CarbonInterface $occurredAt = null,
         private ?string $customerId = null,
         private ?bool $cancelAtPeriodEnd = null,
+        private ?string $eventId = null,
+        private ?Signal $signal = null,
+        private ?string $subscriptionId = null,
     ) {}
 
     public function provider(): string
@@ -138,5 +142,34 @@ final readonly class GenericResult implements ProviderResult
     public function cancelAtPeriodEnd(): ?bool
     {
         return $this->cancelAtPeriodEnd;
+    }
+
+    /**
+     * The provider's id of the event this result came from — a Stripe event `evt_…`, an
+     * Apple `notificationUUID`, a Google Pub/Sub `messageId` — or null when it came from no
+     * event (a callback, a billing answer, a host-built result). A redelivery carries the same
+     * id, which is what `purchases.audit.deduplicate` skips repeats by.
+     */
+    public function eventId(): ?string
+    {
+        return $this->eventId;
+    }
+
+    /**
+     * What the event announces beyond the state it records — a trial ending soon, a payment
+     * waiting for the customer — or null.
+     */
+    public function signal(): ?Signal
+    {
+        return $this->signal;
+    }
+
+    /**
+     * The provider's id of the subscription a notification is about when the notification is
+     * not the subscription itself (a Stripe invoice that needs the customer's action).
+     */
+    public function subscriptionId(): ?string
+    {
+        return $this->subscriptionId;
     }
 }

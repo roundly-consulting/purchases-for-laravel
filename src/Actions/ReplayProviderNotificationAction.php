@@ -19,7 +19,8 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  *
  * The result is rebuilt from the notification's snapshot, recorded (idempotently, so a
  * repeat changes nothing and fires nothing), and the notification is marked processed. No
- * new audit row is written. Returns the persisted model, or null for an informational
+ * new audit row is written; the signal of a notification already processed (a trial ending
+ * soon, a payment waiting) does not fire again. Returns the persisted model, or null for an informational
  * notification.
  *
  * Only a stored notification replays, and only one somebody vouched for: a provider
@@ -57,7 +58,9 @@ final readonly class ReplayProviderNotificationAction
         $result = NotificationResultFactory::fromNotification($notification)
             ?? throw InvalidProviderNotificationException::because("{$label} could not be rebuilt into a result.");
 
-        $model = $this->record->execute($result);
+        // A signal (a trial ending soon, a payment waiting) is announced once: a notification
+        // already processed has announced it.
+        $model = $this->record->execute($result, signals: $notification->processed_at === null);
 
         $notification->update(['processed_at' => Carbon::now()]);
 

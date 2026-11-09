@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * A billing call the package refuses before Stripe is asked: an owner with no Stripe
  * customer, a subscription that is not Stripe's, a malformed id or idempotency key, a
- * negative quantity.
+ * negative quantity, a second subscription under `purchases.subscriptions.one_per_owner`.
  */
 final class BillingException extends Exception
 {
@@ -26,6 +26,16 @@ final class BillingException extends Exception
     public static function customerTaken(string $customer): self
     {
         return new self("Stripe customer [{$customer}] already belongs to another owner.");
+    }
+
+    public static function alreadySubscribed(Model $owner): self
+    {
+        return new self('The '.class_basename($owner).' already has a subscription that is not over, and [purchases.subscriptions.one_per_owner] allows one.');
+    }
+
+    public static function subscriptionLocked(Model $owner): self
+    {
+        return new self('Another subscription is being started for the '.class_basename($owner).'; try again.');
     }
 
     public static function notStripe(string $what): self

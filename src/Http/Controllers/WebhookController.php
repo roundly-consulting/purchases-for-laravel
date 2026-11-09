@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Purchases\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use RoundlyConsulting\Purchases\Exceptions\EventInProgressException;
 use RoundlyConsulting\Purchases\Exceptions\UnknownProviderException;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\PurchasesManager;
@@ -13,6 +14,9 @@ use RoundlyConsulting\Purchases\PurchasesManager;
 /**
  * Opt-in webhook endpoint. Resolves the provider from the URL, verifies and
  * persists the result, and returns 204. Disabled unless routes are enabled.
+ *
+ * A redelivery of an event another delivery is still processing (`purchases.audit.deduplicate`)
+ * answers 409, so the store delivers it again later.
  */
 final class WebhookController
 {
@@ -30,6 +34,8 @@ final class WebhookController
             $this->purchases->handle($provider, $request);
         } catch (VerificationException|UnknownProviderException) {
             abort(Response::HTTP_BAD_REQUEST);
+        } catch (EventInProgressException) {
+            abort(Response::HTTP_CONFLICT);
         }
 
         return response()->noContent();

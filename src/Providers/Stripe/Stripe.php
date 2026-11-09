@@ -13,6 +13,7 @@ use RoundlyConsulting\Purchases\Contracts\SupportsBilling;
 use RoundlyConsulting\Purchases\Contracts\VerifiesConnectivity;
 use RoundlyConsulting\Purchases\DataTransferObjects\ConnectivityResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Signal;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Exceptions\VerificationException;
 use RoundlyConsulting\Purchases\Providers\BaseProvider;
@@ -174,6 +175,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 status: Status::Processing,
                 raw: $event->object,
                 occurredAt: $event->created,
+                eventId: $event->id,
             );
         }
 
@@ -182,7 +184,18 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
         }
 
         if ($event->type->resultType() === ResultType::Subscription) {
-            return SubscriptionResults::fromObject($event->object, $event->created, $this->id(), fallbackId: (string) $event->id);
+            return SubscriptionResults::fromObject(
+                $event->object,
+                $event->created,
+                $this->id(),
+                fallbackId: (string) $event->id,
+                eventId: $event->id,
+                signal: $event->type === EventType::SubscriptionTrialWillEnd ? Signal::TrialWillEnd : null,
+            );
+        }
+
+        if ($event->type === EventType::InvoicePaymentActionRequired) {
+            return $this->actionRequiredResult($event, $object);
         }
 
         $id = $object->value('id');
@@ -206,6 +219,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 status: Status::Processing,
                 raw: $event->object,
                 occurredAt: $event->created,
+                eventId: $event->id,
             );
         }
 
@@ -234,6 +248,34 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
             occurredAt: $event->created,
             // A billing customer linked to it makes its owner the purchase's owner.
             customerId: self::customerOf($object),
+            eventId: $event->id,
+        );
+    }
+
+    /**
+     * An invoice payment that waits for the customer — 3-D Secure, a bank redirect. It records
+     * nothing (the subscription's own events move its status) and announces
+     * PaymentActionRequired, naming the invoice's subscription, if any, so the host can send
+     * the customer to the invoice's `hosted_invoice_url`.
+     */
+    private function actionRequiredResult(StripeEvent $event, DataSet $object): GenericResult
+    {
+        $id = $object->value('id');
+        $subscription = $object->value('parent.subscription_details.subscription') ?? $object->value('subscription');
+        $subscription = is_array($subscription) ? ($subscription['id'] ?? null) : $subscription;
+
+        return new GenericResult(
+            provider: $this->id(),
+            type: ResultType::Notification,
+            providerId: self::filled($id) ? $id : (string) $event->id,
+            status: Status::Pending,
+            price: StripeMoney::fromDataSet($object, 'amount_due', 'currency'),
+            raw: $event->object,
+            occurredAt: $event->created,
+            customerId: self::customerOf($object),
+            eventId: $event->id,
+            signal: Signal::PaymentActionRequired,
+            subscriptionId: self::filled($subscription) ? $subscription : null,
         );
     }
 
@@ -309,7 +351,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
         }
 
         /** @var array<string, mixed> $fetched */
-        return SubscriptionResults::fromObject($fetched, self::answeredAt($response->header('Date')) ?? $event->created, $this->id());
+        return SubscriptionResults::fromObject($fetched, self::answeredAt($response->header('Date')) ?? $event->created, $this->id(), eventId: $event->id);
     }
 
     private static function answeredAt(string $date): ?Carbon
@@ -474,6 +516,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
             refundReason: is_string($reason) ? $reason : null,
             chargeback: $chargeback,
             occurredAt: $event->created,
+            eventId: $event->id,
         );
     }
 
@@ -503,6 +546,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 transactionId: $paymentIntent,
                 raw: $event->object,
                 occurredAt: $event->created,
+                eventId: $event->id,
             );
         }
 
@@ -520,6 +564,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 refundReason: is_string($reason) ? $reason : null,
                 chargeback: true,
                 occurredAt: $event->created,
+                eventId: $event->id,
             );
         }
 

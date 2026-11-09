@@ -35,6 +35,7 @@ use RoundlyConsulting\Purchases\Providers\Apple\Jws\JwsManager;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ReceiptResponse;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\ServerNotificationDecodedPayload;
 use RoundlyConsulting\Purchases\Providers\Apple\ValueObjects\TransactionInfo;
+use RoundlyConsulting\Purchases\Results\GenericResult;
 
 /**
  * A JwsManager test double that maps each input payload to canned claims.
@@ -369,7 +370,9 @@ it('maps a renewal notification into a unified subscription result', function ()
         ->and($result->transactionId())->toBe('txn-9')
         ->and($result->productId())->toBe('pro.monthly')
         ->and($result->status())->toBe(Status::Completed)
-        ->and($result->endsAt())->not->toBeNull();
+        ->and($result->endsAt())->not->toBeNull()
+        // Apple resends a notification under its UUID: the event id deduplication skips by.
+        ->and($result instanceof GenericResult ? $result->eventId() : null)->toBe('n-3');
 });
 
 it('maps a notification without transaction info into a notification result', function (): void {

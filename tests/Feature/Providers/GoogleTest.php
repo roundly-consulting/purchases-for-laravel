@@ -1310,3 +1310,42 @@ it('builds test rtdns for the configured app', function (): void {
     expect(PayloadFactory::googleVoidedNotification()['packageName'])->toBe('com.acme.app')
         ->and(PayloadFactory::googleSubscriptionNotification()['packageName'])->toBe('com.acme.app');
 });
+
+it('names the pub/sub message an rtdn arrived in', function (string $key, ?string $id): void {
+    $request = googleRtdn(['voidedPurchaseNotification' => ['purchaseToken' => 'tok-void', 'orderId' => 'GPA.void', 'refundType' => 1]]);
+    $message = $request->input('message');
+
+    if ($id !== null) {
+        $request->merge(['message' => (is_array($message) ? $message : []) + [$key => $id]]);
+    }
+
+    $result = googleProvider()->result($request);
+
+    expect($result instanceof GenericResult ? $result->eventId() : 'not generic')->toBe($id);
+})->with([
+    'messageId' => ['messageId', '1001'],
+    'message_id' => ['message_id', '1002'],
+    'none' => ['messageId', null],
+]);
+
+it('names the pub/sub message on a subscription rtdn and on another app\'s', function (): void {
+    Http::fake(['*/purchases/subscriptionsv2/*' => Http::response(googleSubscriptionV2('SUBSCRIPTION_STATE_ACTIVE', Carbon::now()->addMonth()->toIso8601String()))]);
+    $subscription = googleRtdn(['subscriptionNotification' => ['notificationType' => NotificationType::Renewed->value, 'purchaseToken' => 'tok-1', 'subscriptionId' => 'com.example.pro']]);
+    $subscription->merge(['message' => ['data' => $subscription->input('message.data'), 'messageId' => '2001']]);
+    $foreign = new Request(['message' => ['messageId' => '2002', 'data' => base64_encode((string) json_encode([
+        'version' => '1.0',
+        'packageName' => 'com.other.app',
+        'eventTimeMillis' => '1700000000000',
+        'subscriptionNotification' => ['notificationType' => NotificationType::Renewed->value, 'purchaseToken' => 'tok-2', 'subscriptionId' => 'x'],
+    ]))]]);
+    $test = googleRtdn(['testNotification' => ['version' => '1.0']]);
+    $test->merge(['message' => ['data' => $test->input('message.data'), 'messageId' => '2003']]);
+
+    $ids = array_map(static function (Request $request): ?string {
+        $result = googleProvider()->result($request);
+
+        return $result instanceof GenericResult ? $result->eventId() : null;
+    }, [$subscription, $foreign, $test]);
+
+    expect($ids)->toBe(['2001', '2002', '2003']);
+});

@@ -7,17 +7,23 @@ namespace RoundlyConsulting\Purchases\Providers\Stripe;
 use Carbon\CarbonInterface;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Signal;
 use RoundlyConsulting\Purchases\Enum\Status;
+use RoundlyConsulting\Purchases\Providers\Stripe\Enums\SubscriptionStatus;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\StripeMoney;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Subscription;
 use RoundlyConsulting\Purchases\Results\GenericResult;
 use RoundlyConsulting\Purchases\Support\DataSet;
+use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 
 /**
  * Maps a Stripe Subscription object — from a `customer.subscription.*` webhook, a fetch, or
  * the answer to a billing call — into a subscription result: its status, period, trial,
  * customer, `cancel_at_period_end`, and one item per subscription item with its price,
  * quantity and price id.
+ *
+ * `past_due` is a grace period (access kept) unless `purchases.settings.stripe.past_due` is
+ * `on_hold`; `unpaid` and `paused` are always on hold.
  *
  * @internal
  */
@@ -26,8 +32,9 @@ final class SubscriptionResults
     /**
      * @param  array<string, mixed>  $object
      * @param  string|null  $name  a plan name to give the subscription (null leaves it alone)
+     * @param  string|null  $eventId  the event it came from (`evt_…`), when it came from one
      */
-    public static function fromObject(array $object, ?CarbonInterface $occurredAt, string $provider = 'stripe', ?string $name = null, ?string $fallbackId = null): GenericResult
+    public static function fromObject(array $object, ?CarbonInterface $occurredAt, string $provider = 'stripe', ?string $name = null, ?string $fallbackId = null, ?string $eventId = null, ?Signal $signal = null): GenericResult
     {
         $subscription = Subscription::fromRaw($object);
         $dataset = new DataSet($object);
@@ -37,7 +44,7 @@ final class SubscriptionResults
             provider: $provider,
             type: ResultType::Subscription,
             providerId: $subscription->id ?? (string) $fallbackId,
-            status: $subscription->status?->status() ?? Status::Processing,
+            status: self::status($subscription->status),
             transactionId: $subscription->id,
             // Stripe names no plan: the product only names a subscription when it is first
             // recorded, so a name the host gives it later is never overwritten.
@@ -52,7 +59,22 @@ final class SubscriptionResults
             occurredAt: $occurredAt,
             customerId: self::id($dataset->value('customer')),
             cancelAtPeriodEnd: is_bool($cancelAtPeriodEnd) ? $cancelAtPeriodEnd : null,
+            eventId: $eventId,
+            signal: $signal,
         );
+    }
+
+    private static function status(?SubscriptionStatus $status): Status
+    {
+        if ($status === SubscriptionStatus::PastDue) {
+            $key = 'purchases.settings.stripe.past_due';
+
+            return PurchasesConfig::oneOf(config($key), $key, [Status::InGracePeriod->value, Status::OnHold->value], Status::InGracePeriod->value) === Status::OnHold->value
+                ? Status::OnHold
+                : Status::InGracePeriod;
+        }
+
+        return $status?->status() ?? Status::Processing;
     }
 
     /**

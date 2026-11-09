@@ -55,7 +55,7 @@ it('has a runnable migration order', function () use ($migrations, $tableResolve
 /**
  * P — the publish-only guards. The fleet publishes migrations timestamped rather than
  * auto-loading them; doing both runs both copies — a duplicate-table failure (bug #5, on
- * three packages), which is the exact footgun `tests/Host` exists to guard. `count: 9`
+ * three packages), which is the exact footgun `tests/Host` exists to guard. `count: 10`
  * pins the file count so neither check can pass over an empty or relocated directory.
  */
 it('never auto-loads its migrations — the host publishes them', function (): void {
@@ -63,7 +63,7 @@ it('never auto-loads its migrations — the host publishes them', function (): v
 });
 
 it('publishes its migrations timestamp-injected into the host', function (): void {
-    expect(PurchasesServiceProvider::class)->toPublishMigrationsTimestamped('purchases-migrations', 9);
+    expect(PurchasesServiceProvider::class)->toPublishMigrationsTimestamped('purchases-migrations', 10);
 });
 
 /**
@@ -72,12 +72,12 @@ it('publishes its migrations timestamp-injected into the host', function (): voi
  * connector leaves `PRAGMA foreign_keys` off unless the connection sets
  * `foreign_key_constraints`, which the old hand-rolled TestCase did not).
  *
- * `migrations: 9` pins the count, and the expectation additionally fails a set that
+ * `migrations: 10` pins the count, and the expectation additionally fails a set that
  * "applies cleanly" while creating no tables — an empty `up()` otherwise passes and proves
  * nothing.
  */
 it('applies its migrations on postgres', function () use ($migrations): void {
-    expect($migrations)->toApplyOnConnection('pgsql', migrations: 9);
+    expect($migrations)->toApplyOnConnection('pgsql', migrations: 10);
 })->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
 
 /**

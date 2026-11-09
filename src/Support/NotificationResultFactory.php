@@ -11,6 +11,7 @@ use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\NotificationOrigin;
 use RoundlyConsulting\Purchases\Enum\ResultType;
+use RoundlyConsulting\Purchases\Enum\Signal;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Results\GenericResult;
@@ -46,6 +47,9 @@ final class NotificationResultFactory
             'occurred_at' => $result->occurredAt()?->toIso8601String(),
             'customer_id' => $result instanceof GenericResult ? $result->customerId() : null,
             'cancel_at_period_end' => $result instanceof GenericResult ? $result->cancelAtPeriodEnd() : null,
+            'event_id' => $result instanceof GenericResult ? $result->eventId() : null,
+            'signal' => $result instanceof GenericResult ? $result->signal()?->value : null,
+            'subscription_id' => $result instanceof GenericResult ? $result->subscriptionId() : null,
             'items' => array_map(static fn (ResultItem $item): array => [
                 'name' => $item->name,
                 'provider_id' => $item->providerId,
@@ -123,6 +127,10 @@ final class NotificationResultFactory
             occurredAt: self::date($data['occurred_at'] ?? null),
             customerId: self::string($data['customer_id'] ?? null),
             cancelAtPeriodEnd: is_bool($data['cancel_at_period_end'] ?? null) ? $data['cancel_at_period_end'] : null,
+            eventId: self::string($data['event_id'] ?? null),
+            // A snapshot written before signals were stored has none; an unknown one is dropped.
+            signal: is_string($data['signal'] ?? null) ? Signal::tryFrom($data['signal']) : null,
+            subscriptionId: self::string($data['subscription_id'] ?? null),
         );
     }
 
