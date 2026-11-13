@@ -6,6 +6,8 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 2.2.0 - 2026-11-13
+
 Upgrade: to store scheduled cancellation dates, republish and run the migrations
 (`php artisan vendor:publish --tag=purchases-migrations`, then `php artisan migrate`). One
 additive migration adds the nullable `subscriptions.cancels_at`. Until it has run, subscriptions
