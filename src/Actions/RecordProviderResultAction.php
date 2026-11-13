@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Actions;
 
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Purchases\Actions\Stripe\SetStripeDefaultPaymentMethodAction;
 use RoundlyConsulting\Purchases\Contracts\BillingCustomers;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\DataTransferObjects\RecordPurchaseData;
@@ -14,6 +15,7 @@ use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Signal;
 use RoundlyConsulting\Purchases\Enum\Status;
 use RoundlyConsulting\Purchases\Events\ChargebackReceived;
+use RoundlyConsulting\Purchases\Events\DefaultPaymentMethodUpdated;
 use RoundlyConsulting\Purchases\Events\PaymentActionRequired;
 use RoundlyConsulting\Purchases\Events\PurchaseCompleted;
 use RoundlyConsulting\Purchases\Events\PurchaseFailed;
@@ -46,12 +48,13 @@ use RoundlyConsulting\Purchases\Support\SubscriptionModel;
  * entitlement (a renewal preference, a price increase, a declined refund, a test) or one
  * this package does not map. It is recorded nowhere, fires nothing, and yields null, so
  * it can never overwrite a subscription's status. A notification may still carry a signal
- * (a payment waiting for the customer), which fires its own event.
+ * (a payment waiting for the customer), which fires its own event — or, for a setup Checkout
+ * that collected a payment method, makes that method the Stripe customer's default first.
  *
- * Signals — SubscriptionTrialWillEnd, PaymentActionRequired — say that something happened
- * rather than that a status moved, so a repeat cannot be told from the first delivery: they fire
- * whenever `$signals` is on, which every caller but the replay of an already processed
- * notification leaves it.
+ * Signals — SubscriptionTrialWillEnd, PaymentActionRequired, PaymentMethodCollected — say that
+ * something happened rather than that a status moved, so a repeat cannot be told from the first
+ * delivery: they act whenever `$signals` is on, which every caller but the replay of an already
+ * processed notification leaves it.
  *
  * A purchase or subscription no owner is linked to yet is linked to the owner of the billing
  * customer the result names (a Stripe `customer`, see BillingCustomers), or to the owner the
@@ -69,6 +72,7 @@ final readonly class RecordProviderResultAction
         private RecordSubscriptionAction $recordSubscription,
         private RecordRefundAction $recordRefund,
         private BillingCustomers $customers,
+        private SetStripeDefaultPaymentMethodAction $defaultPaymentMethod,
     ) {}
 
     public function execute(ProviderResult $result, ?Model $owner = null, bool $signals = true): ?Model
@@ -84,10 +88,21 @@ final readonly class RecordProviderResultAction
     /**
      * An informational result records nothing; one that signals a payment waiting for the
      * customer announces it, with the subscription it bills and its owner when they are known.
+     * A setup Checkout that collected a payment method makes it the customer's default.
      */
     private function notification(ProviderResult $result, ?Model $owner, bool $signals): null
     {
-        if (! $signals || ! $result instanceof GenericResult || $result->signal() !== Signal::PaymentActionRequired) {
+        if (! $signals || ! $result instanceof GenericResult) {
+            return null;
+        }
+
+        if ($result->signal() === Signal::PaymentMethodCollected) {
+            $this->collected($result, $owner);
+
+            return null;
+        }
+
+        if ($result->signal() !== Signal::PaymentActionRequired) {
             return null;
         }
 
@@ -105,6 +120,22 @@ final readonly class RecordProviderResultAction
         );
 
         return null;
+    }
+
+    /**
+     * Make the payment method a setup Checkout collected the customer's default, and announce
+     * it. Without a secret key, or with nothing to set, nothing happens.
+     */
+    private function collected(GenericResult $result, ?Model $owner): void
+    {
+        $customer = $result->customerId();
+        $paymentMethod = $result->provider() === 'stripe' ? $this->defaultPaymentMethod->execute($result) : null;
+
+        if ($customer === null || $paymentMethod === null) {
+            return;
+        }
+
+        DefaultPaymentMethodUpdated::dispatch($result, $customer, $paymentMethod, $this->owner($result, $owner));
     }
 
     /**
@@ -221,6 +252,17 @@ final readonly class RecordProviderResultAction
         return $model->wasRecentlyCreated || $model->wasChanged('status');
     }
 
+    /**
+     * The owner of the purchase a refund or chargeback is linked to, if any.
+     */
+    private static function purchaseOwner(PurchaseRefund $refund): ?Model
+    {
+        $purchase = $refund->purchase_id !== null ? $refund->purchase : null;
+        $owner = $purchase?->owner;
+
+        return $owner instanceof Model ? $owner : null;
+    }
+
     private function refund(ProviderResult $result): PurchaseRefund
     {
         $refund = $this->recordRefund->execute(RecordRefundData::fromResult($result));
@@ -248,7 +290,7 @@ final readonly class RecordProviderResultAction
         }
 
         if ($refund->chargeback) {
-            ChargebackReceived::dispatch($refund, $result);
+            ChargebackReceived::dispatch($refund, $result, $this->owner($result, null) ?? self::purchaseOwner($refund));
         } else {
             PurchaseRefunded::dispatch($refund, $result);
         }

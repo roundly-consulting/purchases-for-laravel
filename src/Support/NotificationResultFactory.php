@@ -50,6 +50,7 @@ final class NotificationResultFactory
             'event_id' => $result instanceof GenericResult ? $result->eventId() : null,
             'signal' => $result instanceof GenericResult ? $result->signal()?->value : null,
             'subscription_id' => $result instanceof GenericResult ? $result->subscriptionId() : null,
+            'cancels_at' => $result instanceof GenericResult ? $result->cancelsAt()?->toIso8601String() : null,
             'items' => array_map(static fn (ResultItem $item): array => [
                 'name' => $item->name,
                 'provider_id' => $item->providerId,
@@ -131,6 +132,9 @@ final class NotificationResultFactory
             // A snapshot written before signals were stored has none; an unknown one is dropped.
             signal: is_string($data['signal'] ?? null) ? Signal::tryFrom($data['signal']) : null,
             subscriptionId: self::string($data['subscription_id'] ?? null),
+            // A snapshot written before the date was stored still holds Stripe's `cancel_at` in
+            // its raw subscription, so a replay never clears a date it did not know.
+            cancelsAt: array_key_exists('cancels_at', $data) ? self::date($data['cancels_at']) : self::epoch($raw['cancel_at'] ?? null),
         );
     }
 
@@ -179,6 +183,11 @@ final class NotificationResultFactory
     private static function money(mixed $value): ?Money
     {
         return is_array($value) ? Money::fromArray($value) : null;
+    }
+
+    private static function epoch(mixed $value): ?Carbon
+    {
+        return is_int($value) ? Carbon::createFromTimestamp($value, 'UTC') : null;
     }
 
     private static function date(mixed $value): ?Carbon

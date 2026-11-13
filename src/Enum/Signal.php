@@ -19,4 +19,11 @@ enum Signal: string
 
     /** A payment waits for the customer, e.g. 3-D Secure (Stripe `invoice.payment_action_required`): PaymentActionRequired. */
     case PaymentActionRequired = 'payment_action_required';
+
+    /**
+     * A customer finished a setup Checkout opened by `Purchases::stripe()->checkout()->setup()`
+     * (Stripe `checkout.session.completed`, mode `setup`): the payment method it collected
+     * becomes the customer's default, then DefaultPaymentMethodUpdated.
+     */
+    case PaymentMethodCollected = 'payment_method_collected';
 }

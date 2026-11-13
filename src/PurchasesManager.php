@@ -128,7 +128,8 @@ class PurchasesManager
     }
 
     /**
-     * Outbound Stripe billing: `customers()`, `subscriptions()`, `meters()` and `portal()`.
+     * Outbound Stripe billing: `customers()`, `subscriptions()`, `meters()`, `invoices()`,
+     * `checkout()` and `portal()`.
      *
      * @throws UnsupportedCapabilityException when no billing-capable `stripe` provider is registered
      */

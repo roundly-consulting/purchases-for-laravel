@@ -76,6 +76,8 @@ beforeEach(function (): void {
     configureStripe();
     // A PaymentIntent on a current API version names no invoice, so Stripe is asked.
     stripeInvoicePayments(null);
+    // A dispute names only its charge, so its customer is asked of Stripe: none here.
+    Http::fake(['api.stripe.com/v1/charges/*' => Http::response(['id' => 'ch_d', 'object' => 'charge', 'customer' => null])]);
 });
 
 afterEach(fn () => Carbon::setTestNow());

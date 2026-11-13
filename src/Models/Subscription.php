@@ -33,6 +33,7 @@ use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
  * @property CarbonInterface|null $trial_ends_at
  * @property CarbonInterface|null $ends_at
  * @property bool $cancel_at_period_end
+ * @property CarbonInterface|null $cancels_at
  * @property Collection<array-key, mixed>|null $meta
  * @property CarbonInterface|null $last_event_at
  * @property CarbonInterface|null $created_at
@@ -61,6 +62,7 @@ class Subscription extends Model
             'trial_ends_at' => 'datetime',
             'ends_at' => 'datetime',
             'cancel_at_period_end' => 'boolean',
+            'cancels_at' => 'datetime',
         ];
     }
 

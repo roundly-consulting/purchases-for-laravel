@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Purchases\Providers\Stripe;
 
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Enum\Signal;
@@ -19,7 +20,7 @@ use RoundlyConsulting\Purchases\Support\PurchasesConfig;
 /**
  * Maps a Stripe Subscription object — from a `customer.subscription.*` webhook, a fetch, or
  * the answer to a billing call — into a subscription result: its status, period, trial,
- * customer, `cancel_at_period_end`, and one item per subscription item with its price,
+ * customer, `cancel_at_period_end` and `cancel_at`, and one item per subscription item with its price,
  * quantity and price id.
  *
  * `past_due` is a grace period (access kept) unless `purchases.settings.stripe.past_due` is
@@ -39,6 +40,7 @@ final class SubscriptionResults
         $subscription = Subscription::fromRaw($object);
         $dataset = new DataSet($object);
         $cancelAtPeriodEnd = $dataset->value('cancel_at_period_end');
+        $cancelAt = $dataset->value('cancel_at');
 
         return new GenericResult(
             provider: $provider,
@@ -61,6 +63,7 @@ final class SubscriptionResults
             cancelAtPeriodEnd: is_bool($cancelAtPeriodEnd) ? $cancelAtPeriodEnd : null,
             eventId: $eventId,
             signal: $signal,
+            cancelsAt: is_int($cancelAt) ? Carbon::createFromTimestamp($cancelAt, 'UTC') : null,
         );
     }
 

@@ -4,6 +4,62 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+Upgrade: to store scheduled cancellation dates, republish and run the migrations
+(`php artisan vendor:publish --tag=purchases-migrations`, then `php artisan migrate`). One
+additive migration adds the nullable `subscriptions.cancels_at`. Until it has run, subscriptions
+are recorded as before without it; restart queue workers after migrating.
+
+### Added
+
+- Setup Checkout: `Purchases::stripe()->checkout()->setup($owner, $successUrl, $cancelUrl, ?$currency)`
+  opens a Stripe Checkout Session in `setup` mode for the owner's customer, collecting a payment
+  method without charging or subscribing. When its `checkout.session.completed` webhook is
+  processed, the collected method becomes the customer's `invoice_settings.default_payment_method`
+  and the new `DefaultPaymentMethodUpdated` event fires (with the customer's owner). Only sessions
+  opened by `setup()` are touched; nothing happens without a secret key. A Stripe failure fails the
+  webhook so Stripe delivers it again. New `Signal::PaymentMethodCollected`.
+- `purchases.settings.stripe.currency` (`PURCHASES_STRIPE_CURRENCY`): the currency of a setup
+  Checkout that passes none. With neither, `setup()` throws `BillingException` before Stripe is
+  asked.
+- `CreateSubscriptionData` takes `saveDefaultPaymentMethod: SaveDefaultPaymentMethod::OnSubscription|Off`
+  (`payment_settings[save_default_payment_method]`).
+- `Purchases::stripe()->subscriptions()->start()`: starts a subscription like `create()` and
+  returns a `StartedSubscription` — the stored `Subscription`, plus the first invoice's id,
+  `hostedInvoiceUrl` and the payment's `clientSecret` while Stripe still waits for that payment
+  (`incomplete`). The client secret is never stored. Needs API version 2025-03-31.basil or later.
+  `create()` is unchanged.
+- `Purchases::stripe()->subscriptions()->cancelAt($subscription, $date|CancelAt::MaxPeriodEnd|MinPeriodEnd, ?ProrationBehavior $proration)`
+  schedules a cancellation at a chosen moment (Stripe `cancel_at`) — `MaxPeriodEnd` ends a
+  mixed-interval flexible subscription once every item has run out its paid period. `proration` is
+  sent as `proration_behavior` only when given.
+- `Subscription::$cancels_at` (new column, `GenericResult::cancelsAt()`): when a scheduled
+  cancellation takes effect, synced from every Stripe subscription answer and webhook — including
+  the date `cancelAtPeriodEnd()` resolves to — and kept in audit snapshots.
+- `Purchases::stripe()->subscriptions()->refresh($subscription)`: re-reads a subscription from
+  Stripe and records it through the webhook pipeline, ordered at Stripe's answer time, so a newer
+  webhook is never overwritten — for a nightly reconcile.
+- `Purchases::stripe()->invoices()->list($owner, $limit = 10, $startingAfter = null)`: one page of
+  the owner's Stripe invoices as an `InvoiceList` of `Invoice` value objects (number, created,
+  status, total and amount due as `Money`, currency, hosted invoice URL, PDF), with `hasMore` and
+  `nextCursor()`. Nothing is stored.
+- `ValueObjects\Invoice` gains `number`, `created`, `total`, `amountDue`, `currency`,
+  `hostedInvoiceUrl` and `invoicePdf`.
+- Stripe disputes name their customer: `charge.dispute.*` results carry `customerId()`, read from
+  the payload or, with a secret key, from the disputed charge (`GET /v1/charges/{id}`; a failed
+  lookup fails the webhook so Stripe retries). `ChargebackReceived` gains a nullable `$owner` — the
+  customer's owner, else the disputed purchase's owner. `charge.refunded` results carry the
+  charge's customer too.
+
+### Changed
+
+- `subscriptions()->resume()` also takes back a cancellation scheduled for a chosen date. It now
+  reads the subscription first (one extra `GET /v1/subscriptions/{id}`) and sends exactly one
+  parameter: `cancel_at_period_end=false` when a period-end cancellation is scheduled (the same
+  request as before), an empty `cancel_at` when a date is, and `cancel_at_period_end=false` when
+  nothing is. A failed read throws before anything is written.
+
 ## 2.1.0 - 2026-11-09
 
 Upgrade: to use event deduplication, republish and run the migrations

@@ -9,6 +9,7 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Enums\BillingMode;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\CollectionMethod;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\MissingPaymentMethod;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentBehavior;
+use RoundlyConsulting\Purchases\Providers\Stripe\Enums\SaveDefaultPaymentMethod;
 
 /**
  * A subscription to start for an owner's Stripe customer.
@@ -23,6 +24,11 @@ use RoundlyConsulting\Purchases\Providers\Stripe\Enums\PaymentBehavior;
  * happens when it ends without one. Unset, they fall back to the `billing_mode` and
  * `missing_payment_method` settings under `purchases.settings.stripe`, then to Stripe's
  * defaults (flexible on the pinned API version; `create_invoice`).
+ *
+ * `saveDefaultPaymentMethod: OnSubscription` keeps the method the first invoice is paid with as
+ * the subscription's default. With `paymentBehavior: DefaultIncomplete` the subscription starts
+ * `incomplete` and waits for that payment: start it with `subscriptions()->start()` to get the
+ * first invoice's hosted page and the payment's client secret.
  */
 final readonly class CreateSubscriptionData
 {
@@ -41,6 +47,7 @@ final readonly class CreateSubscriptionData
         public array $metadata = [],
         public ?BillingMode $billingMode = null,
         public ?MissingPaymentMethod $trialEndBehavior = null,
+        public ?SaveDefaultPaymentMethod $saveDefaultPaymentMethod = null,
     ) {
         if ($prices === []) {
             throw BillingException::invalid('A subscription needs at least one price.');
@@ -81,6 +88,7 @@ final readonly class CreateSubscriptionData
             'metadata' => $this->metadata === [] ? null : $this->metadata,
             'billing_mode' => $billingMode !== null ? ['type' => $billingMode->value] : null,
             'trial_settings' => $trialEnd !== null ? ['end_behavior' => ['missing_payment_method' => $trialEnd->value]] : null,
+            'payment_settings' => $this->saveDefaultPaymentMethod !== null ? ['save_default_payment_method' => $this->saveDefaultPaymentMethod->value] : null,
         ];
     }
 }

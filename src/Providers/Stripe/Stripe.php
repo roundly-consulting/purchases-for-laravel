@@ -44,6 +44,12 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
     /** The Stripe API version the parsers are written against (`purchases.settings.stripe.api_version`). */
     public const string API_VERSION = '2026-05-27.dahlia';
 
+    /**
+     * The metadata key `Purchases::stripe()->checkout()->setup()` marks its sessions with: their
+     * collected payment method becomes the customer's default (Signal::PaymentMethodCollected).
+     */
+    public const string SETUP_DEFAULT_PAYMENT_METHOD = 'purchases_default_payment_method';
+
     public function __construct(
         private readonly WebhookSignature $signatures = new WebhookSignature,
         private ?StripeClient $client = null,
@@ -212,6 +218,8 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 return $subscription;
             }
 
+            $collected = $this->collectsDefaultPaymentMethod($event->type, $object);
+
             return new GenericResult(
                 provider: $this->id(),
                 type: ResultType::Notification,
@@ -219,7 +227,9 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 status: Status::Processing,
                 raw: $event->object,
                 occurredAt: $event->created,
+                customerId: $collected ? self::customerOf($object) : null,
                 eventId: $event->id,
+                signal: $collected ? Signal::PaymentMethodCollected : null,
             );
         }
 
@@ -320,6 +330,17 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 || str_starts_with(is_string($reason = $object->value('billing_reason')) ? $reason : '', 'subscription'),
             default => false,
         };
+    }
+
+    /**
+     * Whether a completed Checkout is a setup session `checkout()->setup()` opened — the only kind
+     * whose payment method the package makes the customer's default.
+     */
+    private function collectsDefaultPaymentMethod(EventType $type, DataSet $object): bool
+    {
+        return $type === EventType::CheckoutSessionCompleted
+            && $object->value('mode') === 'setup'
+            && $object->value('metadata.'.self::SETUP_DEFAULT_PAYMENT_METHOD) === 'true';
     }
 
     /**
@@ -491,8 +512,11 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
         $id = $object->value('id');
         $id = is_string($id) && $id !== '' ? $id : (string) $event->id;
 
+        // A charge names its customer; a dispute names only its charge, which is asked for it.
+        $customer = $chargeback ? $this->disputeCustomer($object) : self::customerOf($object);
+
         if ($chargeback) {
-            $dispute = $this->disputeResult($event, $object, $id, $paymentIntent);
+            $dispute = $this->disputeResult($event, $object, $id, $paymentIntent, $customer);
 
             if ($dispute !== null) {
                 return $dispute;
@@ -516,8 +540,38 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
             refundReason: is_string($reason) ? $reason : null,
             chargeback: $chargeback,
             occurredAt: $event->created,
+            customerId: $customer,
             eventId: $event->id,
         );
+    }
+
+    /**
+     * The customer a dispute is about. A dispute object names no customer — only its charge — so
+     * it is read from the payload when it is there (a `customer`, an expanded charge), else asked
+     * of Stripe (`GET /v1/charges/{id}`) when a secret key is configured. A failed lookup throws,
+     * as every lookup during a webhook does: the delivery fails and Stripe sends it again.
+     */
+    private function disputeCustomer(DataSet $object): ?string
+    {
+        $customer = self::customerOf($object);
+        $charge = $object->value('charge');
+
+        if ($customer !== null) {
+            return $customer;
+        }
+
+        if (is_array($charge)) {
+            return self::customerOf(new DataSet($charge));
+        }
+
+        if (! self::filled($charge) || ($this->client === null && PurchasesConfig::blank($this->config['secret'] ?? null))) {
+            return null;
+        }
+
+        $customer = $this->client()->request()->get($this->path('charges', $charge))->json('customer');
+        $customer = is_array($customer) ? ($customer['id'] ?? null) : $customer;
+
+        return self::filled($customer) ? $customer : null;
     }
 
     /**
@@ -528,7 +582,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
      * funds were taken from, if one was recorded, and never creates one. A lost one stays
      * the chargeback it was. Null means "record it as a chargeback".
      */
-    private function disputeResult(StripeEvent $event, DataSet $object, string $id, ?string $paymentIntent): ?GenericResult
+    private function disputeResult(StripeEvent $event, DataSet $object, string $id, ?string $paymentIntent, ?string $customer): ?GenericResult
     {
         $status = $object->value('status');
         $status = is_string($status) ? $status : '';
@@ -546,6 +600,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 transactionId: $paymentIntent,
                 raw: $event->object,
                 occurredAt: $event->created,
+                customerId: $customer,
                 eventId: $event->id,
             );
         }
@@ -564,6 +619,7 @@ class Stripe extends BaseProvider implements SupportsBilling, VerifiesConnectivi
                 refundReason: is_string($reason) ? $reason : null,
                 chargeback: true,
                 occurredAt: $event->created,
+                customerId: $customer,
                 eventId: $event->id,
             );
         }

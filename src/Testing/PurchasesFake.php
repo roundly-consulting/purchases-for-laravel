@@ -37,9 +37,11 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  * the queue and records synchronously.
  *
  * Every Stripe billing write made through `stripe()` — `customers()->sync()`,
- * `subscriptions()->create()`, `->updateQuantity()`, `meters()->report()`, `portal()`, … — is
- * logged under its name (`subscriptions.updateQuantity`) for `assertBilled()`, and still
- * runs: stub Stripe with `Http::fake()`.
+ * `subscriptions()->create()`, `->start()`, `->updateQuantity()`, `->cancelAt()`, `->refresh()`,
+ * `meters()->report()`, `checkout()->setup()`, `portal()`, … — is logged under its name
+ * (`subscriptions.updateQuantity`) for `assertBilled()`, and still runs: stub Stripe with
+ * `Http::fake()`. Reads (`subscriptions()->preview()`, `invoices()->list()`, `meters()->find()`)
+ * change nothing and are not logged.
  */
 final class PurchasesFake extends PurchasesManager
 {

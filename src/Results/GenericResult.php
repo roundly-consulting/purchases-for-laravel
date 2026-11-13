@@ -44,6 +44,7 @@ final readonly class GenericResult implements ProviderResult
         private ?string $eventId = null,
         private ?Signal $signal = null,
         private ?string $subscriptionId = null,
+        private ?CarbonInterface $cancelsAt = null,
     ) {}
 
     public function provider(): string
@@ -171,5 +172,16 @@ final readonly class GenericResult implements ProviderResult
     public function subscriptionId(): ?string
     {
         return $this->subscriptionId;
+    }
+
+    /**
+     * When a subscription is set to cancel — a date chosen with `cancelAt()`, or the period end
+     * `cancel_at_period_end` resolves to (Stripe `cancel_at`). Read it with cancelAtPeriodEnd():
+     * a provider that reports one reports both, so while that is not null a null here means no
+     * cancellation is scheduled. Apple and Google report neither.
+     */
+    public function cancelsAt(): ?CarbonInterface
+    {
+        return $this->cancelsAt;
     }
 }

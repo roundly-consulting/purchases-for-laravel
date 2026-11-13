@@ -287,6 +287,8 @@ it('cancels at the period end, resumes, and cancels immediately', function (): v
     Http::fake([
         'api.stripe.com/v1/subscriptions/sub_1' => Http::sequence()
             ->push(stripeBillingSubscription(['cancel_at_period_end' => true]))
+            // resume() reads the subscription first …
+            ->push(stripeBillingSubscription(['cancel_at_period_end' => true]))
             ->push(stripeBillingSubscription(['cancel_at_period_end' => false])),
         'api.stripe.com/v1/subscriptions/sub_1?*' => Http::response(stripeBillingSubscription(['status' => 'canceled'])),
     ]);

@@ -11,8 +11,8 @@ use RoundlyConsulting\Purchases\Actions\Stripe\CreateStripePortalSessionAction;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\PortalSession;
 
 /**
- * Outbound Stripe billing — `Purchases::stripe()`: customers, subscriptions, meters and the
- * Customer Portal, over Stripe's REST API with no SDK. Every write takes an idempotency key
+ * Outbound Stripe billing — `Purchases::stripe()`: customers, subscriptions, meters, invoices,
+ * setup Checkout and the Customer Portal, over Stripe's REST API with no SDK. Every write takes an idempotency key
  * (a fresh one when none is given) and every Stripe failure throws a typed
  * `Exceptions\Stripe\StripeException`.
  *
@@ -42,6 +42,16 @@ final readonly class StripeBilling
     public function meters(): StripeMeters
     {
         return new StripeMeters($this->container, $this->recorder);
+    }
+
+    public function invoices(): StripeInvoices
+    {
+        return new StripeInvoices($this->container);
+    }
+
+    public function checkout(): StripeCheckout
+    {
+        return new StripeCheckout($this->container, $this->recorder);
     }
 
     /**

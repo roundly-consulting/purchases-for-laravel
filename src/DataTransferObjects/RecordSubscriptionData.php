@@ -21,7 +21,8 @@ final readonly class RecordSubscriptionData
      * that its provider id.
      *
      * `cancelAtPeriodEnd` is null when the provider does not say (Apple, Google), which leaves
-     * the stored flag alone. `owner` links a subscription that has no owner yet to that model;
+     * the stored flag alone. `cancelsAt` is the date a cancellation is scheduled for; it is read
+     * only next to a known `cancelAtPeriodEnd`, where null clears a stored date. `owner` links a subscription that has no owner yet to that model;
      * an owner already linked is never replaced.
      *
      * @param  list<ResultItem>  $items
@@ -43,6 +44,7 @@ final readonly class RecordSubscriptionData
         public ?string $productId = null,
         public ?bool $cancelAtPeriodEnd = null,
         public ?Model $owner = null,
+        public ?CarbonInterface $cancelsAt = null,
     ) {}
 
     /**
@@ -67,6 +69,7 @@ final readonly class RecordSubscriptionData
             productId: $result->productId(),
             cancelAtPeriodEnd: $result instanceof GenericResult ? $result->cancelAtPeriodEnd() : null,
             owner: $owner,
+            cancelsAt: $result instanceof GenericResult ? AppTime::of($result->cancelsAt()) : null,
         );
     }
 }

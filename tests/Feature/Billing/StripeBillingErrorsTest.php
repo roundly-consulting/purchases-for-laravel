@@ -27,7 +27,7 @@ beforeEach(function (): void {
 });
 
 /**
- * The exception a resume of `sub_1` throws for a Stripe answer.
+ * The exception a cancel-at-period-end of `sub_1` (one POST) throws for a Stripe answer.
  *
  * @param  array<string, mixed>  $body
  */
@@ -36,7 +36,7 @@ function errorsTestFailure(int $status, array $body, array $headers = []): Strip
     Http::fake(['api.stripe.com/v1/subscriptions/sub_1' => Http::response($body, $status, $headers)]);
 
     try {
-        Purchases::stripe()->subscriptions()->resume('sub_1', 'resume-key');
+        Purchases::stripe()->subscriptions()->cancelAtPeriodEnd('sub_1', 'cancel-key');
     } catch (StripeException $e) {
         return $e;
     }
@@ -54,7 +54,7 @@ it('throws a typed exception for each kind of stripe failure', function (int $st
         ->and($exception->stripeType)->toBe($error['type'] ?? null)
         ->and($exception->stripeCode)->toBe($error['code'] ?? null)
         ->and($exception->requestId)->toBe('req_123')
-        ->and($exception->idempotencyKey)->toBe('resume-key')
+        ->and($exception->idempotencyKey)->toBe('cancel-key')
         ->and($exception->getMessage())->toBe($error['message'] ?? "Stripe answered HTTP {$status}.")
         ->and($exception->getPrevious())->toBeNull();
 })->with([
@@ -102,11 +102,11 @@ it('throws a connection exception when stripe cannot be reached', function (): v
     Http::fake(fn () => throw new ConnectionException('cURL error 28: Operation timed out for sk_test_51SecretKeyThatMustNeverLeak'));
 
     try {
-        Purchases::stripe()->subscriptions()->resume('sub_1', 'resume-key');
+        Purchases::stripe()->subscriptions()->cancelAtPeriodEnd('sub_1', 'cancel-key');
         $this->fail('Expected a StripeConnectionException.');
     } catch (StripeConnectionException $e) {
         expect($e->getMessage())->toBe('Stripe could not be reached: cURL error 28: Operation timed out for [redacted]')
-            ->and($e->idempotencyKey)->toBe('resume-key')
+            ->and($e->idempotencyKey)->toBe('cancel-key')
             ->and($e->httpStatus)->toBeNull();
     }
 });
@@ -114,7 +114,7 @@ it('throws a connection exception when stripe cannot be reached', function (): v
 it('throws when stripe answers with something unreadable', function (mixed $body): void {
     Http::fake(['api.stripe.com/v1/*' => Http::response($body, 200)]);
 
-    expect(fn () => Purchases::stripe()->subscriptions()->resume('sub_1'))->toThrow(StripeApiException::class, "Stripe's answer could not be read");
+    expect(fn () => Purchases::stripe()->subscriptions()->cancelAtPeriodEnd('sub_1'))->toThrow(StripeApiException::class, "Stripe's answer could not be read");
 })->with([
     'not json' => ['<html>gateway</html>'],
     'a json list' => [[1, 2]],
@@ -126,7 +126,7 @@ it('refuses a billing call without a secret key', function (): void {
     config()->set('purchases.settings.stripe.secret', '');
     Http::fake();
 
-    expect(fn () => Purchases::stripe()->subscriptions()->resume('sub_1'))
+    expect(fn () => Purchases::stripe()->subscriptions()->cancelAtPeriodEnd('sub_1'))
         ->toThrow(InvalidConfigurationException::class, '[purchases.settings.stripe.secret] is not set');
     Http::assertNothingSent();
 });

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Purchases\Billing;
 
+use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
@@ -12,13 +13,18 @@ use RoundlyConsulting\Purchases\Actions\Stripe\ChangeStripeSubscriptionAction;
 use RoundlyConsulting\Purchases\Actions\Stripe\CreateStripeCheckoutSessionAction;
 use RoundlyConsulting\Purchases\Actions\Stripe\CreateStripeSubscriptionAction;
 use RoundlyConsulting\Purchases\Actions\Stripe\PreviewStripeInvoiceAction;
+use RoundlyConsulting\Purchases\Actions\Stripe\RefreshStripeSubscriptionAction;
 use RoundlyConsulting\Purchases\Actions\Stripe\ResumeStripeSubscriptionAction;
+use RoundlyConsulting\Purchases\Actions\Stripe\ScheduleStripeCancellationAction;
+use RoundlyConsulting\Purchases\Actions\Stripe\StartStripeSubscriptionAction;
 use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\CheckoutSubscriptionData;
 use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\CreateSubscriptionData;
 use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\ItemChange;
+use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\StartedSubscription;
 use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\SubscriptionChange;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
+use RoundlyConsulting\Purchases\Providers\Stripe\Enums\CancelAt;
 use RoundlyConsulting\Purchases\Providers\Stripe\Enums\ProrationBehavior;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\CheckoutSession;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\InvoicePreview;
@@ -48,6 +54,18 @@ final readonly class StripeSubscriptions
         $this->record('subscriptions.create', [$owner, $data, $idempotencyKey]);
 
         return $this->container->make(CreateStripeSubscriptionAction::class)->execute($owner, $data, $idempotencyKey);
+    }
+
+    /**
+     * Start a subscription like create(), and learn how the customer pays a first invoice
+     * Stripe still waits for (status `incomplete`): its hosted page and the payment's client
+     * secret. Needs API version 2025-03-31.basil or later.
+     */
+    public function start(Model $owner, CreateSubscriptionData $data, ?string $idempotencyKey = null): StartedSubscription
+    {
+        $this->record('subscriptions.start', [$owner, $data, $idempotencyKey]);
+
+        return $this->container->make(StartStripeSubscriptionAction::class)->execute($owner, $data, $idempotencyKey);
     }
 
     /**
@@ -132,13 +150,38 @@ final readonly class StripeSubscriptions
     }
 
     /**
-     * Take back a cancellation scheduled for the end of the period.
+     * Cancel at a chosen moment: a date, or a period helper — CancelAt::MaxPeriodEnd ends a
+     * mixed-interval subscription once every item has run out its paid period. It stays active
+     * until then; the date is stored in `cancels_at`. `proration` (sent only when given) says
+     * how a date before the period end is prorated.
+     */
+    public function cancelAt(Subscription|string $subscription, CarbonInterface|CancelAt $at, ?ProrationBehavior $proration = null, ?string $idempotencyKey = null): Subscription
+    {
+        $this->record('subscriptions.cancelAt', [$subscription, $at, $proration, $idempotencyKey]);
+
+        return $this->container->make(ScheduleStripeCancellationAction::class)->execute($subscription, $at, $proration, $idempotencyKey);
+    }
+
+    /**
+     * Take back a scheduled cancellation — at the period end or at a chosen date. Reads the
+     * subscription from Stripe first to send the one parameter that undoes it.
      */
     public function resume(Subscription|string $subscription, ?string $idempotencyKey = null): Subscription
     {
         $this->record('subscriptions.resume', [$subscription, $idempotencyKey]);
 
         return $this->container->make(ResumeStripeSubscriptionAction::class)->execute($subscription, $idempotencyKey);
+    }
+
+    /**
+     * Read the subscription from Stripe again and record it — a reconcile. A webhook Stripe
+     * stamped later than the answer keeps its state.
+     */
+    public function refresh(Subscription|string $subscription): Subscription
+    {
+        $this->record('subscriptions.refresh', [$subscription]);
+
+        return $this->container->make(RefreshStripeSubscriptionAction::class)->execute($subscription);
     }
 
     /**

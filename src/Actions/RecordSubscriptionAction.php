@@ -11,6 +11,7 @@ use RoundlyConsulting\Purchases\DataTransferObjects\ResultItem;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Models\SubscriptionItem;
 use RoundlyConsulting\Purchases\Support\EventOrder;
+use RoundlyConsulting\Purchases\Support\SubscriptionColumns;
 use RoundlyConsulting\Purchases\Support\SubscriptionItemModel;
 use RoundlyConsulting\Purchases\Support\SubscriptionModel;
 
@@ -45,15 +46,17 @@ final readonly class RecordSubscriptionAction
     public function record(RecordSubscriptionData $data): RecordedSubscription
     {
         $keys = ['provider' => $data->provider, 'provider_id' => $data->providerId];
+        // Asked before the transaction: a schema read inside one is not portable.
+        $storesCancelsAt = SubscriptionColumns::has('cancels_at');
 
         /** @var RecordedSubscription */
-        return SubscriptionModel::new()->getConnection()->transaction(function () use ($data, $keys): RecordedSubscription {
+        return SubscriptionModel::new()->getConnection()->transaction(function () use ($data, $keys, $storesCancelsAt): RecordedSubscription {
             /** @var Subscription|null $subscription */
             $subscription = SubscriptionModel::query()->withTrashed()->where($keys)->lockForUpdate()->first();
 
             if ($subscription === null) {
                 /** @var Subscription $subscription */
-                $subscription = SubscriptionModel::query()->withTrashed()->createOrFirst($keys, $this->attributes($data, null));
+                $subscription = SubscriptionModel::query()->withTrashed()->createOrFirst($keys, $this->attributes($data, null, $storesCancelsAt));
 
                 if (! $subscription->wasRecentlyCreated) {
                     // Another delivery created it first: apply this one as an update.
@@ -67,7 +70,7 @@ final readonly class RecordSubscriptionAction
                     return new RecordedSubscription($subscription);
                 }
 
-                $subscription->update($this->attributes($data, $subscription));
+                $subscription->update($this->attributes($data, $subscription, $storesCancelsAt));
             }
 
             $itemsChanged = $this->syncItems($subscription, $data);
@@ -79,7 +82,7 @@ final readonly class RecordSubscriptionAction
     /**
      * @return array<string, mixed>
      */
-    private function attributes(RecordSubscriptionData $data, ?Subscription $subscription): array
+    private function attributes(RecordSubscriptionData $data, ?Subscription $subscription, bool $storesCancelsAt): array
     {
         // A notification that does not know a value (a Google RTDN carries no order id or
         // expiry, Stripe names no plan) leaves the stored one alone instead of wiping it —
@@ -99,6 +102,13 @@ final readonly class RecordSubscriptionAction
 
         if ($data->price !== null) {
             $attributes['price'] = $data->price;
+        }
+
+        // A provider that reports the flag reports the date too, so a null there clears a
+        // cancellation taken back. A host that has not run the migration adding the column yet
+        // keeps recording everything else.
+        if ($data->cancelAtPeriodEnd !== null && $storesCancelsAt) {
+            $attributes['cancels_at'] = $data->cancelsAt;
         }
 
         // The billing customer's owner, for a subscription no owner is linked to yet.

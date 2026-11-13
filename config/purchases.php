@@ -216,6 +216,13 @@ return [
             'missing_payment_method' => env('PURCHASES_STRIPE_MISSING_PAYMENT_METHOD'),
 
             /*
+             | The currency of a setup Checkout (Purchases::stripe()->checkout()->setup()) that
+             | does not pass its own: a three-letter ISO code ("eur"). Stripe needs one to pick
+             | the payment methods a setup session offers. Blank: every call must pass one.
+             */
+            'currency' => env('PURCHASES_STRIPE_CURRENCY'),
+
+            /*
              | How a past_due subscription is recorded: "in_grace" keeps access while Stripe
              | retries the payment (SubscriptionInGracePeriod); "on_hold" takes it away at once
              | (SubscriptionOnHold). unpaid and paused are always on hold.
