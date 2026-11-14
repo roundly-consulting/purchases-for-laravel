@@ -13,6 +13,7 @@ use RoundlyConsulting\Purchases\Actions\HandleProviderResultAction;
 use RoundlyConsulting\Purchases\Actions\ReplayProviderNotificationAction;
 use RoundlyConsulting\Purchases\Actions\SyncProviderResultAction;
 use RoundlyConsulting\Purchases\Billing\StripeBilling;
+use RoundlyConsulting\Purchases\Billing\Stubbed;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Contracts\SupportsBilling;
 use RoundlyConsulting\Purchases\Exceptions\UnknownProviderException;
@@ -139,7 +140,7 @@ class PurchasesManager
             throw UnsupportedCapabilityException::billing('stripe');
         }
 
-        return new StripeBilling($this->container, $this->billingRecorder());
+        return new StripeBilling($this->container, $this->billingRecorder(), $this->billingStub());
     }
 
     /**
@@ -150,6 +151,18 @@ class PurchasesManager
      * @return (Closure(string, list<mixed>): void)|null
      */
     protected function billingRecorder(): ?Closure
+    {
+        return null;
+    }
+
+    /**
+     * What answers a Stripe read instead of Stripe — nothing here; the fake's canned answers.
+     *
+     * @internal
+     *
+     * @return (Closure(string, list<mixed>): ?Stubbed)|null
+     */
+    protected function billingStub(): ?Closure
     {
         return null;
     }

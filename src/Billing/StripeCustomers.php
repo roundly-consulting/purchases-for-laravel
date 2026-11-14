@@ -7,10 +7,12 @@ namespace RoundlyConsulting\Purchases\Billing;
 use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Purchases\Actions\Stripe\FindStripeDefaultPaymentMethodAction;
 use RoundlyConsulting\Purchases\Actions\Stripe\SyncStripeCustomerAction;
 use RoundlyConsulting\Purchases\Contracts\BillingCustomers;
 use RoundlyConsulting\Purchases\DataTransferObjects\Stripe\CustomerData;
 use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\Customer;
+use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\PaymentMethod;
 
 /**
  * Stripe customers — `Purchases::stripe()->customers()`. One customer per owner model (a
@@ -20,10 +22,12 @@ final readonly class StripeCustomers
 {
     /**
      * @param  (Closure(string, list<mixed>): void)|null  $recorder
+     * @param  (Closure(string, list<mixed>): ?Stubbed)|null  $stub  the fake's canned answers
      */
     public function __construct(
         private Container $container,
         private ?Closure $recorder = null,
+        private ?Closure $stub = null,
     ) {}
 
     /**
@@ -34,6 +38,25 @@ final readonly class StripeCustomers
         $this->record('customers.sync', [$owner, $data, $idempotencyKey]);
 
         return $this->container->make(SyncStripeCustomerAction::class)->execute($owner, $data, $idempotencyKey);
+    }
+
+    /**
+     * The owner's default payment method for invoices — "Visa ••4242, expires 08/27" — read from
+     * Stripe on every call. Null when the owner has no Stripe customer (Stripe is not asked) or
+     * the customer has no default. Nothing is stored and no event fires.
+     */
+    public function defaultPaymentMethod(Model $owner): ?PaymentMethod
+    {
+        $this->record('customers.defaultPaymentMethod', [$owner]);
+
+        $stubbed = $this->stub === null ? null : ($this->stub)('customers.defaultPaymentMethod', [$owner]);
+
+        if ($stubbed !== null) {
+            /** @var PaymentMethod|null */
+            return $stubbed->value;
+        }
+
+        return $this->container->make(FindStripeDefaultPaymentMethodAction::class)->execute($owner);
     }
 
     /**

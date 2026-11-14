@@ -13,6 +13,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Testing\Fakes\EventFake;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Purchases\Actions\RecordProviderResultAction;
+use RoundlyConsulting\Purchases\Billing\Stubbed;
 use RoundlyConsulting\Purchases\Contracts\ProviderResult;
 use RoundlyConsulting\Purchases\Enum\ResultType;
 use RoundlyConsulting\Purchases\Events\SubscriptionStarted;
@@ -21,6 +22,8 @@ use RoundlyConsulting\Purchases\Models\PurchaseNotification;
 use RoundlyConsulting\Purchases\Models\PurchaseRefund;
 use RoundlyConsulting\Purchases\Models\Subscription;
 use RoundlyConsulting\Purchases\Providers\Resolver;
+use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\PaymentFailure;
+use RoundlyConsulting\Purchases\Providers\Stripe\ValueObjects\PaymentMethod;
 use RoundlyConsulting\Purchases\PurchasesManager;
 use RoundlyConsulting\Purchases\Support\NotificationResultFactory;
 use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
@@ -41,7 +44,10 @@ use RoundlyConsulting\Purchases\Support\PurchaseNotificationModel;
  * `meters()->report()`, `checkout()->setup()`, `portal()`, … — is logged under its name
  * (`subscriptions.updateQuantity`) for `assertBilled()`, and still runs: stub Stripe with
  * `Http::fake()`. Reads (`subscriptions()->preview()`, `invoices()->list()`, `meters()->find()`)
- * change nothing and are not logged.
+ * change nothing and are not logged — except the two a test can answer without Stripe:
+ * `customers()->defaultPaymentMethod()` and `invoices()->lastPaymentFailure()` are logged
+ * (`customers.defaultPaymentMethod`, `invoices.lastPaymentFailure`) and return what
+ * `fakeDefaultPaymentMethod()` / `fakeLastPaymentFailure()` set; unset, they ask Stripe.
  */
 final class PurchasesFake extends PurchasesManager
 {
@@ -62,6 +68,9 @@ final class PurchasesFake extends PurchasesManager
 
     /** @var list<array{operation: string, arguments: list<mixed>}> */
     private array $billed = [];
+
+    /** @var array<string, Stubbed> */
+    private array $stubbed = [];
 
     public function __construct(Container $container, Resolver $resolver)
     {
@@ -135,6 +144,50 @@ final class PurchasesFake extends PurchasesManager
     {
         return function (string $operation, array $arguments): void {
             $this->billed[] = ['operation' => $operation, 'arguments' => array_values($arguments)];
+        };
+    }
+
+    /**
+     * What `customers()->defaultPaymentMethod()` returns from now on instead of asking Stripe —
+     * a PaymentMethod, null (no default), or a closure that receives the owner and returns
+     * either.
+     *
+     * @param  PaymentMethod|(Closure(Model): ?PaymentMethod)|null  $method
+     */
+    public function fakeDefaultPaymentMethod(PaymentMethod|Closure|null $method): self
+    {
+        $this->stubbed['customers.defaultPaymentMethod'] = new Stubbed($method);
+
+        return $this;
+    }
+
+    /**
+     * What `invoices()->lastPaymentFailure()` returns from now on instead of asking Stripe — a
+     * PaymentFailure, null (nothing failed), or a closure that receives the owner and returns
+     * either.
+     *
+     * @param  PaymentFailure|(Closure(Model): ?PaymentFailure)|null  $failure
+     */
+    public function fakeLastPaymentFailure(PaymentFailure|Closure|null $failure): self
+    {
+        $this->stubbed['invoices.lastPaymentFailure'] = new Stubbed($failure);
+
+        return $this;
+    }
+
+    /**
+     * @return Closure(string, list<mixed>): ?Stubbed
+     */
+    protected function billingStub(): Closure
+    {
+        return function (string $operation, array $arguments): ?Stubbed {
+            $stubbed = $this->stubbed[$operation] ?? null;
+
+            if ($stubbed === null || ! $stubbed->value instanceof Closure) {
+                return $stubbed;
+            }
+
+            return new Stubbed(($stubbed->value)(...$arguments));
         };
     }
 

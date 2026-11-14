@@ -6,6 +6,13 @@ All notable changes to `purchases-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Added
+
+- `Purchases::stripe()->customers()->defaultPaymentMethod($owner)`: the customer's default payment method for invoices as the new `ValueObjects\PaymentMethod` (`id`, `type`, `brand`, `last4`, `expMonth`, `expYear`, `raw`; `isCard()`, `isExpired(?CarbonInterface $at = null)`, `expiresAt()`), read in one expanded `GET /v1/customers/{id}`. A card fills brand, last4 and expiry; another type takes `last4` from its own object (`sepa_debit.last4`). Null when the owner has no customer (Stripe is not asked), no default is set, or the customer was deleted. Nothing is stored and no event fires; failures throw the typed `StripeException`s.
+- `Purchases::stripe()->invoices()->lastPaymentFailure($owner)`: the newest unpaid PaymentIntent of the customer with a `last_payment_error`, as the new `ValueObjects\PaymentFailure` (`at`, `code`, `declineCode`, `message`, `paymentIntent`, `raw`) — for "Payment failed on Nov 3: card_declined". Null without a customer or a recent failure.
+- `Invoice::$dueDate` (`due_date`, for `send_invoice` invoices).
+- `PurchasesFake::fakeDefaultPaymentMethod()` and `fakeLastPaymentFailure()` answer the two reads without Stripe (a value, null, or a closure receiving the owner); both reads are logged (`customers.defaultPaymentMethod`, `invoices.lastPaymentFailure`) for `assertBilled()`.
+
 ## 2.2.0 - 2026-11-13
 
 Upgrade: to store scheduled cancellation dates, republish and run the migrations

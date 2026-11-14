@@ -23,15 +23,17 @@ final readonly class StripeBilling
 {
     /**
      * @param  (Closure(string, list<mixed>): void)|null  $recorder  the fake's call log
+     * @param  (Closure(string, list<mixed>): ?Stubbed)|null  $stub  the fake's canned read answers
      */
     public function __construct(
         private Container $container,
         private ?Closure $recorder = null,
+        private ?Closure $stub = null,
     ) {}
 
     public function customers(): StripeCustomers
     {
-        return new StripeCustomers($this->container, $this->recorder);
+        return new StripeCustomers($this->container, $this->recorder, $this->stub);
     }
 
     public function subscriptions(): StripeSubscriptions
@@ -46,7 +48,7 @@ final readonly class StripeBilling
 
     public function invoices(): StripeInvoices
     {
-        return new StripeInvoices($this->container);
+        return new StripeInvoices($this->container, $this->recorder, $this->stub);
     }
 
     public function checkout(): StripeCheckout

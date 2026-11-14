@@ -16,7 +16,8 @@ use RoundlyConsulting\Purchases\Support\DataSet;
  * `total` is the invoice total after discounts and tax, `amountDue` what the customer pays
  * (after credit and the customer balance), `amountPaid` what was paid; `currency` is upper
  * case. `hostedInvoiceUrl` (view and pay it) and `invoicePdf` stay null until Stripe finalizes
- * the invoice, as `number` does.
+ * the invoice, as `number` does. `dueDate` is set for invoices sent for payment
+ * (`collection_method: send_invoice`), null for charged ones.
  */
 final class Invoice implements FromRaw
 {
@@ -37,6 +38,7 @@ final class Invoice implements FromRaw
         public readonly ?string $currency = null,
         public readonly ?string $hostedInvoiceUrl = null,
         public readonly ?string $invoicePdf = null,
+        public readonly ?CarbonImmutable $dueDate = null,
     ) {}
 
     /**
@@ -46,6 +48,7 @@ final class Invoice implements FromRaw
     {
         $dataset = new DataSet($raw);
         $created = $dataset->value('created');
+        $dueDate = $dataset->value('due_date');
         $currency = $dataset->value('currency');
 
         return new self(
@@ -63,6 +66,7 @@ final class Invoice implements FromRaw
             currency: is_string($currency) && $currency !== '' ? strtoupper($currency) : null,
             hostedInvoiceUrl: self::string($dataset->value('hosted_invoice_url')),
             invoicePdf: self::string($dataset->value('invoice_pdf')),
+            dueDate: is_int($dueDate) ? CarbonImmutable::createFromTimestamp($dueDate, 'UTC') : null,
         );
     }
 
